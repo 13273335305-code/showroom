@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#f5f6f8"><title>FORM · 材质展厅</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%232f71ee'/%3E%3Cpath d='M12 29V11h18M12 20h14' fill='none' stroke='white' stroke-width='3'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
+</head>
+<body>
+<header class="topbar">
+ <a class="brand" href="./" aria-label="FORM 首页"><span class="brand-symbol">F<span>•</span></span><strong>FORM</strong><span class="brand-divider"></span><span class="brand-sub">材质展厅 <small>MATERIAL STUDIO</small></span></a>
+ <div class="header-actions"><span class="local-badge"><i></i> 本地工作空间</span><button id="openProject" class="button ghost">打开项目</button><button id="saveProject" class="button ghost">保存项目</button><button id="snapshot" class="button primary">导出图片 <span>↗</span></button></div>
+</header>
+<main class="workspace">
+<section class="viewport" id="viewport" aria-label="三维模型视图">
+ <canvas id="canvas" aria-label="左键旋转、滚轮缩放、中键或右键平移；拖入材质球替换部位材质，双击模型选择材质"></canvas>
+ <div id="materialPreview" class="material-preview" aria-hidden="true"><div class="material-preview-image"></div><div class="material-preview-label"></div></div>
+ <div class="viewer-heading"><div class="eyebrow">YOUR MATERIAL. YOUR VISION.</div><h1>让每一种质感，<br>看得见。</h1><p>在光与材质之间，找到理想的表达。</p></div>
+ <div class="model-chip"><span class="cube-icon">◇</span><div><strong id="modelName">正在准备展厅…</strong><small id="modelStats">THREE.JS · PBR RENDERING</small></div><button id="importModel" title="导入 FBX 模型" aria-label="导入 FBX 模型">＋</button></div>
+ <div class="viewport-toolbar" aria-label="视图控制"><button id="fitView" title="适应模型 (F)" aria-label="适应模型">⌖</button><button id="frontView" title="正视图" aria-label="正视图">▣</button><button id="topView" title="俯视图" aria-label="俯视图">⊞</button><span></span><button id="autoRotate" title="自动旋转" aria-label="自动旋转" aria-pressed="false">⟳</button><button id="toggleGrid" title="切换网格" aria-label="切换网格" aria-pressed="false">▦</button><button id="fullscreen" title="全屏展厅" aria-label="全屏展厅">⛶</button></div><button id="restoreInspector" class="restore-inspector" aria-label="展开属性编辑器">属性</button>
+ <div class="view-bottom"><span class="view-status"><i></i> 实时渲染 <span id="renderInfo">PBR</span></span><span class="mouse-hint">左键旋转 <b>·</b> 滚轮缩放 <b>·</b> 中键 / 右键平移 <b>·</b> 拖入材质球换材质</span><button class="button inspector-toggle" id="inspectorToggle">编辑面板 ☷</button></div>
+ <div class="axis-widget" aria-hidden="true"><span>Y</span><i></i><b>X</b><em>Z</em></div>
+ <div class="loading" id="loading"><div class="loading-card"><div class="spinner"></div><strong id="loadingTitle">正在搭建展厅</strong><p id="loadingDetail">载入模型与渲染资源</p></div></div>
+ <div id="materialDropHint" class="material-drop-hint" role="status" hidden></div>
+ <div class="drop-overlay" id="dropOverlay">松开以导入 FBX<br><small>可以同时拖入配套的纹理图片</small></div>
+</section>
+<aside class="inspector" id="inspector">
+ <div class="inspector-title"><span>属性编辑器</span><span class="mini-label">LIVE EDITOR</span><button class="collapse-inspector" id="collapseInspector" aria-label="折叠属性编辑器" title="折叠属性编辑器">−</button><button class="close-panel" id="closeInspector" aria-label="关闭编辑面板">×</button></div>
+ <div class="tabs" role="tablist" aria-label="编辑面板"><button id="materialTab" role="tab" aria-selected="true" aria-controls="materialPanel" class="active">材质</button><button id="patternTab" role="tab" aria-selected="false" aria-controls="patternPanel">图案</button><button id="sceneTab" role="tab" aria-selected="false" aria-controls="scenePanel">场景与灯光</button></div>
+ <div class="panel-scroll">
+  <section id="materialPanel" role="tabpanel" aria-labelledby="materialTab">
+   <div class="selection-card"><div class="selected-swatch" id="selectedSwatch"></div><div><span class="eyebrow">SELECTED MATERIAL</span><input id="materialName" aria-label="材质名称" placeholder="选择一个材质" maxlength="100"><small id="materialUsage">等待载入模型</small></div></div>
+   <div class="material-actions"><label class="check"><input type="checkbox" id="isolate"> 仅显示此材质</label><button id="resetMaterial" class="text-button">重置材质</button></div>
+   <div class="section-heading"><h2>PBR 贴图</h2><span>每个材质独立配置</span></div>
+   <div id="textureSlots" class="texture-slots"></div>
+   <div class="physical-panel">
+    <div class="section-heading"><h2>贴图实际尺寸</h2><span>厘米 · CM</span></div>
+    <label class="select-row">铺贴方式 <select id="textureSizing"><option value="physical">真实物理尺寸</option><option value="legacy">原始 UV（兼容旧项目）</option></select></label>
+    <div id="physicalInputs">
+     <label class="select-row">尺寸来源 <select id="sizeSource"><option value="dpi">自动读取像素与 DPI</option><option value="manual">手动指定厘米（兼容）</option></select></label>
+     <p id="dpiInfo" class="micro-note"></p>
+     <div id="missingDpi" class="physical-status warning" hidden><p id="pendingDpiNames"></p><div class="uv-row"><label>水平 DPI<input id="dpiX" type="number" min="0.01" max="100000" step="0.01" placeholder="例如 300"></label><label>垂直 DPI<input id="dpiY" type="number" min="0.01" max="100000" step="0.01" placeholder="例如 300"></label></div><button id="applyDpi" class="button full">使用此 DPI 应用待上传贴图</button></div>
+     <div class="uv-row"><label>宽度（cm）<input id="textureWidth" type="number" min="0.01" max="100000" step="0.1" value="10"></label><label>高度（cm）<input id="textureHeight" type="number" min="0.01" max="100000" step="0.1" value="10"></label></div>
+     <label class="check"><input id="textureLock" type="checkbox" checked> 固定宽高比例</label>
+     <label class="range-row">纹理角度 <output id="textureAngleValue">0°</output><input id="textureAngle" type="range" min="-180" max="180" step="1" value="0"></label>
+     <p class="micro-note">自动计算：厘米 = 像素 ÷ DPI × 2.54。每张 PBR 贴图按各自记录的 DPI 铺贴，旋转角度同步；不同分辨率贴图需记录相应 DPI 才能对齐。未记录 DPI 时需指定后应用。</p>
+     <p id="physicalStatus" class="physical-status" role="status"></p>
+    </div>
+    <div id="legacyInputs" hidden>   <div class="uv-row"><label>UV 重复 U <input type="number" id="repeatU" min="0.01" max="100" step="0.1" value="1"></label><label>UV 重复 V <input type="number" id="repeatV" min="0.01" max="100" step="0.1" value="1"></label></div></div>
+    <details class="model-calibration"><summary>模型实际尺寸 · 核对单位</summary><p id="modelDimensions"></p><p id="modelUnitSource" class="micro-note"></p><label class="calibration-label">模型最长边（cm）<input id="modelRealSize" type="number" min="0.01" max="1000000" step="0.1"></label><button id="calibrateModel" class="button full">按此尺寸校准模型单位</button><button id="resetModelUnits" class="text-button">恢复 FBX 文件单位</button></details>
+   </div>
+   <p class="micro-note">PNG / JPG / WebP · 颜色与自发光使用 sRGB<br>粗糙度读取 G 通道，金属度读取 B 通道，AO 读取 R 通道</p>
+   <div class="section-heading"><h2>表面参数</h2><span>PHYSICAL SURFACE</span></div>
+   <label class="color-row">基础颜色 <input id="baseColor" type="color" value="#ffffff" aria-label="基础颜色"></label>
+   <label class="range-row">粗糙度 <output id="roughnessValue">0.65</output><input id="roughness" type="range" min="0" max="1" step="0.01" value="0.65"></label>
+   <label class="range-row">金属度 <output id="metalnessValue">0.00</output><input id="metalness" type="range" min="0" max="1" step="0.01" value="0"></label>
+   <label class="range-row">法线强度 <output id="normalStrengthValue">1.00</output><input id="normalStrength" type="range" min="0" max="3" step="0.05" value="1"></label>
+   <label class="range-row">AO 强度 <output id="aoStrengthValue">1.00</output><input id="aoStrength" type="range" min="0" max="3" step="0.05" value="1"></label>
+   <label class="range-row">自发光强度 <output id="emissiveStrengthValue">1.00</output><input id="emissiveStrength" type="range" min="0" max="3" step="0.05" value="1"></label>
+   <label class="range-row">凹凸强度 <output id="bumpStrengthValue">0.02</output><input id="bumpStrength" type="range" min="0" max="0.2" step="0.005" value="0.02"></label>
+
+   <label class="check"><input type="checkbox" id="flipNormal"> 翻转法线 Y（DirectX 贴图）</label>
+  </section>
+  <section id="patternPanel" role="tabpanel" aria-labelledby="patternTab" hidden>
+   <div class="section-heading first"><h2>图案图层</h2><span>DECAL DESIGN</span></div>
+   <p class="micro-note">上传透明底图后点击模型表面放置图案，可拖动、缩放和旋转。</p>
+   <div class="texture-slots pattern-slots"><label class="texture-slot pattern-upload" id="patternImageSlot"><span><strong>＋</strong>图案透明底图</span><input id="patternImage" type="file" accept="image/png,image/webp,image/jpeg"></label><label class="texture-slot pattern-upload"><span><strong>＋</strong>图案法线</span><input id="patternNormal" type="file" accept="image/png,image/webp,image/jpeg"></label><label class="texture-slot pattern-upload"><span><strong>＋</strong>图案粗糙度</span><input id="patternRoughness" type="file" accept="image/png,image/webp,image/jpeg"></label></div>
+   <button id="patternPlace" class="button primary full" disabled>点击模型放置图案</button>
+   <div class="uv-row pattern-size"><label>宽度（cm）<input id="patternWidth" type="number" min="0.1" max="10000" step="0.1" value="10" disabled></label><label>高度（cm）<input id="patternHeight" type="number" min="0.1" max="10000" step="0.1" value="10" disabled></label></div>
+   <label class="check"><input id="patternLock" type="checkbox" checked disabled> 固定图案比例</label>
+   <label class="range-row">图案旋转 <output id="patternRotationValue">0°</output><input id="patternRotation" type="range" min="-180" max="180" step="1" value="0" disabled></label>
+   <button id="patternDelete" class="button full" disabled>删除选中图案</button>
+  </section>
+  <section id="scenePanel" role="tabpanel" aria-labelledby="sceneTab" hidden>
+   <div class="section-heading first"><h2>环境场景</h2><span>ENVIRONMENT</span></div>
+   <div class="preset-grid"><button data-preset="studio" class="preset active"><i class="preset-studio"></i>柔光展厅</button><button data-preset="daylight" class="preset"><i class="preset-day"></i>清晨日光</button><button data-preset="night" class="preset"><i class="preset-night"></i>深色影棚</button></div>
+   <label class="color-row">背景颜色 <input id="backgroundColor" type="color" value="#e8edf2" aria-label="背景颜色"></label>
+   <label class="range-row">曝光 <output id="exposureValue">1.10</output><input id="exposure" type="range" min="0.2" max="2.5" step="0.05" value="1.1"></label>
+   <label class="range-row">环境反射强度 <output id="environmentValue">0.70</output><input id="environment" type="range" min="0" max="3" step="0.05" value="0.7"></label>
+   <div class="section-heading"><h2>灯光</h2><span>LIGHTING</span></div>
+   <label class="range-row">主光强度 <output id="keyLightValue">3.00</output><input id="keyLight" type="range" min="0" max="8" step="0.1" value="3"></label>
+   <label class="range-row">主光方向 <output id="lightAngleValue">45°</output><input id="lightAngle" type="range" min="-180" max="180" step="1" value="45"></label>
+   <label class="color-row">主光颜色 <input id="lightColor" type="color" value="#fff4e6" aria-label="主光颜色"></label>
+   <label class="range-row">补光强度 <output id="fillLightValue">1.50</output><input id="fillLight" type="range" min="0" max="5" step="0.1" value="1.5"></label>
+   <div class="switches"><label class="check"><input id="shadows" type="checkbox" checked> 地面阴影</label><label class="check"><input id="reflection" type="checkbox" checked> 地面反射</label><label class="check"><input id="floorVisible" type="checkbox" checked> 展示地台</label><label class="check"><input id="grid" type="checkbox"> 辅助网格</label></div>
+   <div class="section-heading"><h2>模型与渲染</h2><span>TRANSFORM</span></div>
+   <label class="range-row">模型旋转 <output id="rotationValue">0°</output><input id="rotation" type="range" min="-180" max="180" step="1" value="0"></label>
+   <label class="range-row">预览缩放 <output id="scaleValue">1.00</output><input id="scale" type="range" min="0.25" max="2" step="0.05" value="1"></label>
+   <label class="select-row">显示模式 <select id="renderMode"><option value="pbr">PBR 真实材质</option><option value="wire">线框结构</option><option value="flat">平面着色</option></select></label>
+   <button id="resetScene" class="button full">重置场景设置</button>
+  </section>
+  <div class="help-box"><span>◇</span><p>导入你的模型，探索更多可能。<br><button id="importSecondary" class="text-button">选择 FBX 与配套纹理 ↗</button></p></div>
+ </div>
+</aside>
+</main>
+<footer class="material-dock"><div class="dock-heading"><div><span class="eyebrow">MATERIAL COLLECTION</span><h2>模型材质 <span id="materialCount">00</span></h2></div><div class="dock-tools"><span>拖动材质球到模型，替换部位材质</span><button id="undoMaterial" class="undo-material" disabled title="撤销上一次拖放替换">撤销换材</button><button id="scrollLeft" aria-label="向左滚动材质">←</button><button id="scrollRight" aria-label="向右滚动材质">→</button></div></div><div class="material-list" id="materialList" aria-label="模型材质列表"></div></footer>
+<div id="toast" role="status" class="toast"></div><input id="modelFile" type="file" accept=".fbx,.png,.jpg,.jpeg,.webp,.bmp" multiple hidden><input id="projectFile" type="file" accept=".form,.zip" hidden>
+<script>window.addEventListener('error',function(e){if(e.target&&e.target.tagName==='SCRIPT'){document.getElementById('loadingTitle').textContent='资源未能载入';document.getElementById('loadingDetail').textContent='请使用“启动编辑器.bat”，并保持 vendor 文件夹完整。'}},true);</script>
+<script type="module" src="app.js"></script>
+</body></html>

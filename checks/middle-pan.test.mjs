@@ -1,0 +1,27 @@
+import {readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+import {PerspectiveCamera,Vector3} from '../vendor/three/build/three.module.js';
+// Load the shipped controller while resolving its import map in Node.
+const source=readFileSync(new URL('../vendor/three/addons/controls/OrbitControls.js',import.meta.url),'utf8').replace("from 'three'",`from '${new URL('../vendor/three/build/three.module.js',import.meta.url).href}'`);
+const {OrbitControls}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
+const surface={style:{},clientWidth:800,clientHeight:600,addEventListener(){},removeEventListener(){},setPointerCapture(){},releasePointerCapture(){},getRootNode(){return this;},getBoundingClientRect(){return {left:0,top:0,width:800,height:600};}};
+const camera=new PerspectiveCamera(36,800/600,.02,100);camera.position.set(6,4,7);
+const controls=new OrbitControls(camera,surface);
+const app=readFileSync(new URL('../app.js',import.meta.url),'utf8');
+const mapping=app.match(/controls.mouseButtons=([^;]+);/)[1];
+const THREE=await import('../vendor/three/build/three.module.js');
+controls.mouseButtons=Function('THREE','return '+mapping)(THREE);
+controls.screenSpacePanning=true;controls.update();
+const oldTarget=controls.target.clone(),oldPosition=camera.position.clone(),offset=oldPosition.clone().sub(oldTarget),orientation=camera.quaternion.clone();
+controls._onPointerDown({pointerId:1,pointerType:'mouse',button:1,clientX:300,clientY:200});
+controls._onPointerMove({pointerId:1,pointerType:'mouse',button:1,clientX:390,clientY:250});
+controls._onPointerUp({pointerId:1});
+assert.ok(controls.target.distanceTo(oldTarget)>.01,'Middle drag must move target');
+assert.ok(camera.position.clone().sub(controls.target).distanceTo(offset)<1e-10,'Middle drag must preserve camera distance and angle');
+assert.ok(camera.position.clone().sub(oldPosition).distanceTo(controls.target.clone().sub(oldTarget))<1e-10,'Camera and target translate together');
+assert.ok(1-Math.abs(camera.quaternion.dot(orientation))<1e-10);
+const distance=camera.position.distanceTo(controls.target);
+controls._onMouseWheel({preventDefault(){},deltaY:-100,deltaMode:0,clientX:400,clientY:300});
+assert.ok(camera.position.distanceTo(controls.target)<distance,'Wheel must still zoom');
+controls.dispose();
+console.log('PASS: middle drag translates camera/target, preserves orientation and distance; wheel still zooms');
