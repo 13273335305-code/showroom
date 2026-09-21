@@ -20,7 +20,7 @@ import { createSceneCycle, sceneAppearance } from './shared/scene-cycle.js';
 import { installRoughnessShader } from './shared/roughness-map.js';
 import { configureTextureSampling } from './shared/texture-sampling.js';
 import { prepareAnnotationPicking, AnnotationOcclusion } from './shared/annotation-visibility.js';
-import { createCameraMotion, INTRO_DURATION, INTRO_DISTANCE_RATIO, introFocusBlur } from './shared/camera-motion.js';
+import { createCameraMotion, INTRO_DURATION, INTRO_DISTANCE_RATIO, introFocusBlur, introDockTransform, introSunTransform } from './shared/camera-motion.js';
 import { createShowroom } from './shared/showroom.js';
 import { createDeveloperPanel } from './shared/developer-panel.js';
 import { loadDeveloperSettings, defaultDeveloperSettings } from './shared/developer-settings.js';
@@ -34,6 +34,7 @@ const MAPS=MATERIAL_MAPS;
 const DEFAULTS={...ENVIRONMENT_DEFAULTS,rotation:0,scale:1.2,renderMode:'pbr',autoRotate:false};
 let state={...DEFAULTS},renderer,scene,camera,controls,floor,reflector,stage,ring,grid,key,fill,hemi,model,entries=[],selected=null;
 let modelSource=null,modelGeneration=0,currentLoad=0,loadingModel=false,toastTimer;
+let loginReady=false,loginComplete=false;
 let partAssignments=new Map();
 let draggedMaterial=null, assignmentHistory=[],materialPreviewTimer=null;
 let materialHoldTimer=null, materialHoverTimer=null, previewAnimation=null, activeReveal=null, suppressMaterialClick=false, materialPulse=null;
@@ -52,12 +53,54 @@ const MATERIAL_DRAG_TYPE='application/x-form-material';
 function notify(message,duration=3500){$('toast').textContent=message;$('toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('show'),duration);}
 function busy(title,detail='请稍候…'){endMaterialDrag();$('loadingTitle').textContent=title;$('loadingDetail').textContent=detail;$('loading').hidden=false;}
 function hideBusy(){$('loading').hidden=true;}
+function showLoginShell(){
+ const loading=$('loading'),progress=$('loadingProgress'),card=$('loginCard'),submit=$('loginSubmit'),status=$('loginStatus');
+ if(!loading||!card)return;
+ loading.hidden=false; progress.hidden=false; card.hidden=false; submit.disabled=true;
+ status.textContent='正在准备展厅…';
+}
+function showLoginGate(){
+ const loading=$('loading'),progress=$('loadingProgress'),card=$('loginCard'),submit=$('loginSubmit'),status=$('loginStatus');
+ if(!loading||!card)return;
+ loginReady=true;loading.hidden=false;progress.hidden=true;card.hidden=false;submit.disabled=false;
+ status.textContent='展厅已准备好，可以开始。';
+ $('loginName')?.focus({preventScroll:true});
+}
+function beginLogin(){
+ if(!loginReady||loginComplete)return;
+ loginComplete=true;loginReady=false;
+ const card=$('loginCard'),name=$('loginName')?.value.trim();
+ if(name){try{sessionStorage.setItem('spenic.viewer-name',name);}catch{}}
+ if(card)card.hidden=true;
+ fit('perspective',{intro:true});
+ hideBusy();
+}
+function applyShowroomScale(){
+ if(!stage)return;
+ const scale=Number.isFinite(developerSettings.showroomScale)?developerSettings.showroomScale:1;
+ stage.scale.set(scale,1,scale);
+}
+function readCurrentCameraView(){
+ if(!camera||!controls||!model)return null;
+ const offset=camera.position.clone().sub(controls.target),distance=offset.length();
+ if(!Number.isFinite(distance)||distance<1e-6)return null;
+ const azimuth=THREE.MathUtils.radToDeg(Math.atan2(offset.x,offset.z));
+ const elevation=THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(offset.y/distance,-1,1)));
+ const box=new THREE.Box3().setFromObject(model),sphere=box.getBoundingSphere(new THREE.Sphere());
+ const vfov=THREE.MathUtils.degToRad(camera.fov),hfov=2*Math.atan(Math.tan(vfov/2)*camera.aspect);
+ const framing=sphere.radius>1e-6?distance*Math.sin(Math.min(vfov,hfov)/2)/sphere.radius:1.18;
+ const targetOffset=controls.target.clone().sub(sphere.center);
+ return {azimuth,elevation,framing,distance,offset:targetOffset.toArray()};
+}
+function setOpeningDockHidden(hidden){const dock=$('materialDock');if(!dock)return;dock.classList.toggle('opening-hidden',hidden);dock.inert=hidden;dock.setAttribute('aria-hidden',String(hidden));}
+function setOpeningDayHidden(hidden){const button=$('dayCycle');if(!button)return;button.classList.toggle('opening-hidden',hidden);button.inert=hidden;}
 function yieldFrame(){return new Promise(r=>requestAnimationFrame(()=>setTimeout(r,0)));}
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}
 function formatCount(n){return n>=10000?(n/10000).toFixed(1)+' 万':n.toLocaleString();}
 function imageData(texture,maxSize=128,quality=.8){try{if(!texture?.image?.width)return null;const c=document.createElement('canvas'),scale=Math.min(1,maxSize/Math.max(texture.image.width,texture.image.height));c.width=Math.max(1,Math.round(texture.image.width*scale));c.height=Math.max(1,Math.round(texture.image.height*scale));const ctx=c.getContext('2d');ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(texture.image,0,0,c.width,c.height);return c.toDataURL('image/jpeg',quality);}catch{return null;}}
 function init(){
  try{developerSettings=loadDeveloperSettings(localStorage);}catch(error){notify('开发者配置未能读取，已使用默认设置：'+error.message,6000);}
+ showLoginShell();
  renderer=new THREE.WebGLRenderer({canvas:$('canvas'),antialias:true,preserveDrawingBuffer:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
  scene=new THREE.Scene();scene.background=new THREE.Color(state.backgroundColor);scene.fog=new THREE.Fog(state.backgroundColor,18,48);
  camera=new THREE.PerspectiveCamera(36,1,.02,100);camera.position.set(6,3.7,7);
@@ -78,7 +121,7 @@ function init(){
  grid=new THREE.GridHelper(14,28,0x9eb3ca,0xcbd5e1);grid.position.y=.002;grid.material.transparent=true;grid.material.opacity=.5;scene.add(grid);
  new ResizeObserver(resize).observe($('viewport'));resize();applyScene();
  $('canvas').addEventListener('webglcontextlost',e=>{e.preventDefault();busy('显卡渲染上下文已暂停','请刷新页面，或关闭其他占用显卡的窗口后重新打开。');});
- developerPanel=createDeveloperPanel({renderer,read:()=>state,apply:next=>{Object.assign(state,next);applyScene();},cycle:()=>daylightCycle,showroom:()=>showroom,status:()=>({loading:loadingModel,ready:!!model,name:$('modelName').textContent}),getSettings:()=>developerSettings,setSettings:value=>{developerSettings=value;},notify,download});
+ developerPanel=createDeveloperPanel({renderer,read:()=>state,apply:next=>{Object.assign(state,next);applyScene();},cycle:()=>daylightCycle,showroom:()=>showroom,status:()=>({loading:loadingModel,ready:!!model,name:$('modelName').textContent}),readCamera:readCurrentCameraView,getSettings:()=>developerSettings,setSettings:value=>{developerSettings=value;applyShowroomScale();applyScene();},notify,download});
  renderer.setAnimationLoop(()=>{developerPanel.beginFrame();try{if(cameraTween?.update)cameraTween.update();else controls.update();syncPatterns();updateAnnotations(false);renderer.render(scene,camera);}finally{developerPanel.endFrame();}});bindEvents();buildSlots();showPanel('scene');
  createSceneCycle({button:$('dayCycle'),read:()=>state,apply:(next,appearance)=>{Object.assign(state,next);applyScene(appearance);},name:value=>{$('sceneName').value=value;},notify,savedPresets:developerSettings.presets}).then(cycle=>{daylightCycle=cycle;loadExample();});
 }
@@ -86,15 +129,41 @@ function resize(){invalidateAnnotations();if(!renderer)return;const {width,heigh
 function fit(direction='perspective',{intro=false,immediate=false}={}){
  cancelDraftAnnotation();
  if(!model)return;model.updateMatrixWorld(true);const box=new THREE.Box3().setFromObject(model),sphere=box.getBoundingSphere(new THREE.Sphere());if(!Number.isFinite(sphere.radius)||sphere.radius===0)return;
- const vfov=THREE.MathUtils.degToRad(camera.fov),hfov=2*Math.atan(Math.tan(vfov/2)*camera.aspect),distance=sphere.radius/Math.sin(Math.min(vfov,hfov)/2)*1.18;
- const dir=direction==='top'?new THREE.Vector3(0,1,.001):direction==='front'?new THREE.Vector3(0,.14,1):direction==='left'?new THREE.Vector3(-1,.14,0):direction==='right'?new THREE.Vector3(1,.14,0):direction==='back'?new THREE.Vector3(0,.14,-1):new THREE.Vector3(1.15,.68,1.35);
- const target=sphere.center.clone(),position=target.clone().addScaledVector(dir.normalize(),distance);
+ const vfov=THREE.MathUtils.degToRad(camera.fov),hfov=2*Math.atan(Math.tan(vfov/2)*camera.aspect),view=developerSettings.defaultView||{azimuth:40,elevation:26,framing:1.18},distance=Number.isFinite(view.distance)?view.distance:sphere.radius/Math.sin(Math.min(vfov,hfov)/2)*view.framing;
+ const azimuth=THREE.MathUtils.degToRad(view.azimuth),elevation=THREE.MathUtils.degToRad(view.elevation),perspective=new THREE.Vector3(Math.sin(azimuth)*Math.cos(elevation),Math.sin(elevation),Math.cos(azimuth)*Math.cos(elevation));
+ const dir=direction==='top'?new THREE.Vector3(0,1,.001):direction==='front'?new THREE.Vector3(0,.14,1):direction==='left'?new THREE.Vector3(-1,.14,0):direction==='right'?new THREE.Vector3(1,.14,0):direction==='back'?new THREE.Vector3(0,.14,-1):perspective;
+ const target=sphere.center.clone().add(new THREE.Vector3(...(Array.isArray(view.offset)?view.offset:[0,0,0]))),position=target.clone().addScaledVector(dir.normalize(),distance);
  cameraTween?.cancel();invalidateAnnotations();
  controls.minDistance=Math.max(.08,sphere.radius*.15);controls.maxDistance=Math.max(20,distance*5);camera.far=Math.max(100,distance*10);camera.updateProjectionMatrix();syncInspectorFraming();
  const damping=controls.enableDamping;controls.enableDamping=false;controls.autoRotate=false;controls.update();
+ const materialDock=$('materialDock');
+ const setIntroDock=(progress,active=intro)=>{
+  if(!materialDock)return;
+  if(active){
+   setOpeningDockHidden(false);materialDock.classList.add('intro-motion');
+   const dock=introDockTransform(progress);
+   materialDock.style.transform=`translate3d(0, ${dock.translateY.toFixed(2)}%, 0) scale(${dock.scale.toFixed(4)})`;
+   materialDock.style.opacity=String(dock.opacity);
+  }else{
+   materialDock.classList.remove('intro-motion');materialDock.style.removeProperty('transform');materialDock.style.removeProperty('opacity');
+  }
+ };
+ const dayCycle=$('dayCycle');
+ const setIntroDay=(progress,active=intro)=>{
+  if(!dayCycle)return;
+  if(active){
+   setOpeningDayHidden(false);dayCycle.classList.add('intro-motion');
+   const sun=introSunTransform(progress,materialDock.offsetHeight);
+   dayCycle.style.transform=`translate3d(0, ${sun.translateY.toFixed(2)}px, 0)`;
+   dayCycle.style.opacity=String(sun.opacity);
+  }else{
+   dayCycle.classList.remove('intro-motion');dayCycle.style.removeProperty('transform');dayCycle.style.removeProperty('opacity');
+  }
+ };
+ if(intro){setIntroDock(0);setIntroDay(0);}
  const startP=intro?target.clone().lerp(position,INTRO_DISTANCE_RATIO):camera.position.clone(),startT=intro?target.clone():controls.target.clone();
  const duration=immediate||matchMedia('(prefers-reduced-motion: reduce)').matches?0:intro?INTRO_DURATION:520;
- const session=createCameraMotion({duration,render:e=>{camera.position.lerpVectors(startP,position,e);controls.target.lerpVectors(startT,target,e);controls.update();if(intro){const blur=introFocusBlur(e);$('canvas').style.filter=blur>0.01?`blur(${blur.toFixed(2)}px)`:'';}},finish:()=>{if(cameraTween!==session)return;cameraTween=null;controls.enableDamping=damping;$('canvas').style.filter='';$('viewport').dataset.cameraMotion='idle';syncAutoRotate();setAnnotationMoving(false);}});
+ const session=createCameraMotion({duration,render:e=>{camera.position.lerpVectors(startP,position,e);controls.target.lerpVectors(startT,target,e);controls.update();if(intro){const blur=introFocusBlur(e);$('canvas').style.filter=blur>0.01?`blur(${blur.toFixed(2)}px)`:'';setIntroDock(e);setIntroDay(e);}},finish:()=>{if(cameraTween!==session)return;cameraTween=null;controls.enableDamping=damping;$('canvas').style.filter='';if(intro){setIntroDock(1,false);setIntroDay(1,false);}$('viewport').dataset.cameraMotion='idle';syncAutoRotate();setAnnotationMoving(false);}});
  cameraTween=session;$('viewport').dataset.cameraMotion=intro?'intro':'fit';session.update();
 }
 function syncInspectorFraming(){
@@ -268,6 +337,7 @@ function addAnnotation(hit,text='',select=true){
 }
 function applyScene(appearance=daylightCycle?.appearance||sceneAppearance(state)){
  invalidateAnnotations();
+ applyShowroomScale();
  scene.background.set(state.backgroundColor);scene.fog.color.set(state.backgroundColor);const bgLight=scene.background.getHSL({}).l;document.body.classList.toggle('dark-stage',bgLight<.42);renderer.toneMappingExposure=state.exposure;scene.environmentIntensity=state.environment;
  key.intensity=state.keyLight;key.color.set(state.lightColor);const a=THREE.MathUtils.degToRad(state.lightAngle);key.position.set(Math.sin(a)*7,8,Math.cos(a)*7);key.target.position.set(0,.5,0);fill.intensity=state.fillLight;
  key.shadow.intensity=appearance.shadow;floor.receiveShadow=true;stage.children.forEach(o=>{if(o.material?.isShadowMaterial)o.visible=appearance.shadow>0;});stage.visible=state.floorVisible;reflector.visible=state.reflection;grid.visible=state.grid;syncAutoRotate();
@@ -304,7 +374,8 @@ function convertMaterials(object){
 }
 function disposeObject(object,list=[]){if(!object)return;const gs=new Set(),ms=new Set(),ts=new Set();object.traverse(o=>{if(o.geometry)gs.add(o.geometry);for(const m of(Array.isArray(o.material)?o.material:[o.material]))if(m)ms.add(m);});for(const e of list){ms.add(e.material);ms.add(e.baseline);Object.values(e.uploads).forEach(u=>{if(u.preview)URL.revokeObjectURL(u.preview);});}ms.forEach(m=>{for(const v of Object.values(m))if(v?.isTexture)ts.add(v);m.dispose();});gs.forEach(g=>g.dispose());ts.forEach(t=>t.dispose());}
 async function loadModel(buffer,name,files=[],{restore=null,parts=null}={}){
- showroom?.exit();cameraTween?.cancel();$('showroomMode').disabled=true;setAnnotationMode(false);designUI?.exitRemoval();const request=++currentLoad;loadingModel=true;busy('正在载入 '+name,'解析几何、材质和纹理…');await yieldFrame();let parsed;
+  const gateLogin=!loginComplete&&!restore&&!model;
+  showroom?.exit();cameraTween?.cancel();$('showroomMode').disabled=true;setAnnotationMode(false);designUI?.exitRemoval();const request=++currentLoad;loadingModel=true;setOpeningDockHidden(true);setOpeningDayHidden(true);busy('正在载入 '+name,'解析几何、材质和纹理…');await yieldFrame();let parsed;
  try{parsed=await parseFBX(buffer,files);if(request!==currentLoad){disposeObject(parsed.object);return;}
  const info=convertMaterials(parsed.object),box=new THREE.Box3().setFromObject(parsed.object),size=box.getSize(new THREE.Vector3()),max=Math.max(size.x,size.y,size.z);if(!Number.isFinite(max)||max<1e-10)throw new Error('模型尺寸无效');
  const unit=Number(parsed.object.userData.unitScaleFactor);
@@ -315,9 +386,10 @@ async function loadModel(buffer,name,files=[],{restore=null,parts=null}={}){
  if(model){for(const a of annotations)a.el.remove();annotations=[];selectedAnnotation=null;syncAnnotationPanel();clearPatterns();scene.remove(model);disposeObject(model,entries);clearPatternSources();}model=root;restorePartAssignments(parts);physicalModel=nextPhysicalModel;updateModelDimensions();modelGeneration++;assignmentHistory=[];$('undoMaterial').disabled=true;entries=info.entries;for(const entry of entries)entry.material.userData.partTypes=partAssignments.get(entry.id)||new Set();selected=null;modelSource={buffer:buffer.slice(0),name,files};scene.add(model);state.rotation=0;state.scale=DEFAULTS.scale;$('isolate').checked=false;applyScene();fit('perspective',{immediate:true});
  $('modelName').textContent=name;$('modelName').title=name;$('modelStats').textContent=`${info.meshCount} 网格 · ${formatCount(info.triangles)} 三角面`;$('materialCount').textContent=String(entries.length).padStart(2,'0');selectEntry(entries[0]);renderMaterials();if(restore)await restore(entries);if(request!==currentLoad)return;showPanel('scene');
  await renderer.compileAsync(scene,camera);if(request!==currentLoad)return;renderer.render(scene,camera);
- if(!restore)fit('perspective',{intro:true});
- hideBusy();notify(`已载入 ${entries.length} 个独立材质`+(parsed.missing.length?'；缺少 '+parsed.missing.length+' 个外部纹理，可在右侧补充':'')+(info.uvMissing?'；部分网格没有 UV，无法显示贴图':''),6000);
- }catch(error){console.error(error);if(request===currentLoad){hideBusy();notify('载入失败：'+error.message,8000);if(!model){$('modelName').textContent='请导入 FBX 模型';$('modelStats').textContent='点击右侧 ＋ 选择文件';}}}finally{if(request===currentLoad){loadingModel=false;$('showroomMode').disabled=!model||!daylightCycle;}}
+ if(!restore&&!gateLogin)fit('perspective',{intro:true});
+ if(gateLogin)showLoginGate();else hideBusy();
+ notify(`已载入 ${entries.length} 个独立材质`+(parsed.missing.length?'；缺少 '+parsed.missing.length+' 个外部纹理，可在右侧补充':'')+(info.uvMissing?'；部分网格没有 UV，无法显示贴图':''),6000);
+  }catch(error){console.error(error);if(request===currentLoad){hideBusy();setOpeningDockHidden(false);setOpeningDayHidden(false);notify('载入失败：'+error.message,8000);if(!model){$('modelName').textContent='请导入 FBX 模型';$('modelStats').textContent='点击右侧 ＋ 选择文件';}}}finally{if(request===currentLoad){loadingModel=false;$('showroomMode').disabled=!model||!daylightCycle;if(restore){setOpeningDockHidden(false);setOpeningDayHidden(false);}}}
 }
 async function loadExample(){
  const assetId=new URLSearchParams(location.search).get('asset');let asset=null,assetError=null;
@@ -327,7 +399,7 @@ async function loadExample(){
   const r=await fetch('./MM06-展厅版.fbx');if(!r.ok)throw new Error('找不到示例 FBX');await loadModel(await r.arrayBuffer(),'MM06-展厅版.fbx');
   if(asset?.kind==='material')await addDesignAsset(asset);
   if(assetError)notify('打开资产失败：'+assetError.message,6000);
- }catch(e){hideBusy();notify('载入失败：'+e.message+'；可使用“选择 FBX 与配套纹理”导入模型。',6000);}
+ }catch(e){hideBusy();setOpeningDockHidden(false);setOpeningDayHidden(false);notify('载入失败：'+e.message+'；可使用“选择 FBX 与配套纹理”导入模型。',6000);}
 }
 
 function createLibraryEntry(id,name='库中材质'){
@@ -753,6 +825,11 @@ function bindPatterns(){
 }
 function bindEvents(){
  bindDesignWorkspace();
+ const loginForm=$('loginCard'),loginName=$('loginName'),loginSubmit=$('loginSubmit');
+ if(loginForm){
+  loginName?.addEventListener('input',()=>{if(loginReady)loginSubmit.disabled=false;});
+  loginForm.addEventListener('submit',event=>{event.preventDefault();beginLogin();});
+ }
  const leaveAnnotationsForMaterials=event=>{if(annotationMode)setAnnotationMode(false,{keepInspector:!!event.target.closest('.material-item')});};
  const materialDock=document.querySelector('.material-dock');
  materialDock.addEventListener('pointerdown',leaveAnnotationsForMaterials,true);
@@ -783,7 +860,7 @@ function bindEvents(){
  inspectorTransition=createInspectorTransition({render:renderInspectorProgress});renderInspectorProgress(0);inspector.inert=true;
  showroom=createShowroom({button:$('showroomMode'),ready:()=>!!model&&!loadingModel,cycle:()=>daylightCycle,notify,timing:()=>developerSettings.timing,
   capture:()=>({state:{...state},appearance:daylightCycle?.appearance||sceneAppearance(state),name:$('sceneName').value,inspectorCollapsed:workspace.classList.contains('inspector-collapsed'),annotationMode}),
-  enter:()=>{if($('viewport').dataset.cameraMotion==='intro')fit('perspective',{immediate:true});else cameraTween?.cancel();endMaterialDrag();setPatternMode(false);setAnnotationMode(false);designUI?.exitRemoval();setInspectorCollapsed(true);$('toast').classList.remove('show');state.autoRotate=true;applyScene();},
+  enter:()=>{cameraTween?.cancel();endMaterialDrag();setPatternMode(false);setAnnotationMode(false);designUI?.exitRemoval();setInspectorCollapsed(true);$('toast').classList.remove('show');state.autoRotate=true;applyScene();if($('viewport').dataset.cameraMotion==='intro')fit('perspective',{immediate:true});},
   restore:snapshot=>{state={...snapshot.state};applyScene(snapshot.appearance);$('sceneName').value=snapshot.name;setAnnotationMode(snapshot.annotationMode);setInspectorCollapsed(snapshot.inspectorCollapsed);}
  });
  $('collapseInspector').onclick=()=>setInspectorCollapsed(true);$('restoreInspector').onclick=()=>setInspectorCollapsed(!workspace.classList.contains('inspector-collapsed'));

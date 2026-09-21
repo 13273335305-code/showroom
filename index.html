@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="header.css">
 <link rel="stylesheet" href="showroom.css">
 <link rel="stylesheet" href="developer.css">
+<link rel="stylesheet" href="login.css">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
 </head>
 <body>
@@ -30,6 +31,7 @@
    <fieldset id="developerSceneControls"><div class="dev-phase-row"><label for="developerPhase">保存时段</label><select id="developerPhase"><option value="morning">清晨</option><option value="evening">黄昏</option><option value="night">夜晚</option></select><button id="developerLoadPhase" type="button">载入</button></div><div id="developerLighting"></div><button id="developerSavePhase" type="button" class="dev-primary dev-full">将当前灯光保存到所选时段</button></fieldset>
   </section>
   <section class="dev-section" aria-labelledby="developerTimingTitle"><h3 id="developerTimingTitle">展厅模式 · 日光时间</h3><form id="developerTimingForm"><div class="dev-time-inputs"><label>过渡时长 / 秒<input id="developerTransition" type="number" min="0.1" max="120" step="0.1" required value="5"></label><label>停留时长 / 秒<input id="developerHold" type="number" min="0" max="600" step="0.1" required value="3"></label></div><p class="dev-note">按清晨 → 黄昏 → 夜晚循环，每次过渡和停留使用以上时长。减少动态效果开启时直接切换。</p><button class="dev-full" type="submit">保存展厅时间</button></form></section>
+  <section class="dev-section" aria-labelledby="developerViewTitle"><h3 id="developerViewTitle">默认视角 · 展台比例</h3><form id="developerViewForm"><label class="dev-range">水平角度<output data-dev-view-output="azimuth"></output><input id="developerAzimuth" type="range" min="-180" max="180" step="1"></label><label class="dev-range">俯视角<output data-dev-view-output="elevation"></output><input id="developerElevation" type="range" min="0" max="89" step="1"></label><label class="dev-range">构图距离<output data-dev-view-output="framing"></output><input id="developerFraming" type="range" min=".5" max="3" step=".01"></label><label class="dev-range">展台大小比例<output data-dev-view-output="showroomScale"></output><input id="developerShowroomScale" type="range" min=".5" max="2" step=".01"></label><p id="developerCameraStatus" class="dev-note">当前视角：等待模型</p><button id="developerUseCurrentView" type="button" class="dev-secondary dev-full">读取当前视角</button><p class="dev-note">默认视角用于适应模型；展台比例应用于设计台和展厅。</p><button class="dev-full" type="submit">保存默认视角</button><button id="developerSaveShowroomScale" class="dev-secondary dev-full" type="button">单独保存展台比例</button></form></section>
   <section class="dev-section"><h3>配置文件</h3><div class="dev-file-actions"><button id="developerExport" type="button">导出配置</button><button id="developerImport" type="button">导入配置</button></div><p class="dev-note">导出已保存的三个时段与展厅时间，可在其他浏览器导入使用。</p><p id="developerSaveStatus" class="dev-note" role="status"></p><input id="developerFile" type="file" accept=".json,application/json" hidden></section>
  </div>
 </aside>
@@ -54,7 +56,7 @@
   </div>
  </div>
  <div class="view-bottom"><span id="renderInfo" hidden>PBR</span><button class="button inspector-toggle" id="inspectorToggle">编辑面板 ☷</button></div>
- <button id="dayCycle" class="day-cycle" type="button" disabled aria-label="当前清晨，点击切换到黄昏">
+ <button id="dayCycle" class="day-cycle opening-hidden" type="button" disabled aria-label="当前清晨，点击切换到黄昏">
   <svg class="day-cycle-art" viewBox="0 0 64 56" fill="none" aria-hidden="true">
    <defs>
     <clipPath id="dayHorizon"><rect data-day-clip width="64" height="56"/></clipPath>
@@ -71,7 +73,7 @@
    <g data-day-stars opacity="0" stroke="#eff3ff" stroke-width="1.3" stroke-linecap="round"><path d="M48 10v6M45 13h6M16 10v4M14 12h4"/><circle cx="51" cy="28" r=".8" fill="#cbdcff"/></g>
   </svg>
  </button>
- <div class="loading" id="loading"><div class="loading-card"><div class="spinner"></div><strong id="loadingTitle">正在搭建展厅</strong><p id="loadingDetail">载入模型与渲染资源</p></div></div>
+ <div class="loading" id="loading"><div id="loadingProgress" class="loading-card"><div class="spinner"></div><strong id="loadingTitle">正在搭建展厅</strong><p id="loadingDetail">载入模型与渲染资源</p></div><form id="loginCard" class="login-card"><div class="login-brand"><img src="assets/spenic-logo.png" alt="Spenic"><span>Spenic <em>Demo</em></span></div><p class="login-kicker">DESIGN STUDIO</p><h2>欢迎进入设计台</h2><p class="login-copy">在材质、光线与空间之间，开始你的创作。</p><label class="login-input"><span>称呼（可选）</span><input id="loginName" type="text" autocomplete="off" placeholder="输入你的名字"></label><div class="login-action"><span>资源准备好后即可进入</span><button id="loginSubmit" class="login-submit" type="submit" disabled aria-label="进入设计台"><span class="sr-only">进入设计台</span><b aria-hidden="true">→</b></button></div><p id="loginStatus" class="login-status">正在准备展厅…</p></form></div>
  <div id="materialDropHint" class="material-drop-hint" role="status" hidden></div>
  <div class="drop-overlay" id="dropOverlay">松开以导入 FBX<br><small>可以同时拖入配套的纹理图片</small></div>
  <div id="annotationLayer" class="annotation-layer"></div>
@@ -175,7 +177,7 @@
  </div>
 </aside>
 </main>
-<footer class="material-dock">
+<footer id="materialDock" class="material-dock opening-hidden" aria-hidden="true">
  <div class="dock-heading"><nav class="dock-tabs" aria-label="材质大类"><button id="fabricDockTab" class="active" aria-pressed="true">面料</button><button id="patternDockTab" aria-pressed="false">图案</button></nav><span id="materialCount" hidden>00</span><div class="dock-operations"><button id="dockUndo" class="text-button" disabled>撤销换材</button><button id="dockPatternPlace" class="text-button" hidden>放置图案</button></div></div>
  <div class="fabric-browser" id="fabricDock"><nav class="fabric-categories" aria-label="面料分类"><button data-fabric="面布" class="active" aria-pressed="true">面布</button><button data-fabric="边布" aria-pressed="false">边布</button><button data-fabric="包边条" aria-pressed="false">包边条</button><button data-fabric="其他" aria-pressed="false">其他</button></nav><div class="dock-carousel"><div class="material-list" id="materialList" aria-label="面料列表"><button id="addDockAsset" class="dock-add" aria-label="从资产库新增面料" title="新增面料"><span class="dock-add-icon" aria-hidden="true">＋</span></button></div><button id="scrollLeft" class="dock-page previous" aria-label="上一页面料" hidden>‹</button><button id="scrollRight" class="dock-page next" aria-label="下一页面料" hidden>›</button></div></div>
  <div id="patternBrowser" class="dock-carousel" hidden><div class="material-list pattern-list" id="patternDock" aria-label="图案列表" hidden></div></div>

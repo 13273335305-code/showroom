@@ -1,12 +1,12 @@
 import { ENVIRONMENT_DEFAULTS, readEnvironment } from './scene-file.js';
-import { PHASE_IDS, readTiming, readDeveloperSettings, saveDeveloperSettings } from './developer-settings.js';
+import { PHASE_IDS, readTiming, readDefaultView, readShowroomScale, readDeveloperSettings, saveDeveloperSettings } from './developer-settings.js';
 import { createDeveloperPerformance } from './developer-performance.js';
 
-export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, status, getSettings, setSettings, notify, download }) {
+export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, status, readCamera, getSettings, setSettings, notify, download }) {
   const $ = id => document.getElementById(id);
   const panel = $('developerPanel'), toggle = $('developerToggle'), brand = document.querySelector('.brand-logo');
   const metrics = createDeveloperPerformance(renderer);
-  let hovered = false, sequence = '', lastKey = 0, open = false;
+  let hovered = false, sequence = '', lastKey = 0, open = false, pendingView = null;
   const labels = ['清晨', '黄昏', '夜晚'];
   const range = (key, label, min, max, step) => `<label class="dev-range">${label}<output data-dev-output="${key}"></output><input data-dev-scene="${key}" type="range" min="${min}" max="${max}" step="${step}"></label>`;
   $('developerLighting').innerHTML = `
@@ -37,6 +37,22 @@ export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, s
     $('developerTransition').value = getSettings().timing.transition / 1000;
     $('developerHold').value = getSettings().timing.hold / 1000;
   }
+  function syncView(view = getSettings().defaultView) {
+    const values = { azimuth: view.azimuth, elevation: view.elevation, framing: view.framing, showroomScale: getSettings().showroomScale };
+    for (const [key, value] of Object.entries(values)) {
+      const input = $('developer' + ({ azimuth: 'Azimuth', elevation: 'Elevation', framing: 'Framing', showroomScale: 'ShowroomScale' }[key]));
+      if (input && document.activeElement !== input) input.value = value;
+      const output = panel.querySelector(`[data-dev-view-output="${key}"]`);
+      if (output) output.value = key === 'azimuth' || key === 'elevation' ? Math.round(value) + '°' : Number(value).toFixed(2) + '×';
+    }
+  }
+  function syncCameraStatus() {
+    const output = $('developerCameraStatus'), view = readCamera?.();
+    if (!output) return;
+    if (!view) { output.textContent = '当前视角：等待模型'; return; }
+    const angle = value => Math.round(value) + '°';
+    output.textContent = `实时视角：水平 ${angle(view.azimuth)} · 俯视 ${angle(view.elevation)} · 构图 ${view.framing.toFixed(2)}×`;
+  }
   function refresh() {
     if (!open) return;
     const m = metrics.sample(), page = status();
@@ -52,6 +68,7 @@ export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, s
     $('developerDraws').textContent = m.calls.toLocaleString();
     $('developerTriangles').textContent = m.triangles.toLocaleString();
     $('developerResources').textContent = m.geometries + ' 几何体 · ' + m.textures + ' 纹理';
+    syncCameraStatus();
     syncScene();
   }
   function setOpen(value) {
@@ -59,7 +76,7 @@ export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, s
     open = value; panel.hidden = !value; toggle.setAttribute('aria-expanded', String(value));
     toggle.setAttribute('aria-pressed', String(value)); document.body.classList.toggle('developer-open', value);
     metrics.setEnabled(value);
-    if (value) { syncTiming(); refresh(); $('developerClose').focus({ preventScroll: true }); }
+    if (value) { syncTiming(); syncView(); refresh(); $('developerClose').focus({ preventScroll: true }); }
     else if (!toggle.hidden) toggle.focus({ preventScroll: true });
   }
   brand.addEventListener('pointerenter', () => { hovered = true; sequence = ''; });
@@ -112,6 +129,35 @@ export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, s
       commit({ ...getSettings(), timing }, '已保存展厅时间；后续过渡与停留按新设置执行');
     } catch (error) { notify('保存失败：' + error.message); }
   };
+  for (const id of ['developerAzimuth', 'developerElevation', 'developerFraming', 'developerShowroomScale']) $(id).addEventListener('input', () => {
+    const key = id === 'developerAzimuth' ? 'azimuth' : id === 'developerElevation' ? 'elevation' : id === 'developerFraming' ? 'framing' : 'showroomScale';
+    const output = panel.querySelector(`[data-dev-view-output="${key}"]`), value = Number($(id).value);
+    if (output) output.value = key === 'azimuth' || key === 'elevation' ? Math.round(value) + '°' : value.toFixed(2) + '×';
+  });
+  $('developerViewForm').onsubmit = event => {
+    event.preventDefault();
+    try {
+      const base = pendingView || getSettings().defaultView;
+      const defaultView = readDefaultView({ ...base, azimuth: $('developerAzimuth').valueAsNumber, elevation: $('developerElevation').valueAsNumber, framing: $('developerFraming').valueAsNumber });
+      commit({ ...getSettings(), defaultView }, '已保存默认视角'); pendingView = null; syncView();
+    } catch (error) { notify('保存失败：' + error.message); }
+  };
+  $('developerSaveShowroomScale').onclick = () => {
+    try {
+      const showroomScale = readShowroomScale($('developerShowroomScale').valueAsNumber);
+      commit({ ...getSettings(), showroomScale }, '已单独保存展台比例');
+      syncView();
+    } catch (error) { notify('保存展台比例失败：' + error.message); }
+  };
+  $('developerUseCurrentView').onclick = () => {
+    try {
+      const current = readCamera?.();
+      if (!current) return notify('模型载入完成后才能读取当前视角');
+      pendingView = readDefaultView(current);
+      syncView(pendingView);
+      notify('已读取当前视角；点击“保存默认视角”后写入配置');
+    } catch (error) { notify('读取视角失败：' + error.message); }
+  };
   $('developerExport').onclick = () => {
     const value = { ...getSettings(), presets: cycle()?.getPresets() || getSettings().presets };
     download(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }), 'Spenic-开发者配置.json');
@@ -122,7 +168,7 @@ export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, s
     try {
       if (file.size > 1024 * 1024) throw new Error('配置文件不能超过 1 MB');
       const next = readDeveloperSettings(JSON.parse((await file.text()).replace(/^\uFEFF/, '')));
-      commit(next, '已导入并保存开发者配置；载入时段后应用灯光'); syncTiming(); syncScene();
+      commit(next, '已导入并保存开发者配置；载入时段后应用灯光'); syncTiming(); syncView(); syncScene();
     } catch (error) { notify('导入失败：' + error.message); }
   };
   renderer.domElement.addEventListener('webglcontextlost', () => { metrics.contextLost(); refresh(); });

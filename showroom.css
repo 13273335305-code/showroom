@@ -5,15 +5,18 @@
 .showroom-exit{display:none}
 .showroom-mode .showroom-display{display:none}
 .showroom-mode .showroom-exit{display:block}
-.showroom-tools{display:flex;align-items:center;gap:8px;max-width:260px;transform-origin:right center;transition:max-width .65s cubic-bezier(.16,1,.3,1),opacity .28s,transform .65s cubic-bezier(.16,1,.3,1)}
-.viewport-actions{transition:gap .65s cubic-bezier(.16,1,.3,1)}
-body:not(.standalone) .topbar,.material-dock{transition:transform .65s cubic-bezier(.16,1,.3,1),opacity .5s}
-.viewer-heading,.model-chip,.view-bottom,.axis-widget,.day-cycle,.annotation-layer{transition:opacity .35s,translate .55s cubic-bezier(.16,1,.3,1)}
+.showroom-tools{display:flex;align-items:center;gap:8px;max-width:260px;transform-origin:right center;transition:max-width 1.5s cubic-bezier(.16,1,.3,1),opacity 1.5s,transform 1.5s cubic-bezier(.16,1,.3,1)}
+.viewport-actions{transition:gap 1.5s cubic-bezier(.16,1,.3,1)}
+body:not(.standalone) .topbar,.material-dock{transition:transform 1.5s cubic-bezier(.16,1,.3,1),opacity 1.5s}
+.viewer-heading,.model-chip,.view-bottom,.axis-widget,.day-cycle,.annotation-layer{transition:opacity 1.5s,translate 1.5s cubic-bezier(.16,1,.3,1)}
 .showroom-mode .topbar{transform:translateY(calc(-100% - 24px));opacity:0;pointer-events:none}
 .showroom-mode .material-dock{transform:translateY(calc(100% + 24px));opacity:0;pointer-events:none}
 .showroom-mode .viewport-actions{gap:0}
 .showroom-mode .showroom-tools{max-width:0;overflow:hidden;opacity:0;transform:translateX(20px) scale(.7);pointer-events:none}
 .showroom-mode .viewer-heading,.showroom-mode .model-chip,.showroom-mode .view-bottom,.showroom-mode .axis-widget,.showroom-mode .day-cycle,.showroom-mode .annotation-layer{opacity:0;translate:0 12px;pointer-events:none}
 .showroom-mode .toast{bottom:24px}
+.material-dock.opening-hidden,.day-cycle.opening-hidden{visibility:hidden;opacity:0;pointer-events:none;transform:translate3d(0, 96px, 0) scale(.94)}
+.material-dock.intro-motion{transform-origin:center bottom;transition:none!important;will-change:transform,opacity}
+.day-cycle.intro-motion{transition:none!important;will-change:transform,opacity}
 @media(max-width:760px){.showroom-tools{gap:6px}}
 @media(prefers-reduced-motion:reduce){.showroom-tools,.viewport-actions,.topbar,.material-dock,.viewer-heading,.model-chip,.view-bottom,.axis-widget,.day-cycle,.annotation-layer{transition:none!important}}
