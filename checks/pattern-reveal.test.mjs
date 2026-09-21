@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {Mesh,PlaneGeometry,MeshStandardMaterial,Texture} from '../vendor/three/build/three.module.js';
+import {revealPattern,REVEAL_DURATION} from '../material-reveal.js';
+const original=new MeshStandardMaterial({map:new Texture(),transparent:true,opacity:.7});
+const mesh=new Mesh(new PlaneGeometry(),original),effect=revealPattern(mesh);
+assert.notEqual(mesh.material,original);
+assert.equal(mesh.material.map,original.map,'Reveal shares original texture without changing it');
+const shader={uniforms:{},vertexShader:'#include <uv_vertex>',fragmentShader:'#include <opaque_fragment>'};
+mesh.material.onBeforeCompile(shader);
+effect.update(0);assert.ok(shader.uniforms.patternRevealRadius.value<0);
+effect.update(1);assert.ok(shader.uniforms.patternRevealRadius.value>Math.SQRT1_2+.1,'Wave covers all four corners');
+assert.equal(REVEAL_DURATION,2200);
+effect.dispose();effect.dispose();assert.equal(mesh.material,original);assert.equal(original.opacity,.7);
+console.log('PASS: slow radial decal reveal covers full image and restores original material without changing maps or opacity');

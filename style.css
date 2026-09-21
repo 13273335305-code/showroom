@@ -54,10 +54,57 @@
 .material-dock:after{background:#ffffff88;box-shadow:0 0 10px 2px #ffffff55}
 .pattern-slots{grid-template-columns:repeat(3,1fr)}.pattern-upload{cursor:pointer}.pattern-upload input{display:none}.pattern-upload span{font-size:9px}.pattern-upload strong{font-size:18px;display:block;margin-bottom:4px}
 .pattern-upload.has-image{border-style:solid;border-color:#86aef1;background:#f2f7ff;color:var(--blue)}
-#patternTab,#patternPanel{display:none!important}
+
 .workspace{display:block;position:relative}
 .viewport{position:absolute;inset:0;width:100%;height:100%}
 .inspector{position:fixed;right:14px;top:78px;bottom:204px;width:352px;height:auto;margin:0;z-index:9;border-radius:16px;background:#ffffffc2;box-shadow:0 18px 48px #14294126,inset 0 1px 0 #ffffffc9}
 .dark-stage .viewer-heading h1,.dark-stage .viewer-heading p,.dark-stage .viewer-heading .eyebrow{color:#f1f6ff;text-shadow:0 2px 18px #061326aa}
 .dark-stage .viewer-heading .eyebrow{color:#b9d0ef}.dark-stage .view-bottom{color:#d5e2f2}.dark-stage .view-bottom span{color:#d5e2f2}
 @media(max-width:760px){.inspector{position:fixed;right:0;top:65px;bottom:186px;width:min(350px,92vw);height:auto;margin:0}}
+
+.pattern-file{display:block;text-align:center;cursor:pointer}#patternThumbnail{width:100%;height:110px;object-fit:contain;background:repeating-conic-gradient(#dce2e9 0% 25%,#fff 0% 50%) 0 / 16px 16px;border-radius:8px;margin-top:8px}#patternLayers{max-width:200px}
+
+#patternUV{display:block;width:100%;border-radius:8px;touch-action:none;cursor:crosshair;margin-top:12px}
+
+.pattern-pbr-row{display:flex;align-items:center;gap:8px;margin:8px 0}.pattern-pbr-row label{cursor:pointer;white-space:nowrap;padding:8px;font-size:10px}.pattern-pbr-row span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:#718093}.pattern-pbr-row button:disabled{opacity:.4}
+.brand{gap:14px;flex-shrink:0}.brand-logo{display:block;width:126px;height:30px;object-fit:contain}.brand .brand-title{font-size:15px;font-weight:750;letter-spacing:.06em;white-space:nowrap}.brand .brand-divider{display:block;margin:0;height:20px}
+@media(max-width:760px){.brand{gap:7px}.brand-logo{width:85px;height:25px}.brand .brand-title{font-size:12px;letter-spacing:0}.brand .brand-divider{height:16px}.topbar{padding:0 10px}.header-actions{gap:3px}.header-actions .button{padding:7px 5px;font-size:9px}}
+
+/* Fabric library */
+html,body{font-family:"PingFang SC",PingFangSC,"Microsoft YaHei","Segoe UI",sans-serif}
+.viewer-heading h1{font-family:inherit}
+.model-chip,.view-status{display:none}
+.view-bottom{pointer-events:none}.view-bottom .inspector-toggle{pointer-events:auto}
+.axis-widget{display:none}.mouse-hint{display:none}
+.material-dock{padding:16px 22px 12px;height:180px}
+.dock-heading{margin:0 0 7px;display:block}.dock-heading h2{margin:0;font-size:15px;font-weight:650;letter-spacing:.05em}
+.fabric-browser{display:flex;gap:20px;align-items:stretch;min-width:0;height:123px}
+.fabric-categories{display:flex;flex-direction:column;gap:5px;width:88px;flex:0 0 88px;justify-content:center;border-right:1px solid #899db02b;padding-right:12px;position:relative}
+.fabric-categories button{border:0;border-radius:9px;background:transparent;padding:8px 4px;font-size:12px;font-weight:500;color:#66778b;white-space:nowrap;transition:background .18s,color .18s}
+.fabric-categories button:hover{background:#ffffff70}.fabric-categories button.active{background:#ffffffc4;color:#2564c6;box-shadow:0 2px 9px #3149660c;font-weight:650}
+.material-list{flex:1;min-width:0;gap:22px;align-items:flex-start;padding:5px 7px 7px;scrollbar-width:thin}
+.material-item{width:100px;flex-basis:100px}.material-thumb{width:84px;height:84px;isolation:isolate;border:1px solid #ffffff90;box-shadow:inset -9px -12px 20px #18273845,inset 3px 4px 10px #ffffff70,0 6px 12px #25395024;transition:transform .18s,box-shadow .18s}
+.material-thumb:after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:radial-gradient(ellipse at 29% 20%,#ffffffdb 0%,#ffffff70 9%,#ffffff16 25%,transparent 48%),radial-gradient(ellipse at 65% 80%,#dceaff36,transparent 48%),linear-gradient(145deg,transparent 42%,#16233350);box-shadow:inset 0 1px 2px #ffffffe0,inset 0 -2px 6px #172b4326}
+.material-item.active .material-thumb{border-color:#578ee6;box-shadow:0 0 0 3px #c4d9f7b3,0 6px 12px #25395024}.material-item strong{font-size:11px;font-weight:550;margin-top:8px;line-height:17px}.material-item small{display:none}
+@media(max-width:760px){.material-dock{height:170px;padding:12px 14px}.fabric-browser{gap:10px;height:122px}.fabric-categories{width:66px;flex-basis:66px;padding-right:8px}.fabric-categories button{font-size:11px}.material-list{gap:14px}.material-item{width:88px;flex-basis:88px}.material-thumb{width:76px;height:76px}}
+.viewport-toolbar button#annotationMode{font-size:11px;font-weight:650;color:#61758c}.viewport-toolbar button#annotationMode.active{background:#eaf2ff;color:#2f71ee}
+/* Surface hotspot and its independent floating editor. */
+.annotation-layer{position:absolute;inset:0;pointer-events:none;z-index:7}
+.annotation-card{position:absolute;width:0;height:0;pointer-events:none}
+.annotation-dot{position:absolute;left:-7px;top:-7px;width:14px;height:14px;padding:0;border:3px solid #686f70;border-radius:50%;background:#fff;box-shadow:0 1px 4px #0005;pointer-events:auto;cursor:pointer}
+.annotation-dot:after{content:"";position:absolute;inset:-4px;border:1px solid #ffffffa0;border-radius:50%;animation:annotationRing 2s ease-out infinite;pointer-events:none}
+@keyframes annotationRing{0%{transform:scale(.8);opacity:0}20%{opacity:.65}85%,100%{transform:scale(1.7);opacity:0}}
+.annotation-window{position:absolute;left:0;bottom:24px;width:220px;display:flex;align-items:center;gap:8px;padding:12px;background:#ffffffe6;border:1px solid #ffffff;border-radius:12px;box-shadow:0 8px 26px #1c385229;backdrop-filter:blur(14px);transform:translateX(calc(-50% + var(--annotation-shift,0px)));opacity:1;transform-origin:50% calc(100% + 24px);transition:opacity .2s ease,transform .24s cubic-bezier(.2,.8,.25,1);pointer-events:auto}
+.annotation-window:after{content:"";position:absolute;width:1px;height:17px;background:#ffffffbd;left:calc(50% - var(--annotation-shift,0px));bottom:-18px}
+.annotation-window input{width:100%;min-width:0;border:0;border-bottom:1px solid #ccd8e5;background:transparent;color:#253246;font-size:12px;padding:4px 0}
+.annotation-delete{border:0;background:transparent;color:#748495;font-size:18px;padding:0 3px;cursor:pointer}
+.annotation-card.compact .annotation-window{opacity:0;transform:translateX(calc(-50% + var(--annotation-shift,0px))) translateY(12px) scale(.88);pointer-events:none}
+@media(min-width:761px){.workspace:not(.inspector-collapsed) .viewport-toolbar{right:382px}}
+@media(prefers-reduced-motion:reduce){.annotation-dot:after{animation:none}.annotation-window{transition:none}}
+.scene-file-controls{margin-bottom:16px;padding:12px;border:1px solid var(--line);border-radius:8px;background:#ffffff70}.scene-file-controls>label{display:block;margin-bottom:6px;font-size:10px;color:#718093}.scene-file-controls>input[type=text]{width:100%;min-width:0;padding:8px;border:1px solid var(--line);border-radius:5px;background:#fff;color:var(--ink);font-size:12px}.scene-file-actions{display:flex;gap:8px;margin-top:10px}.scene-file-actions .button{flex:1;padding:8px 6px}.scene-file-actions .button:disabled{opacity:.5;cursor:wait}
+.day-cycle{--day-sky:#dcefff;position:absolute;right:24px;top:146px;z-index:2;display:grid;place-items:center;width:72px;height:64px;padding:4px;border:1px solid #ffffffc9;border-radius:20px;background:linear-gradient(125deg,#ffffffee,#ffffffb5);box-shadow:inset 0 1px 0 #fff,0 8px 26px #20364c16;backdrop-filter:blur(18px);transition:box-shadow .25s,transform .25s}.day-cycle:hover{box-shadow:inset 0 1px 0 #fff,0 10px 30px #20364c28;transform:translateY(-2px)}.day-cycle:active{transform:scale(.96)}.day-cycle:disabled{opacity:.6;cursor:wait}.day-cycle-art{display:block;width:62px;height:54px;border-radius:15px;background:var(--day-sky);box-shadow:inset 0 0 0 1px #ffffff50;overflow:hidden}
+@media(min-width:761px){.workspace:not(.inspector-collapsed) .day-cycle{right:382px}.workspace.inspector-collapsed .day-cycle{right:98px}}
+@media(max-width:1100px){.day-cycle{top:174px}}
+@media(max-width:760px){.day-cycle{right:12px;top:210px;width:64px;height:58px;border-radius:18px}.day-cycle-art{width:54px;height:48px;border-radius:13px}}
+@media(prefers-reduced-motion:reduce){.day-cycle:hover{transform:none}}
+.viewer-heading h1,.viewer-heading p,.viewer-heading .eyebrow{transition:color .8s,text-shadow .8s}

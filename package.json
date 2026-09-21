@@ -1,1 +1,10 @@
-{"type":"module"}
+{
+  "type": "module",
+  "scripts": {
+    "test": "node --test checks/*.test.mjs",
+    "test:entries": "node checks/entry-workflow.test.cjs",
+    "test:design": "node checks/design-material-types.test.cjs",
+    "test:editor": "node checks/editor-pbr-layout.test.cjs",
+    "test:sampling": "node checks/texture-sampling.test.cjs"
+  }
+}

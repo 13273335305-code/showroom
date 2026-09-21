@@ -1,0 +1,58 @@
+const { chromium } = require(process.env.PLAYWRIGHT_PATH || 'C:/Users/5/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
+
+(async () => {
+  const browser = await chromium.launch({ headless: true, channel: process.env.BROWSER_CHANNEL || 'msedge' });
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'spenic-scene-'));
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    const errors = []; page.on('pageerror', error => errors.push(error.message));
+    await page.goto(base);
+    await page.waitForFunction(() => document.getElementById('loading').hidden && document.querySelectorAll('.material-item').length > 0, null, { timeout: 60000 });
+    await page.locator('#restoreInspector').click();
+    const expected = { preset: 'night', backgroundColor: '#234567', exposure: 1.75, environment: 2.2, keyLight: 6.3, lightAngle: -72, lightColor: '#ffeeaa', fillLight: 2.4, shadows: false, reflection: false, floorVisible: false, grid: true };
+    await page.locator('[data-preset="night"]').click();
+    await page.evaluate(values => { for (const [key, value] of Object.entries(values)) { const el = document.getElementById(key); if (!el) continue; if (typeof value === 'boolean') el.checked = value; else el.value = value; el.dispatchEvent(new Event('input', { bubbles: true })); } }, expected);
+    await page.locator('#sceneName').fill('复用场景测试');
+    const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#saveScene').click()]);
+    assert.equal(download.suggestedFilename(), '复用场景测试.formscene');
+    const saved = path.join(temp, download.suggestedFilename()); await download.saveAs(saved);
+    const data = JSON.parse(await fs.readFile(saved, 'utf8'));
+    assert.deepEqual(data.scene, expected);
+    assert.deepEqual(Object.keys(data).sort(), ['format', 'name', 'scene', 'version']);
+    await page.reload();
+    await page.waitForFunction(() => document.getElementById('loading').hidden && document.querySelectorAll('.material-item').length > 0, null, { timeout: 60000 });
+    await page.locator('#restoreInspector').click();
+    const materialsBefore = await page.locator('#materialList').textContent();
+    const modelBefore = await page.locator('#modelName').textContent();
+    await page.evaluate(() => { for (const [id, value] of [['rotation', '35'], ['scale', '1.25'], ['renderMode', 'wire']]) { const el = document.getElementById(id); el.value = value; el.dispatchEvent(new Event('input')); } });
+    await page.locator('#sceneFile').setInputFiles(saved);
+    await page.waitForFunction(() => document.getElementById('sceneName').value === '复用场景测试');
+    const read = () => page.evaluate(keys => Object.fromEntries(keys.map(key => { if (key === 'preset') return [key, document.querySelector('[data-preset].active').dataset.preset]; const el = document.getElementById(key); return [key, el.type === 'checkbox' ? el.checked : el.type === 'range' ? Number(el.value) : el.value]; })), Object.keys(expected));
+    assert.deepEqual(await read(), expected);
+    assert.equal(await page.locator('#materialList').textContent(), materialsBefore);
+    assert.equal(await page.locator('#modelName').textContent(), modelBefore);
+    for (const [id, value] of [['rotation', '35'], ['scale', '1.25'], ['renderMode', 'wire']]) assert.equal(await page.locator('#' + id).inputValue(), value);
+    assert.equal(await page.locator('#exposureValue').textContent(), '1.75');
+    assert.equal(await page.locator('#toggleGrid').getAttribute('aria-pressed'), 'true');
+    await page.locator('#sceneFile').setInputFiles({ name: 'broken.formscene', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ ...data, scene: { ...expected, exposure: 100 } })) });
+    await page.waitForFunction(() => document.getElementById('toast').textContent.startsWith('载入场景失败'));
+    assert.deepEqual(await read(), expected, 'Invalid files must not partially apply');
+    await page.locator('#sceneFile').setInputFiles(saved);
+    await page.waitForFunction(() => document.getElementById('toast').textContent.startsWith('已载入场景'));
+    await page.screenshot({ path: path.join(temp, 'scene-desktop.png') });
+    await page.locator('#collapseInspector').click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('#inspectorToggle').click();
+    await page.locator('#openScene').scrollIntoViewIfNeeded();
+    const bounds = await page.locator('#openScene').boundingBox();
+    assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 390);
+    await page.screenshot({ path: path.join(temp, 'scene-mobile.png') });
+    assert.deepEqual(errors, []);
+    console.log('PASS: scene download, reload/import, validation, model preservation, repeated import and mobile layout. Screenshots: ' + temp);
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });

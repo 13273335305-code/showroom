@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Spenic · 资产库</title>
+  <link rel="icon" type="image/png" sizes="64x64" href="assets/spenic-favicon.png"><link rel="stylesheet" href="workspace.css">
+<link rel="stylesheet" href="header.css">
+<link rel="stylesheet" href="asset-library.css">
+</head>
+<body class="standalone">
+  <header class="topbar"><a class="brand" href="./index.html"><img src="assets/spenic-logo.png" alt="Spenic"><strong>资产库</strong></a><div class="header-actions"><a class="button primary" href="./material-editor.html">新建材质</a></div></header>
+  <main class="library-main">
+    <div class="library-heading"><div><span class="eyebrow">YOUR ASSET COLLECTION</span><h1>灵感，从积累开始。</h1><p>集中管理材质、模型与贴图，随时带入下一次设计。</p></div><button id="importAssets" class="primary">＋ 导入资产</button></div>
+    <input id="assetFiles" type="file" accept=".fbx,.png,.jpg,.jpeg,.webp,.bmp,.formmat" multiple hidden>
+    <div class="library-tabs" role="tablist" aria-label="资产库分类">
+      <button id="fabricTab" role="tab" aria-selected="true" aria-controls="assetPanel" data-library="fabric">面料库</button>
+      <button id="patternTab" role="tab" aria-selected="false" aria-controls="assetPanel" data-library="pattern" tabindex="-1">图案库</button>
+      <button id="modelTab" role="tab" aria-selected="false" aria-controls="assetPanel" data-library="model" tabindex="-1">模型库</button>
+    </div>
+    <section id="assetPanel" role="tabpanel" aria-labelledby="fabricTab">
+    <div class="library-tools"><input id="assetSearch" type="search" placeholder="搜索资产名称" aria-label="搜索资产名称"><select id="assetCategory" aria-label="面料分类"><option value="all">所有分类</option><option>面布</option><option>边布</option><option>包边条</option><option>其他</option></select></div>
+    <p id="assetCount" role="status"></p>
+    <section id="assetGrid" class="asset-grid" aria-label="资产列表"></section>
+    </section>
+    <p>支持 FBX、图片和 .formmat 材质包；FBX 可与配套图片一起导入。资产保存在当前浏览器及本地服务地址下，清除浏览器数据会移除资产。请导出重要文件备份。</p>
+  </main>
+  <dialog id="assetDialog" class="asset-dialog" aria-labelledby="assetDialogTitle">
+    <form id="assetEditForm">
+      <h2 id="assetDialogTitle"></h2>
+      <label id="assetTextLabel" for="assetText">名称</label>
+      <textarea id="assetText" rows="3"></textarea>
+      <div id="assetPreviewEditor" hidden><img id="assetPreviewImage" alt="当前预览图"><label for="assetPreviewFile">选择预览图</label><input id="assetPreviewFile" type="file" accept="image/png,image/jpeg,image/webp,image/bmp"><p>支持 PNG、JPG、WebP、BMP，最大 16 MB。</p></div>
+      <p id="assetEditError" role="alert"></p>
+      <div class="asset-dialog-actions"><button id="cancelAssetEdit" type="button">取消</button><button id="saveAssetEdit" class="primary" type="submit">保存</button></div>
+    </form>
+  </dialog>
+  <div id="status" class="status-bar" role="status"></div>
+  <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
+  <script type="module" src="entries/asset-library.js"></script>
+</body>
+</html>

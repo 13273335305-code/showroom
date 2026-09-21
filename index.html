@@ -2,35 +2,99 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#f5f6f8"><title>FORM · 材质展厅</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%232f71ee'/%3E%3Cpath d='M12 29V11h18M12 20h14' fill='none' stroke='white' stroke-width='3'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#f5f6f8"><title>Spenic · 设计台</title>
+<link rel="icon" type="image/png" sizes="64x64" href="assets/spenic-favicon.png">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="workspace.css">
+<link rel="stylesheet" href="header.css">
+<link rel="stylesheet" href="showroom.css">
+<link rel="stylesheet" href="developer.css">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
 </head>
 <body>
 <header class="topbar">
- <a class="brand" href="./" aria-label="FORM 首页"><span class="brand-symbol">F<span>•</span></span><strong>FORM</strong><span class="brand-divider"></span><span class="brand-sub">材质展厅 <small>MATERIAL STUDIO</small></span></a>
- <div class="header-actions"><span class="local-badge"><i></i> 本地工作空间</span><button id="openProject" class="button ghost">打开项目</button><button id="saveProject" class="button ghost">保存项目</button><button id="snapshot" class="button primary">导出图片 <span>↗</span></button></div>
+ <a class="brand" href="./" aria-label="Spenic 虚拟设计台首页"><img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic"><span class="brand-divider"></span><strong class="brand-title">虚拟设计台</strong></a>
+ <button id="developerToggle" class="developer-toggle" type="button" hidden aria-label="开发者模式" title="开发者模式" aria-controls="developerPanel" aria-expanded="false" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="6" r="3.5" fill="currentColor" stroke="none"/><path d="M11 12c-5-1-8 2-8 7h6"/><path d="m14 14-3 3 3 3m6-6 3 3-3 3m-2-7-2 8"/></svg></button>
+ <nav class="app-navigation" aria-label="工作空间入口"><a href="./index.html" aria-current="page">设计台</a><a href="./material-editor.html">材质编辑器</a><a href="./asset-library.html">资产库</a></nav><div class="header-actions"><span class="local-badge"><i></i> 本地工作空间</span><button id="openProject" class="button ghost">打开项目</button><button id="saveProject" class="button ghost">保存项目</button><button id="snapshot" class="button primary">导出图片 <span>↗</span></button></div>
 </header>
-<main class="workspace">
+<aside id="developerPanel" class="developer-panel" hidden aria-labelledby="developerTitle">
+ <header class="dev-header"><div><span class="dev-eyebrow">DEVELOPER</span><h2 id="developerTitle">开发者模式</h2></div><button id="developerClose" type="button" aria-label="关闭开发者模式">×</button></header>
+ <div class="dev-scroll">
+  <section class="dev-section" aria-labelledby="developerStatusTitle"><h3 id="developerStatusTitle"><span class="dev-dot"></span>页面状态 <span id="developerMode">设计台</span></h3><p id="developerPageStatus" class="dev-status">等待采样</p><p id="developerModel" class="dev-model"></p><p id="developerPhaseStatus" class="dev-note"></p>
+   <div class="dev-metrics"><div><span>帧率</span><strong id="developerFps">—</strong></div><div><span>内存 · JS 堆估算</span><strong id="developerMemory">—</strong></div><div><span>CPU · 帧处理</span><strong id="developerCpu">—</strong></div><div><span>GPU · 渲染</span><strong id="developerGpu">—</strong></div></div>
+   <dl class="dev-render-stats"><div><dt>绘制调用 / 帧</dt><dd id="developerDraws">—</dd></div><div><dt>三角形 / 帧</dt><dd id="developerTriangles">—</dd></div><div><dt>渲染资源</dt><dd id="developerResources">—</dd></div></dl>
+   <p class="dev-note">CPU 为本页每帧更新与渲染提交耗时；GPU 为异步计时。内存不含显存。以上均非整机占用率。</p>
+  </section>
+  <section class="dev-section" aria-labelledby="developerLightTitle"><h3 id="developerLightTitle">日光流转 · 场景灯光</h3>
+   <p id="developerSceneHint" class="dev-note"></p>
+   <fieldset id="developerSceneControls"><div class="dev-phase-row"><label for="developerPhase">保存时段</label><select id="developerPhase"><option value="morning">清晨</option><option value="evening">黄昏</option><option value="night">夜晚</option></select><button id="developerLoadPhase" type="button">载入</button></div><div id="developerLighting"></div><button id="developerSavePhase" type="button" class="dev-primary dev-full">将当前灯光保存到所选时段</button></fieldset>
+  </section>
+  <section class="dev-section" aria-labelledby="developerTimingTitle"><h3 id="developerTimingTitle">展厅模式 · 日光时间</h3><form id="developerTimingForm"><div class="dev-time-inputs"><label>过渡时长 / 秒<input id="developerTransition" type="number" min="0.1" max="120" step="0.1" required value="5"></label><label>停留时长 / 秒<input id="developerHold" type="number" min="0" max="600" step="0.1" required value="3"></label></div><p class="dev-note">按清晨 → 黄昏 → 夜晚循环，每次过渡和停留使用以上时长。减少动态效果开启时直接切换。</p><button class="dev-full" type="submit">保存展厅时间</button></form></section>
+  <section class="dev-section"><h3>配置文件</h3><div class="dev-file-actions"><button id="developerExport" type="button">导出配置</button><button id="developerImport" type="button">导入配置</button></div><p class="dev-note">导出已保存的三个时段与展厅时间，可在其他浏览器导入使用。</p><p id="developerSaveStatus" class="dev-note" role="status"></p><input id="developerFile" type="file" accept=".json,application/json" hidden></section>
+ </div>
+</aside>
+<main class="workspace inspector-collapsed">
 <section class="viewport" id="viewport" aria-label="三维模型视图">
  <canvas id="canvas" aria-label="左键旋转、滚轮缩放、中键或右键平移；拖入材质球替换部位材质，双击模型选择材质"></canvas>
  <div id="materialPreview" class="material-preview" aria-hidden="true"><div class="material-preview-image"></div><div class="material-preview-label"></div></div>
  <div class="viewer-heading"><div class="eyebrow">YOUR MATERIAL. YOUR VISION.</div><h1>让每一种质感，<br>看得见。</h1><p>在光与材质之间，找到理想的表达。</p></div>
  <div class="model-chip"><span class="cube-icon">◇</span><div><strong id="modelName">正在准备展厅…</strong><small id="modelStats">THREE.JS · PBR RENDERING</small></div><button id="importModel" title="导入 FBX 模型" aria-label="导入 FBX 模型">＋</button></div>
- <div class="viewport-toolbar" aria-label="视图控制"><button id="fitView" title="适应模型 (F)" aria-label="适应模型">⌖</button><button id="frontView" title="正视图" aria-label="正视图">▣</button><button id="topView" title="俯视图" aria-label="俯视图">⊞</button><span></span><button id="autoRotate" title="自动旋转" aria-label="自动旋转" aria-pressed="false">⟳</button><button id="toggleGrid" title="切换网格" aria-label="切换网格" aria-pressed="false">▦</button><button id="fullscreen" title="全屏展厅" aria-label="全屏展厅">⛶</button></div><button id="restoreInspector" class="restore-inspector" aria-label="展开属性编辑器">属性</button>
- <div class="view-bottom"><span class="view-status"><i></i> 实时渲染 <span id="renderInfo">PBR</span></span><span class="mouse-hint">左键旋转 <b>·</b> 滚轮缩放 <b>·</b> 中键 / 右键平移 <b>·</b> 拖入材质球换材质</span><button class="button inspector-toggle" id="inspectorToggle">编辑面板 ☷</button></div>
- <div class="axis-widget" aria-hidden="true"><span>Y</span><i></i><b>X</b><em>Z</em></div>
+ <div class="viewport-actions">
+  <button id="showroomMode" class="showroom-toggle" type="button" disabled aria-label="进入展厅模式" aria-pressed="false" title="展厅模式：自动旋转、全屏与日光流转">
+   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20V5l9-3 9 3v15M3 20h18M7 20v-3h10v3M12 2v4"/><path class="showroom-display" d="m8 10 4-2 4 2v4l-4 2-4-2zm0 0 4 2 4-2m-4 2v4"/><path class="showroom-exit" d="M16 11H8m3-3-3 3 3 3"/></svg>
+  </button>
+  <div class="showroom-tools">
+  <div class="viewport-toolbar" aria-label="视图控制">
+   <button id="fitView" title="适应模型 (F)" aria-label="适应模型"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6.5"/><path d="M12 2v5m0 10v5M2 12h5m10 0h5"/></svg></button>
+   <button id="autoRotate" title="自动旋转" aria-label="自动旋转" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M8 4.5A8.5 8.5 0 0 1 20.5 12V15m-3-3 3 3 2-3M16 19.5A8.5 8.5 0 0 1 3.5 12V9m-2 3 2-3 3 3"/></svg></button>
+   <button id="fullscreen" title="全屏展厅" aria-label="全屏展厅"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5"/></svg></button>
+   <button id="annotationMode" title="标记模式：点击模型添加标记，Esc 退出" aria-label="标记模式" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4m0 0c5-4 9 4 15 0v12c-6 4-10-4-15 0"/></svg></button>
+  </div>
+  <button id="restoreInspector" class="restore-inspector" aria-label="展开属性编辑器" aria-controls="inspector" aria-expanded="false" title="属性"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="2.5" width="17" height="19" rx="3"/><path d="M11 7h5M11 12h5M11 17h5M7.5 7h.01M7.5 12h.01M7.5 17h.01"/></svg></button>
+  </div>
+ </div>
+ <div class="view-bottom"><span id="renderInfo" hidden>PBR</span><button class="button inspector-toggle" id="inspectorToggle">编辑面板 ☷</button></div>
+ <button id="dayCycle" class="day-cycle" type="button" disabled aria-label="当前清晨，点击切换到黄昏">
+  <svg class="day-cycle-art" viewBox="0 0 64 56" fill="none" aria-hidden="true">
+   <defs>
+    <clipPath id="dayHorizon"><rect data-day-clip width="64" height="56"/></clipPath>
+    <mask id="dayCrescent" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="56"><rect width="64" height="56" fill="white"/><circle data-day-cutout cx="70" cy="19" r="14" fill="black"/></mask>
+    <linearGradient id="dayBody" x1="0" y1="0" x2="0" y2="1"><stop data-day-warm stop-color="#fff0ad"/><stop data-day-cool offset="1" stop-color="#edb34b"/></linearGradient>
+   </defs>
+   <circle data-day-halo cx="30" cy="24" r="21" fill="#fff1be" opacity=".25"/>
+   <g clip-path="url(#dayHorizon)">
+    <g data-day-rays stroke="#d5a15b" stroke-width="1.5" stroke-linecap="round"><line/><line/><line/><line/><line/><line/><line/><line/></g>
+    <circle data-day-disc cx="30" cy="24" r="11" fill="url(#dayBody)" mask="url(#dayCrescent)"/>
+   </g>
+   <path data-day-horizon d="M10 47Q32 40 54 47" stroke="#8daabe" stroke-width="1.3" stroke-linecap="round" opacity=".7"/>
+   <path data-day-ripples d="M21 44h22M26 49h12" stroke="#b77755" stroke-width="1.5" stroke-linecap="round" opacity="0"/>
+   <g data-day-stars opacity="0" stroke="#eff3ff" stroke-width="1.3" stroke-linecap="round"><path d="M48 10v6M45 13h6M16 10v4M14 12h4"/><circle cx="51" cy="28" r=".8" fill="#cbdcff"/></g>
+  </svg>
+ </button>
  <div class="loading" id="loading"><div class="loading-card"><div class="spinner"></div><strong id="loadingTitle">正在搭建展厅</strong><p id="loadingDetail">载入模型与渲染资源</p></div></div>
  <div id="materialDropHint" class="material-drop-hint" role="status" hidden></div>
  <div class="drop-overlay" id="dropOverlay">松开以导入 FBX<br><small>可以同时拖入配套的纹理图片</small></div>
+ <div id="annotationLayer" class="annotation-layer"></div>
 </section>
-<aside class="inspector" id="inspector">
- <div class="inspector-title"><span>属性编辑器</span><span class="mini-label">LIVE EDITOR</span><button class="collapse-inspector" id="collapseInspector" aria-label="折叠属性编辑器" title="折叠属性编辑器">−</button><button class="close-panel" id="closeInspector" aria-label="关闭编辑面板">×</button></div>
- <div class="tabs" role="tablist" aria-label="编辑面板"><button id="materialTab" role="tab" aria-selected="true" aria-controls="materialPanel" class="active">材质</button><button id="patternTab" role="tab" aria-selected="false" aria-controls="patternPanel">图案</button><button id="sceneTab" role="tab" aria-selected="false" aria-controls="scenePanel">场景与灯光</button></div>
+<aside class="inspector" id="inspector" aria-hidden="true">
+ <span class="inspector-morph-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="2.5" width="17" height="19" rx="3"/><path d="M11 7h5M11 12h5M11 17h5M7.5 7h.01M7.5 12h.01M7.5 17h.01"/></svg></span>
+ <div class="inspector-title"><span id="inspectorHeading">属性编辑器</span><span class="mini-label">LIVE EDITOR</span><button class="collapse-inspector" id="collapseInspector" aria-label="折叠属性编辑器" title="折叠属性编辑器">−</button><button class="close-panel" id="closeInspector" aria-label="关闭编辑面板">×</button></div>
+ <div class="tabs" hidden role="tablist" aria-label="编辑面板"><button id="materialTab" role="tab" aria-selected="true" aria-controls="materialPanel" class="active">材质</button><button id="patternTab" role="tab" aria-selected="false" aria-controls="patternPanel">图案</button><button id="sceneTab" role="tab" aria-selected="false" aria-controls="scenePanel">场景与灯光</button></div>
  <div class="panel-scroll">
+ <section id="annotationPanel" class="panel annotation-panel" hidden>
+  <ol id="annotationList" class="annotation-list" aria-label="模型标记"></ol>
+  <p id="annotationEmpty" class="annotation-help">尚无标记，点击模型表面即可添加。</p>
+ </section>
+ <button id="backToScene" class="text-button" hidden>← 场景与灯光</button>
+ <section id="compactMaterialPanel" aria-label="材质参数" hidden></section>
+ <div id="legacyMaterialControls" hidden inert>
   <section id="materialPanel" role="tabpanel" aria-labelledby="materialTab">
    <div class="selection-card"><div class="selected-swatch" id="selectedSwatch"></div><div><span class="eyebrow">SELECTED MATERIAL</span><input id="materialName" aria-label="材质名称" placeholder="选择一个材质" maxlength="100"><small id="materialUsage">等待载入模型</small></div></div>
+   <label class="select-row">面料分类<select id="fabricCategory"><option>面布</option><option>边布</option><option>包边条</option><option>其他</option></select></label>
+   <button id="undoMaterial" class="text-button undo-material" disabled>撤销上一次换材</button>
+   <div class="design-library-actions"><button id="saveToLibrary" class="button">保存当前材质到资产库</button></div>
+   <label class="select-row">资产库材质<select id="libraryMaterial" aria-label="资产库材质"><option value="">选择已保存材质</option></select></label>
+   <div class="design-library-actions"><button id="addLibraryMaterial" class="button">添加到面料列表</button><button id="refreshLibrary" class="text-button">刷新列表</button></div>
    <div class="material-actions"><label class="check"><input type="checkbox" id="isolate"> 仅显示此材质</label><button id="resetMaterial" class="text-button">重置材质</button></div>
    <div class="section-heading"><h2>PBR 贴图</h2><span>每个材质独立配置</span></div>
    <div id="textureSlots" class="texture-slots"></div>
@@ -55,7 +119,7 @@
    <label class="color-row">基础颜色 <input id="baseColor" type="color" value="#ffffff" aria-label="基础颜色"></label>
    <label class="range-row">粗糙度 <output id="roughnessValue">0.65</output><input id="roughness" type="range" min="0" max="1" step="0.01" value="0.65"></label>
    <label class="range-row">金属度 <output id="metalnessValue">0.00</output><input id="metalness" type="range" min="0" max="1" step="0.01" value="0"></label>
-   <label class="range-row">法线强度 <output id="normalStrengthValue">1.00</output><input id="normalStrength" type="range" min="0" max="3" step="0.05" value="1"></label>
+   <label class="range-row">法线强度 <output id="normalStrengthValue">1.00</output><input id="normalStrength" type="range" min="0" max="3" step="0.05" value="1.2"></label>
    <label class="range-row">AO 强度 <output id="aoStrengthValue">1.00</output><input id="aoStrength" type="range" min="0" max="3" step="0.05" value="1"></label>
    <label class="range-row">自发光强度 <output id="emissiveStrengthValue">1.00</output><input id="emissiveStrength" type="range" min="0" max="3" step="0.05" value="1"></label>
    <label class="range-row">凹凸强度 <output id="bumpStrengthValue">0.02</output><input id="bumpStrength" type="range" min="0" max="0.2" step="0.005" value="0.02"></label>
@@ -63,17 +127,34 @@
    <label class="check"><input type="checkbox" id="flipNormal"> 翻转法线 Y（DirectX 贴图）</label>
   </section>
   <section id="patternPanel" role="tabpanel" aria-labelledby="patternTab" hidden>
-   <div class="section-heading first"><h2>图案图层</h2><span>DECAL DESIGN</span></div>
-   <p class="micro-note">上传透明底图后点击模型表面放置图案，可拖动、缩放和旋转。</p>
-   <div class="texture-slots pattern-slots"><label class="texture-slot pattern-upload" id="patternImageSlot"><span><strong>＋</strong>图案透明底图</span><input id="patternImage" type="file" accept="image/png,image/webp,image/jpeg"></label><label class="texture-slot pattern-upload"><span><strong>＋</strong>图案法线</span><input id="patternNormal" type="file" accept="image/png,image/webp,image/jpeg"></label><label class="texture-slot pattern-upload"><span><strong>＋</strong>图案粗糙度</span><input id="patternRoughness" type="file" accept="image/png,image/webp,image/jpeg"></label></div>
-   <button id="patternPlace" class="button primary full" disabled>点击模型放置图案</button>
-   <div class="uv-row pattern-size"><label>宽度（cm）<input id="patternWidth" type="number" min="0.1" max="10000" step="0.1" value="10" disabled></label><label>高度（cm）<input id="patternHeight" type="number" min="0.1" max="10000" step="0.1" value="10" disabled></label></div>
-   <label class="check"><input id="patternLock" type="checkbox" checked disabled> 固定图案比例</label>
-   <label class="range-row">图案旋转 <output id="patternRotationValue">0°</output><input id="patternRotation" type="range" min="-180" max="180" step="1" value="0" disabled></label>
+   <div class="section-heading first"><h2>UV 图案</h2><span>UV PLACEMENT</span></div>
+   <label class="button full pattern-file">选择图片<input id="patternImage" type="file" accept="image/png,image/jpeg,image/webp" hidden></label>
+   <img id="patternThumbnail" alt="图案预览" hidden>
+   <p id="patternStatus" class="micro-note">PNG 透明区域会露出原材质；JPG 会保留图片背景。</p>
+   <div class="uv-row"><label>宽度（cm）<input id="patternWidth" type="number" min="0.1" max="1000" step="0.1" value="30"></label><label>高度（cm）<input id="patternHeight" type="number" min="0.1" max="1000" step="0.1" value="30"></label></div>
+   <label class="range-row">旋转 <output id="patternRotationValue">0°</output><input id="patternRotation" type="range" min="-180" max="180" value="0"></label>
+   <button id="patternPlace" class="button primary full" disabled>点击模型放置图片</button>
+   <label class="select-row">已放置图案<select id="patternLayers" aria-label="已放置图案"></select></label>
+   <div class="section-heading"><h2>选中图案 · PBR</h2><span>SURFACE</span></div>
+   <p class="micro-note">先放置图片或选择已有图案，再上传配套贴图。贴图需使用相同布局，透明范围取自基础图片。</p>
+   <div id="patternPbrSlots"></div>
+   <label class="range-row">法线强度 <output id="patternNormalValue">1.00</output><input id="patternNormalStrength" type="range" min="0" max="3" step="0.05" value="1" disabled></label>
+   <label class="check"><input id="patternNormalFlip" type="checkbox" disabled> 翻转法线 Y（DirectX）</label>
+   <label class="range-row">粗糙度 <output id="patternRoughnessValue">0.80</output><input id="patternRoughnessStrength" type="range" min="0" max="1" step="0.01" value="0.8" disabled></label>
+   <label class="range-row">金属度 <output id="patternMetalnessValue">0.00</output><input id="patternMetalnessStrength" type="range" min="0" max="1" step="0.01" value="0" disabled></label>
+   <button id="patternMove" class="button full" disabled>重新放置选中图案</button>
    <button id="patternDelete" class="button full" disabled>删除选中图案</button>
+   <canvas id="patternUV" width="320" height="250" aria-label="图案 UV 位置编辑器"></canvas><p class="micro-note">点击或拖动 UV 预览中的蓝色定位点，三维图案同步移动。尺寸按 UV 尺度换算；UV 拉伸会影响尺寸精度，重叠 UV 会重复显示图案。</p>
   </section>
+ </div>
   <section id="scenePanel" role="tabpanel" aria-labelledby="sceneTab" hidden>
    <div class="section-heading first"><h2>环境场景</h2><span>ENVIRONMENT</span></div>
+   <div class="scene-file-controls">
+    <label for="sceneName">场景名称</label><input id="sceneName" type="text" value="我的场景" maxlength="80" placeholder="为调好的场景命名">
+    <div class="scene-file-actions"><button id="saveScene" class="button">保存场景</button><button id="openScene" class="button">载入场景</button></div>
+    <p class="micro-note">保存环境、灯光和地台设置，方便在不同模型中复用。</p>
+    <input id="sceneFile" type="file" accept=".formscene,.json" hidden>
+   </div>
    <div class="preset-grid"><button data-preset="studio" class="preset active"><i class="preset-studio"></i>柔光展厅</button><button data-preset="daylight" class="preset"><i class="preset-day"></i>清晨日光</button><button data-preset="night" class="preset"><i class="preset-night"></i>深色影棚</button></div>
    <label class="color-row">背景颜色 <input id="backgroundColor" type="color" value="#e8edf2" aria-label="背景颜色"></label>
    <label class="range-row">曝光 <output id="exposureValue">1.10</output><input id="exposure" type="range" min="0.2" max="2.5" step="0.05" value="1.1"></label>
@@ -84,18 +165,24 @@
    <label class="color-row">主光颜色 <input id="lightColor" type="color" value="#fff4e6" aria-label="主光颜色"></label>
    <label class="range-row">补光强度 <output id="fillLightValue">1.50</output><input id="fillLight" type="range" min="0" max="5" step="0.1" value="1.5"></label>
    <div class="switches"><label class="check"><input id="shadows" type="checkbox" checked> 地面阴影</label><label class="check"><input id="reflection" type="checkbox" checked> 地面反射</label><label class="check"><input id="floorVisible" type="checkbox" checked> 展示地台</label><label class="check"><input id="grid" type="checkbox"> 辅助网格</label></div>
-   <div class="section-heading"><h2>模型与渲染</h2><span>TRANSFORM</span></div>
+   <div hidden inert><div class="section-heading"><h2>模型与渲染</h2><span>TRANSFORM</span></div>
    <label class="range-row">模型旋转 <output id="rotationValue">0°</output><input id="rotation" type="range" min="-180" max="180" step="1" value="0"></label>
-   <label class="range-row">预览缩放 <output id="scaleValue">1.00</output><input id="scale" type="range" min="0.25" max="2" step="0.05" value="1"></label>
+   <label class="range-row">预览缩放 <output id="scaleValue">1.20</output><input id="scale" type="range" min="0.25" max="2" step="0.05" value="1"></label>
    <label class="select-row">显示模式 <select id="renderMode"><option value="pbr">PBR 真实材质</option><option value="wire">线框结构</option><option value="flat">平面着色</option></select></label>
-   <button id="resetScene" class="button full">重置场景设置</button>
+   </div><button id="resetScene" class="button full">重置场景设置</button>
   </section>
-  <div class="help-box"><span>◇</span><p>导入你的模型，探索更多可能。<br><button id="importSecondary" class="text-button">选择 FBX 与配套纹理 ↗</button></p></div>
+  <div class="help-box" hidden><span>◇</span><p>导入你的模型，探索更多可能。<br><button id="importSecondary" class="text-button">选择 FBX 与配套纹理 ↗</button></p></div>
  </div>
 </aside>
 </main>
-<footer class="material-dock"><div class="dock-heading"><div><span class="eyebrow">MATERIAL COLLECTION</span><h2>模型材质 <span id="materialCount">00</span></h2></div><div class="dock-tools"><span>拖动材质球到模型，替换部位材质</span><button id="undoMaterial" class="undo-material" disabled title="撤销上一次拖放替换">撤销换材</button><button id="scrollLeft" aria-label="向左滚动材质">←</button><button id="scrollRight" aria-label="向右滚动材质">→</button></div></div><div class="material-list" id="materialList" aria-label="模型材质列表"></div></footer>
+<footer class="material-dock">
+ <div class="dock-heading"><nav class="dock-tabs" aria-label="材质大类"><button id="fabricDockTab" class="active" aria-pressed="true">面料</button><button id="patternDockTab" aria-pressed="false">图案</button></nav><span id="materialCount" hidden>00</span><div class="dock-operations"><button id="dockUndo" class="text-button" disabled>撤销换材</button><button id="dockPatternPlace" class="text-button" hidden>放置图案</button></div></div>
+ <div class="fabric-browser" id="fabricDock"><nav class="fabric-categories" aria-label="面料分类"><button data-fabric="面布" class="active" aria-pressed="true">面布</button><button data-fabric="边布" aria-pressed="false">边布</button><button data-fabric="包边条" aria-pressed="false">包边条</button><button data-fabric="其他" aria-pressed="false">其他</button></nav><div class="dock-carousel"><div class="material-list" id="materialList" aria-label="面料列表"><button id="addDockAsset" class="dock-add" aria-label="从资产库新增面料" title="新增面料"><span class="dock-add-icon" aria-hidden="true">＋</span></button></div><button id="scrollLeft" class="dock-page previous" aria-label="上一页面料" hidden>‹</button><button id="scrollRight" class="dock-page next" aria-label="下一页面料" hidden>›</button></div></div>
+ <div id="patternBrowser" class="dock-carousel" hidden><div class="material-list pattern-list" id="patternDock" aria-label="图案列表" hidden></div></div>
+ <div class="dock-delete-tools"><button id="dockTrash" class="dock-trash" aria-label="删除材质或图案" title="点击多选，或拖入删除；正在使用的面料不可删除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7"/></svg></button><div id="dockDeleteActions" hidden><button id="dockCancelDelete">取消</button><button id="dockDeleteSelected" disabled>删除</button></div></div>
+</footer>
+<dialog id="assetPicker" aria-labelledby="assetPickerTitle"><header><div><h2 id="assetPickerTitle">从资产库新增</h2><p id="assetPickerDescription"></p></div><button id="closeAssetPicker" aria-label="关闭资产库">×</button></header><div class="picker-tools"><input id="pickerSearch" type="search" aria-label="搜索库中材质" placeholder="搜索材质名称"><button id="pickerRefresh" class="button">刷新</button><a href="./asset-library.html" target="_blank" rel="noopener">管理资产库 ↗</a></div><div id="pickerStatus" role="status"></div><div id="pickerGrid"></div></dialog>
 <div id="toast" role="status" class="toast"></div><input id="modelFile" type="file" accept=".fbx,.png,.jpg,.jpeg,.webp,.bmp" multiple hidden><input id="projectFile" type="file" accept=".form,.zip" hidden>
 <script>window.addEventListener('error',function(e){if(e.target&&e.target.tagName==='SCRIPT'){document.getElementById('loadingTitle').textContent='资源未能载入';document.getElementById('loadingDetail').textContent='请使用“启动编辑器.bat”，并保持 vendor 文件夹完整。'}},true);</script>
-<script type="module" src="app.js"></script>
+<script type="module" src="entries/design.js"></script>
 </body></html>

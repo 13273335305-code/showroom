@@ -1,0 +1,26 @@
+import assert from 'node:assert/strict';
+import { MeshStandardMaterial, Texture } from '../vendor/three/build/three.module.js';
+import { packMaterial, unpackMaterial } from '../shared/material-package.js';
+import { readSurface, applySurface, readLegacyUV, applyLegacyUV } from '../shared/material-data.js';
+import { defaultPhysical } from '../physical-textures.js';
+
+const material = new MeshStandardMaterial({ color: '#aabbcc', roughness: .23, metalness: .4, bumpScale: .02, transparent: true, opacity: .8 });
+material.normalScale.set(2, -2);
+const texture = new Texture(); texture.repeat.set(2, 3); texture.offset.set(.2, .3); texture.rotation = .4;
+const asset = { name: '面料测试', kind: 'material', category: '面布', surface: readSurface(material), physical: { ...defaultPhysical(), sizeSource: 'manual', widthCm: 20 }, repeat: [2, 3], maps: { map: new File([new Uint8Array([1, 2, 3])], 'test.png', { type: 'image/png' }) }, legacyMaps: { map: readLegacyUV(texture) } };
+const restored = await unpackMaterial(new File([await packMaterial(asset)], 'test.formmat'));
+assert.equal(restored.name, asset.name);
+const withMetadata = { ...asset, description: '柔软编织面料', preview: new Blob([new Uint8Array([4, 5, 6])], { type: 'image/png' }) };
+const restoredMetadata = await unpackMaterial(new File([await packMaterial(withMetadata)], 'preview.formmat'));
+assert.equal(restoredMetadata.description, withMetadata.description);
+assert.equal(restoredMetadata.preview.type, 'image/png');
+assert.deepEqual(new Uint8Array(await restoredMetadata.preview.arrayBuffer()), new Uint8Array([4, 5, 6]));
+assert.deepEqual(restored.surface, asset.surface);
+assert.equal(restored.physical.widthCm, 20);
+assert.deepEqual(new Uint8Array(await restored.maps.map.arrayBuffer()), new Uint8Array([1, 2, 3]));
+const target = new MeshStandardMaterial(); applySurface(target, restored.surface);
+assert.deepEqual(readSurface(target), readSurface(material));
+const nextTexture = new Texture(); applyLegacyUV(nextTexture, restored.legacyMaps.map);
+assert.deepEqual(readLegacyUV(nextTexture), readLegacyUV(texture));
+await assert.rejects(unpackMaterial(new File(['invalid'], 'broken.formmat')));
+console.log('PASS: material package roundtrip retains maps, surface, physical sizes and original UV transforms; invalid archive rejected');

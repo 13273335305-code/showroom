@@ -1,0 +1,37 @@
+.library-tabs{display:flex;gap:8px;margin-top:28px;border-bottom:1px solid #d6e0eb;padding-bottom:8px}
+.library-tabs [role=tab]{padding:10px 24px;border-color:transparent;background:transparent;font-weight:600;color:#718197}
+.library-tabs [aria-selected=true]{background:#e0ebff;color:#2366cd;border-color:#cbdcff}
+.library-tabs button:hover{background:#e7eef8}
+.library-tools{gap:8px;margin:18px 0 12px}
+#assetCount{margin:0 0 12px;font-size:12px}
+.asset-grid{grid-template-columns:repeat(auto-fill,minmax(min(280px,100%),1fr));gap:8px;align-items:start}
+.asset-card{position:relative;display:grid;grid-template-rows:minmax(0,1fr) auto;aspect-ratio:4/3;min-width:0;min-height:0;border-radius:12px;overflow:visible}
+.asset-card.menu-open{z-index:5}
+.asset-art{height:auto;min-height:0;border-radius:11px 11px 0 0;font-size:12px;color:#74869a;background:linear-gradient(135deg,#e9eff5,#dbe5ef)}
+.asset-art img{object-fit:contain}
+.asset-art .sphere{width:80px;height:80px;max-height:85%;aspect-ratio:1}
+.asset-info{min-width:0;padding:10px 12px 12px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;align-items:center}
+.standalone .asset-info h2{grid-column:1/-1;font-size:14px;line-height:20px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.asset-info .asset-description{font-size:12px;line-height:18px;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.asset-actions{grid-column:2;grid-row:2;display:block}
+.asset-actions .button{padding:5px 12px;font-size:12px;line-height:18px;white-space:nowrap;border-radius:7px}
+.asset-actions .model-design-actions{display:flex;align-items:center;gap:5px;justify-content:flex-end}
+.asset-actions .model-settings{display:grid;place-items:center;width:31px;height:29px;padding:0;border:1px solid #d5dfeb;border-radius:7px;background:#f8fbff;color:#55789f;font-size:17px;text-decoration:none}
+.asset-actions .model-settings:hover{color:#2366cd;background:#edf3ff;border-color:#b8cff4}
+.standalone .asset-menu-trigger{position:absolute;top:8px;right:8px;display:grid;place-items:center;width:30px;height:30px;padding:0;background:#fffffff0;border:1px solid #d5dfeb;box-shadow:0 2px 6px #2532460c;font-size:22px;font-weight:700;line-height:1;border-radius:8px}
+.asset-menu-trigger:hover,.asset-menu-trigger[aria-expanded=true]{color:#2366cd;background:#edf3ff}
+.asset-menu{position:absolute;top:42px;right:8px;z-index:6;width:144px;padding:5px;background:white;border:1px solid #d6e0eb;border-radius:10px;box-shadow:0 8px 28px #23394d25}
+.standalone .asset-menu button{display:block;width:100%;text-align:left;font-size:12px;line-height:20px;padding:7px 10px;border:0;border-radius:6px}
+.asset-menu button:hover,.asset-menu button:focus-visible{background:#edf3ff;outline:none;color:#2366cd}
+.standalone .asset-menu .danger{color:#cc4656;border-top:1px solid #eef1f5;border-radius:0 0 6px 6px}
+.asset-dialog{width:min(440px,calc(100vw - 32px));padding:24px;border:1px solid #d6e0eb;border-radius:16px;color:#253246;box-shadow:0 20px 80px #1c344b33}
+.asset-dialog::backdrop{background:#16273b55;backdrop-filter:blur(3px)}
+.standalone .asset-dialog h2{margin:0 0 20px;font-size:18px}
+.asset-dialog label{display:block;margin-bottom:6px;font-size:13px}
+.asset-dialog textarea{display:block;width:100%;resize:vertical;min-height:44px;max-height:240px;padding:10px 12px;border:1px solid #ccd8e5;border-radius:8px;font:inherit}
+.asset-dialog input[type=file]{max-width:100%;font-size:12px}
+#assetPreviewImage{display:block;width:100%;height:190px;object-fit:contain;border-radius:8px;background:#edf2f7;margin-bottom:16px}
+#assetPreviewEditor p{font-size:12px}
+.asset-dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+#assetEditError{font-size:12px;color:#bf3448;margin:8px 0;overflow-wrap:anywhere}
+@media(max-width:760px){.library-tabs [role=tab]{flex:1;padding:9px 8px}.library-tabs{margin-top:18px}.library-heading{flex-wrap:wrap}.library-main{padding:22px 14px}.asset-grid{grid-template-columns:repeat(auto-fill,minmax(min(280px,100%),1fr))}}

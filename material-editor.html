@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Spenic · 材质编辑器</title>
+  <link rel="icon" type="image/png" sizes="64x64" href="assets/spenic-favicon.png"><link rel="stylesheet" href="workspace.css">
+<link rel="stylesheet" href="header.css">
+  <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
+</head>
+<body class="standalone">
+  <header class="topbar">
+    <a class="brand" href="./index.html"><img src="assets/spenic-logo.png" alt="Spenic"><strong>材质编辑器</strong></a>
+    <div class="header-actions"><button id="newMaterial">新建材质</button><button id="exportMaterial">导出材质</button><button id="saveMaterial" class="primary" disabled>保存到资产库</button></div>
+  </header>
+  <main class="editor-layout">
+    <section id="previewPane" class="preview-pane" aria-label="材质预览">
+      <canvas id="materialCanvas" aria-label="三维材质预览，拖动旋转，滚轮缩放"></canvas>
+      <div id="patternPreview" class="pattern-preview" hidden></div>
+      <div class="preview-copy"><span class="eyebrow">MATERIAL STUDIO</span><h1>从一束光，<br>看见材质的细节。</h1><p>独立编辑 PBR 材质，保存后在设计台中使用。</p></div>
+      <div class="preview-controls"><button id="spherePreview" aria-pressed="true">材质球</button><button id="planePreview" aria-pressed="false">平面 · 100 × 100 cm</button></div>
+    </section>
+    <aside class="editor-panel" aria-label="材质参数">
+      <div class="material-type-tabs" role="group" aria-label="材质大类">
+        <button type="button" data-material-type="fabric" aria-pressed="true" class="active">面料</button>
+        <button type="button" data-material-type="pattern" aria-pressed="false">图案</button>
+      </div>
+      <select id="materialType" aria-label="材质大类" hidden><option value="fabric">面料</option><option value="pattern">图案</option></select>
+      <h2>材质信息</h2>
+      <label>名称<input id="name" value="新材质" maxlength="100"></label>
+      <label id="fabricCategoryRow">面料分类<select id="category"><option>面布</option><option>边布</option><option>包边条</option></select></label>
+      <h2 id="sizingHeading">铺贴尺寸</h2>
+      <label>铺贴方式<select id="sizing"><option value="physical">真实物理尺寸</option><option value="legacy">原始 UV</option></select></label>
+      <div id="physicalControls">
+        <label>宽度（cm）<input id="widthCm" type="number" min="0.01" max="100000" step="0.1" value="10"></label>
+        <label>高度（cm）<input id="heightCm" type="number" min="0.01" max="100000" step="0.1" value="10"></label>
+        <label>纹理角度<input id="angle" type="number" min="-180" max="180" value="0"></label>
+      </div>
+      <div id="repeatControls" hidden>
+        <label>重复 U<input id="repeatU" type="number" min="0.01" max="100" step="0.1" value="1"></label>
+        <label>重复 V<input id="repeatV" type="number" min="0.01" max="100" step="0.1" value="1"></label>
+      </div>
+      <p id="sizeNote">默认按手动厘米铺贴；选择贴图后可读取其中的 DPI 尺寸。</p>
+      <button id="readDpi">从基础颜色贴图读取 DPI</button>
+      <h2 id="pbrHeading">PBR 贴图</h2><p class="pbr-help">拖入图片或点击上传 · PNG / JPG / WebP / BMP，每张最多 64 MB。粗糙度读取灰度，金属度 B、AO R 通道。</p>
+      <div class="pbr-columns" aria-hidden="true"><span>贴图</span><span>数值与调节</span></div>
+      <div id="materialMaps"></div>
+    </aside>
+  </main>
+  <div id="status" class="status-bar" role="status"></div>
+  <script type="module" src="entries/material-editor.js"></script>
+</body>
+</html>

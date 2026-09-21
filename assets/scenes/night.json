@@ -1,0 +1,19 @@
+{
+  "format": "SPENIC-SCENE",
+  "version": 1,
+  "name": "夜晚场景",
+  "scene": {
+    "preset": "night",
+    "backgroundColor": "#172232",
+    "exposure": 0.35,
+    "environment": 0.05,
+    "keyLight": 2.7,
+    "lightAngle": -7,
+    "lightColor": "#dde8ff",
+    "fillLight": 5,
+    "shadows": false,
+    "reflection": true,
+    "floorVisible": true,
+    "grid": false
+  }
+}

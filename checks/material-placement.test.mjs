@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {Texture,Vector2} from '../vendor/three/build/three.module.js';
+import {setPhysicalTransform} from '../physical-textures.js';
+import {applyPlacement,readPlacement,materialType} from '../shared/material-placement.js';
+const t=new Texture();t.repeat.set(2,3);applyPlacement(t,{offset:[.25,.1],angle:0});
+const uv=new Vector2(.5,.5).applyMatrix3(t.matrix);assert.ok(uv.distanceTo(new Vector2(.75,1.4))<1e-9);
+const physical=new Texture();setPhysicalTransform(physical,{widthCm:20,heightCm:10,angle:0},1);applyPlacement(physical,{offset:[.1,.2],angle:90});
+assert.ok(new Vector2(10,5).applyMatrix3(physical.matrix).distanceTo(new Vector2(.3,.6))<1e-9);
+assert.throws(()=>readPlacement({offset:[NaN,0]}));assert.deepEqual(readPlacement(),{offset:[0,0],angle:0});assert.equal(materialType({}), 'fabric');assert.equal(materialType({materialType:'pattern'}),'pattern');
+console.log('PASS: UV transforms compose over physical and legacy mappings, invalid placement rejected, legacy material defaults to fabric');

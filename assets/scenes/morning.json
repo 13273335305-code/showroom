@@ -1,0 +1,19 @@
+{
+  "format": "SPENIC-SCENE",
+  "version": 1,
+  "name": "清晨场景",
+  "scene": {
+    "preset": "studio",
+    "backgroundColor": "#ddebf8",
+    "exposure": 0.55,
+    "environment": 0.7,
+    "keyLight": 3,
+    "lightAngle": -123,
+    "lightColor": "#fff4e6",
+    "fillLight": 0.7,
+    "shadows": true,
+    "reflection": true,
+    "floorVisible": true,
+    "grid": false
+  }
+}
