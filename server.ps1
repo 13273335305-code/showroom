@@ -15,7 +15,7 @@ $Host.UI.RawUI.WindowTitle='FORM Material Studio - close this window to stop'
 Write-Host "FORM Material Studio is running at $url"
 Write-Host 'Keep this window open. Close it to stop the local server.'
 if(-not $NoBrowser){Start-Process $url}
-$mime=@{'.html'='text/html; charset=utf-8';'.js'='text/javascript; charset=utf-8';'.css'='text/css; charset=utf-8';'.json'='application/json';'.png'='image/png';'.jpg'='image/jpeg';'.jpeg'='image/jpeg';'.webp'='image/webp';'.svg'='image/svg+xml';'.fbx'='application/octet-stream';'.ico'='image/x-icon'}
+$mime=@{'.html'='text/html; charset=utf-8';'.js'='text/javascript; charset=utf-8';'.css'='text/css; charset=utf-8';'.json'='application/json';'.png'='image/png';'.jpg'='image/jpeg';'.jpeg'='image/jpeg';'.webp'='image/webp';'.svg'='image/svg+xml';'.fbx'='application/octet-stream';'.formmat'='application/zip';'.ico'='image/x-icon'}
 try{
  while($true){
   $client=$listener.AcceptTcpClient();$client.ReceiveTimeout=5000;$client.SendTimeout=30000

@@ -35,14 +35,16 @@ function createMenu(asset, card) {
   trigger.setAttribute('aria-haspopup', 'menu'); trigger.setAttribute('aria-expanded', 'false');
   const panel = document.createElement('div'); panel.className = 'asset-menu'; panel.hidden = true; panel.setAttribute('role', 'menu');
   panel.id = 'menu-' + asset.id; trigger.setAttribute('aria-controls', panel.id);
-  panel.append(action('重命名', () => editAsset(asset, 'name')), action('编辑简介', () => editAsset(asset, 'description')),
+  const actions = [action('重命名', () => editAsset(asset, 'name')), action('编辑简介', () => editAsset(asset, 'description')),
     action('预览图', () => editAsset(asset, 'preview')), action('导出', async () => {
       if (asset.kind === 'material') downloadFile(await packMaterial(asset), asset.name + '.formmat');
       else { downloadFile(asset.file, asset.file.name); for (const file of asset.resources || []) downloadFile(file, file.name); }
-    }), action('删除', async () => {
+    })];
+  if (!asset.builtin) actions.push(action('删除', async () => {
       if (!confirm('删除「' + asset.name + '」？已导出的文件不受影响。')) return;
       await deleteAsset(asset.id); await refresh(); status('已删除资产');
     }));
+  panel.append(...actions);
   const items = [...panel.children];
   items.forEach(item => { item.setAttribute('role', 'menuitem'); item.tabIndex = -1; });
   items.at(-1).classList.add('danger');

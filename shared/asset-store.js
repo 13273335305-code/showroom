@@ -1,5 +1,11 @@
 // Blob/File storage shared by the three pages on the same local server origin.
 const DB_NAME = 'spenic-workspace-assets';
+const BUILTIN_ASSETS = [
+  { id: 'builtin-test-embroidery', name: '测试刺绣', category: '面布', url: './assets/builtin/test-embroidery.formmat' },
+  { id: 'builtin-test-fabric', name: '测试面布', category: '面布', url: './assets/builtin/test-fabric.formmat' },
+  { id: 'builtin-test-edge-fabric', name: '测试边布', category: '边布', url: './assets/builtin/test-edge-fabric.formmat' },
+  { id: 'builtin-test-piping', name: '测试包边条', category: '包边条', url: './assets/builtin/test-piping.formmat' },
+];
 let database;
 function openDatabase() {
   if (!database) database = new Promise((resolve, reject) => {
@@ -20,8 +26,32 @@ async function transaction(mode, operation) {
     tx.onerror = tx.onabort = () => reject(tx.error || new Error('资产操作失败，请检查浏览器存储空间'));
   });
 }
-export const listAssets = () => transaction('readonly', store => store.getAll());
-export const getAsset = id => transaction('readonly', store => store.get(id));
+let builtinAssetsPromise;
+async function ensureBuiltinAssets() {
+  if (!builtinAssetsPromise) builtinAssetsPromise = (async () => {
+    const existing = await transaction('readonly', store => store.getAll());
+    const known = new Set(existing.map(asset => asset.id));
+    for (const definition of BUILTIN_ASSETS) {
+      if (known.has(definition.id)) continue;
+      const response = await fetch(definition.url);
+      if (!response.ok) throw new Error('无法载入内置素材：' + definition.name);
+      const file = new File([await response.arrayBuffer()], definition.name + '.formmat', { type: 'application/zip' });
+      const asset = await import('./material-package.js').then(({ unpackMaterial }) => unpackMaterial(file));
+      await transaction('readwrite', store => store.put({
+        ...asset,
+        id: definition.id,
+        name: definition.name,
+        category: definition.category,
+        builtin: true,
+        updatedAt: 0,
+      }));
+      known.add(definition.id);
+    }
+  })().catch(error => { builtinAssetsPromise = null; throw error; });
+  return builtinAssetsPromise;
+}
+export const listAssets = async () => { await ensureBuiltinAssets(); return transaction('readonly', store => store.getAll()); };
+export const getAsset = async id => { await ensureBuiltinAssets(); return transaction('readonly', store => store.get(id)); };
 export const deleteAsset = id => transaction('readwrite', store => store.delete(id));
 export async function saveAsset(asset) {
   if (!['material', 'model', 'texture'].includes(asset.kind) || !asset.name?.trim()) throw new Error('资产名称或类型无效');

@@ -35,6 +35,8 @@ const DEFAULTS={...ENVIRONMENT_DEFAULTS,rotation:0,scale:1.2,renderMode:'pbr',au
 let state={...DEFAULTS},renderer,scene,camera,controls,floor,reflector,stage,ring,grid,key,fill,hemi,model,entries=[],selected=null;
 let modelSource=null,modelGeneration=0,currentLoad=0,loadingModel=false,toastTimer;
 let loginReady=false,loginComplete=false;
+let loadingMessageToken=0,loadingMessageTimer=null,loadingSequenceStarted=0,loadingSequenceActive=false;
+const LOGIN_LOADING_MESSAGES=['正在加载展厅','正在加载贴图','正在加载模型'];
 let partAssignments=new Map();
 let draggedMaterial=null, assignmentHistory=[],materialPreviewTimer=null;
 let materialHoldTimer=null, materialHoverTimer=null, previewAnimation=null, activeReveal=null, suppressMaterialClick=false, materialPulse=null;
@@ -51,26 +53,51 @@ function partTypesForMaterial(material){if(material?.userData?.partTypes instanc
 function materialSlotsForPartType(type){const result=[];model?.traverse(o=>{if(!o.isMesh)return;const materials=Array.isArray(o.material)?o.material:[o.material];materials.forEach((material,slot)=>{if(partTypesForMaterial(material).has(type))result.push({mesh:o,slot,material});});});return result;}
 const MATERIAL_DRAG_TYPE='application/x-form-material';
 function notify(message,duration=3500){$('toast').textContent=message;$('toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('show'),duration);}
-function busy(title,detail='请稍候…'){endMaterialDrag();$('loadingTitle').textContent=title;$('loadingDetail').textContent=detail;$('loading').hidden=false;}
-function hideBusy(){$('loading').hidden=true;}
+function renderLoadingMessage(message){
+ const progress=$('loadingProgress');if(!progress)return;
+ progress.classList.remove('subtitle-flash','subtitle-out');
+ void progress.offsetWidth;progress.classList.add('subtitle-flash');
+ $('loadingTitle').textContent=message;
+}
+function scheduleLoadingSequence(index=0){
+ if(index>=LOGIN_LOADING_MESSAGES.length||!loadingSequenceActive)return;
+ const delay=Math.max(0,index*1000-(performance.now()-loadingSequenceStarted));
+ clearTimeout(loadingMessageTimer);
+ loadingMessageTimer=setTimeout(()=>{
+  if(!loadingSequenceActive)return;
+  renderLoadingMessage(LOGIN_LOADING_MESSAGES[index]);
+  scheduleLoadingSequence(index+1);
+ },delay);
+}
+function busy(title='请稍候…',detail=''){
+ endMaterialDrag();const progress=$('loadingProgress');if(!progress)return;
+ progress.hidden=false;$('loading').hidden=false;
+ if(loadingSequenceActive)return;
+ renderLoadingMessage(title);
+}
+function hideBusy(){loadingMessageToken++;loadingSequenceActive=false;clearTimeout(loadingMessageTimer);$('loading').hidden=true;}
 function showLoginShell(){
  const loading=$('loading'),progress=$('loadingProgress'),card=$('loginCard'),submit=$('loginSubmit'),status=$('loginStatus');
  if(!loading||!card)return;
- loading.hidden=false; progress.hidden=false; card.hidden=false; submit.disabled=true;
- status.textContent='正在准备展厅…';
+ loading.hidden=false; progress.hidden=false; card.hidden=false; submit.disabled=true; status.hidden=true;
+ loadingSequenceActive=true;loadingSequenceStarted=performance.now();
+ renderLoadingMessage(LOGIN_LOADING_MESSAGES[0]);scheduleLoadingSequence(1);
 }
 function showLoginGate(){
  const loading=$('loading'),progress=$('loadingProgress'),card=$('loginCard'),submit=$('loginSubmit'),status=$('loginStatus');
  if(!loading||!card)return;
- loginReady=true;loading.hidden=false;progress.hidden=true;card.hidden=false;submit.disabled=false;
- status.textContent='展厅已准备好，可以开始。';
- $('loginName')?.focus({preventScroll:true});
+ const finish=()=>{
+  loadingSequenceActive=false;clearTimeout(loadingMessageTimer);
+  loginReady=true;loading.hidden=false;progress.hidden=true;card.hidden=false;submit.disabled=false;status.hidden=false;
+  status.textContent='加载完成';$('loginKey')?.focus({preventScroll:true});
+ };
+ const wait=Math.max(0,3000-(performance.now()-loadingSequenceStarted));
+ setTimeout(finish,wait);
 }
 function beginLogin(){
  if(!loginReady||loginComplete)return;
  loginComplete=true;loginReady=false;
- const card=$('loginCard'),name=$('loginName')?.value.trim();
- if(name){try{sessionStorage.setItem('spenic.viewer-name',name);}catch{}}
+ const card=$('loginCard');
  if(card)card.hidden=true;
  fit('perspective',{intro:true});
  hideBusy();
@@ -375,13 +402,13 @@ function convertMaterials(object){
 function disposeObject(object,list=[]){if(!object)return;const gs=new Set(),ms=new Set(),ts=new Set();object.traverse(o=>{if(o.geometry)gs.add(o.geometry);for(const m of(Array.isArray(o.material)?o.material:[o.material]))if(m)ms.add(m);});for(const e of list){ms.add(e.material);ms.add(e.baseline);Object.values(e.uploads).forEach(u=>{if(u.preview)URL.revokeObjectURL(u.preview);});}ms.forEach(m=>{for(const v of Object.values(m))if(v?.isTexture)ts.add(v);m.dispose();});gs.forEach(g=>g.dispose());ts.forEach(t=>t.dispose());}
 async function loadModel(buffer,name,files=[],{restore=null,parts=null}={}){
   const gateLogin=!loginComplete&&!restore&&!model;
-  showroom?.exit();cameraTween?.cancel();$('showroomMode').disabled=true;setAnnotationMode(false);designUI?.exitRemoval();const request=++currentLoad;loadingModel=true;setOpeningDockHidden(true);setOpeningDayHidden(true);busy('正在载入 '+name,'解析几何、材质和纹理…');await yieldFrame();let parsed;
+  showroom?.exit();cameraTween?.cancel();$('showroomMode').disabled=true;setAnnotationMode(false);designUI?.exitRemoval();const request=++currentLoad;loadingModel=true;setOpeningDockHidden(true);setOpeningDayHidden(true);busy('正在加载展厅');await yieldFrame();let parsed;
  try{parsed=await parseFBX(buffer,files);if(request!==currentLoad){disposeObject(parsed.object);return;}
  const info=convertMaterials(parsed.object),box=new THREE.Box3().setFromObject(parsed.object),size=box.getSize(new THREE.Vector3()),max=Math.max(size.x,size.y,size.z);if(!Number.isFinite(max)||max<1e-10)throw new Error('模型尺寸无效');
  const unit=Number(parsed.object.userData.unitScaleFactor);
  const nextPhysicalModel={cmPerUnit:Number.isFinite(unit)&&unit>0?unit:1,fbxCmPerUnit:Number.isFinite(unit)&&unit>0?unit:1,rawSize:size.toArray(),unitKnown:Number.isFinite(unit)&&unit>0,calibrated:false};
- busy('正在优化模型拾取','为标记与材质选择建立空间索引…');await yieldFrame();prepareAnnotationPicking(parsed.object);
- busy('正在标定贴图尺寸','根据模型实际尺寸与原有 UV 计算铺贴比例…');await yieldFrame();preparePhysicalUV(parsed.object);
+ busy('正在加载贴图');await yieldFrame();prepareAnnotationPicking(parsed.object);
+ busy('正在加载模型');await yieldFrame();preparePhysicalUV(parsed.object);
  const center=box.getCenter(new THREE.Vector3()),s=4.2/max,normalizer=new THREE.Group(),root=new THREE.Group();normalizer.add(parsed.object);normalizer.scale.setScalar(s);normalizer.position.set(-center.x*s,-box.min.y*s+.014,-center.z*s);root.add(normalizer);
  if(model){for(const a of annotations)a.el.remove();annotations=[];selectedAnnotation=null;syncAnnotationPanel();clearPatterns();scene.remove(model);disposeObject(model,entries);clearPatternSources();}model=root;restorePartAssignments(parts);physicalModel=nextPhysicalModel;updateModelDimensions();modelGeneration++;assignmentHistory=[];$('undoMaterial').disabled=true;entries=info.entries;for(const entry of entries)entry.material.userData.partTypes=partAssignments.get(entry.id)||new Set();selected=null;modelSource={buffer:buffer.slice(0),name,files};scene.add(model);state.rotation=0;state.scale=DEFAULTS.scale;$('isolate').checked=false;applyScene();fit('perspective',{immediate:true});
  $('modelName').textContent=name;$('modelName').title=name;$('modelStats').textContent=`${info.meshCount} 网格 · ${formatCount(info.triangles)} 三角面`;$('materialCount').textContent=String(entries.length).padStart(2,'0');selectEntry(entries[0]);renderMaterials();if(restore)await restore(entries);if(request!==currentLoad)return;showPanel('scene');
@@ -825,9 +852,9 @@ function bindPatterns(){
 }
 function bindEvents(){
  bindDesignWorkspace();
- const loginForm=$('loginCard'),loginName=$('loginName'),loginSubmit=$('loginSubmit');
+ const loginForm=$('loginCard'),loginKey=$('loginKey'),loginSubmit=$('loginSubmit');
  if(loginForm){
-  loginName?.addEventListener('input',()=>{if(loginReady)loginSubmit.disabled=false;});
+  loginKey?.addEventListener('input',()=>{if(loginReady)loginSubmit.disabled=false;});
   loginForm.addEventListener('submit',event=>{event.preventDefault();beginLogin();});
  }
  const leaveAnnotationsForMaterials=event=>{if(annotationMode)setAnnotationMode(false,{keepInspector:!!event.target.closest('.material-item')});};
@@ -1029,4 +1056,4 @@ function renderDesignPatterns(){const host=$('patternDock');if(!host)return;host
 }
 function placeDesignPattern(source,hit){const material=source.material.clone();installRoughnessShader(material);for(const[key]of MAPS)if(material[key]){material[key]=material[key].clone();material[key].needsUpdate=true;}const mesh=new THREE.Mesh(new THREE.BufferGeometry(),material);mesh.matrixAutoUpdate=false;mesh.renderOrder=2;mesh.receiveShadow=true;const p={...hit,mesh,sourceKey:source.key,name:source.name,file:source.asset.maps.map,pbrFiles:Object.fromEntries(Object.entries(source.asset.maps).filter(([key])=>key!=='map')),width:source.width,height:source.height,angle:source.placement.angle,placement:{offset:[0,0],angle:source.placement.angle},singlePlacement:true};try{moveDesignPattern(p,readPlacement(source.placement));patterns.push(p);scene.add(mesh);syncPatterns();selectedPattern=p;selectDesignPattern({kind:'pattern',pattern:p});playPatternReveal(p);return p;}catch(error){mesh.geometry.dispose();disposePatternMaps(p);material.dispose();throw error;}}
 function moveDesignPattern(p,placement){const previous={point:p.point.clone(),uv:p.uv?.slice(),angle:p.angle,placement:p.placement},old=readPlacement(p.placement||{angle:p.angle});if(p.singlePlacement){p.host.updateWorldMatrix(true,false);const normal=p.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(p.host.matrixWorld)).normalize(),orientation=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1),normal),unit=patternUnit();const delta=new THREE.Vector3((placement.offset[0]-old.offset[0])*p.width*unit,(placement.offset[1]-old.offset[1])*p.height*unit,0).applyQuaternion(orientation);p.point.copy(p.host.worldToLocal(p.point.clone().applyMatrix4(p.host.matrixWorld).add(delta)));}else if(p.uv)p.uv=[p.uv[0]+placement.offset[0]-old.offset[0],p.uv[1]+placement.offset[1]-old.offset[1]];p.angle=placement.angle;p.placement=placement;try{rebuildPattern(p);}catch(error){Object.assign(p,previous);throw error;}}
-export function startDesign(){try{init();}catch(e){console.error(e);$('loadingTitle').textContent='无法初始化 3D 渲染';$('loadingDetail').textContent='请使用支持 WebGL 2 的 Edge / Chrome，并启用浏览器硬件加速。';}}
+export function startDesign(){try{init();}catch(e){console.error(e);$('loadingTitle').textContent='无法初始化 3D 渲染';}}
