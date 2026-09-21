@@ -20,7 +20,7 @@ import { createSceneCycle, sceneAppearance } from './shared/scene-cycle.js';
 import { installRoughnessShader } from './shared/roughness-map.js';
 import { configureTextureSampling } from './shared/texture-sampling.js';
 import { prepareAnnotationPicking, AnnotationOcclusion } from './shared/annotation-visibility.js';
-import { createCameraMotion, INTRO_DURATION, INTRO_DISTANCE_RATIO } from './shared/camera-motion.js';
+import { createCameraMotion, INTRO_DURATION, INTRO_DISTANCE_RATIO, introFocusBlur } from './shared/camera-motion.js';
 import { createShowroom } from './shared/showroom.js';
 import { createDeveloperPanel } from './shared/developer-panel.js';
 import { loadDeveloperSettings, defaultDeveloperSettings } from './shared/developer-settings.js';
@@ -94,7 +94,7 @@ function fit(direction='perspective',{intro=false,immediate=false}={}){
  const damping=controls.enableDamping;controls.enableDamping=false;controls.autoRotate=false;controls.update();
  const startP=intro?target.clone().lerp(position,INTRO_DISTANCE_RATIO):camera.position.clone(),startT=intro?target.clone():controls.target.clone();
  const duration=immediate||matchMedia('(prefers-reduced-motion: reduce)').matches?0:intro?INTRO_DURATION:520;
- const session=createCameraMotion({duration,render:e=>{camera.position.lerpVectors(startP,position,e);controls.target.lerpVectors(startT,target,e);controls.update();},finish:()=>{if(cameraTween!==session)return;cameraTween=null;controls.enableDamping=damping;$('viewport').dataset.cameraMotion='idle';syncAutoRotate();setAnnotationMoving(false);}});
+ const session=createCameraMotion({duration,render:e=>{camera.position.lerpVectors(startP,position,e);controls.target.lerpVectors(startT,target,e);controls.update();if(intro){const blur=introFocusBlur(e);$('canvas').style.filter=blur>0.01?`blur(${blur.toFixed(2)}px)`:'';}},finish:()=>{if(cameraTween!==session)return;cameraTween=null;controls.enableDamping=damping;$('canvas').style.filter='';$('viewport').dataset.cameraMotion='idle';syncAutoRotate();setAnnotationMoving(false);}});
  cameraTween=session;$('viewport').dataset.cameraMotion=intro?'intro':'fit';session.update();
 }
 function syncInspectorFraming(){

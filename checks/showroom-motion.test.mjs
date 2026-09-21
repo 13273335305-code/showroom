@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCameraMotion, INTRO_DURATION, INTRO_DISTANCE_RATIO } from '../shared/camera-motion.js';
+import { createCameraMotion, INTRO_DURATION, INTRO_DISTANCE_RATIO, INTRO_BLUR_MAX, introFocusBlur } from '../shared/camera-motion.js';
 import { createShowroomLoop, SHOWROOM_TRANSITION, SHOWROOM_HOLD } from '../shared/showroom-cycle.js';
 import { createShowroom } from '../shared/showroom.js';
 
-test('opening pulls away monotonically, slows down, and reaches the exact default view at 1 second', () => {
+test('opening pulls away monotonically for two seconds and reaches the exact default view', () => {
   const distances = []; let finished = 0;
   const motion = createCameraMotion({ now: () => 100, render: p => distances.push(INTRO_DISTANCE_RATIO + (1 - INTRO_DISTANCE_RATIO) * p), finish: () => finished++ });
   for (let t = 0; t <= INTRO_DURATION; t += 100) motion.update(100 + t);
@@ -12,7 +12,17 @@ test('opening pulls away monotonically, slows down, and reaches the exact defaul
   const steps = distances.slice(1).map((value, i) => value - distances[i]);
   assert.ok(steps.every(step => step > 0));
   assert.ok(steps.slice(1).every((step, i) => step < steps[i]));
-  motion.update(2100); assert.equal(distances.length, 11);
+  motion.update(2100); assert.equal(distances.length, 21);
+});
+
+test('opening focus starts with Gaussian blur and clears continuously with the camera', () => {
+  assert.equal(INTRO_DURATION, 2000, 'Opening animation gains one second');
+  assert.equal(introFocusBlur(0), INTRO_BLUR_MAX);
+  assert.ok(introFocusBlur(.25) < introFocusBlur(0));
+  assert.ok(introFocusBlur(.75) > introFocusBlur(1));
+  assert.equal(introFocusBlur(1), 0);
+  assert.equal(introFocusBlur(-1), INTRO_BLUR_MAX);
+  assert.equal(introFocusBlur(2), 0);
 });
 
 test('camera interruption stops future movement and reduced motion reaches the endpoint immediately', () => {
