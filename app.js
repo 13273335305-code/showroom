@@ -435,8 +435,9 @@ function createLibraryEntry(id,name='库中材质'){
  return {id,name,material,meshes:new Set(),uploads:{},mapTokens:{},repeat:[1,1],physical:defaultPhysical(),pendingDpi:{},densityInfo:null,flip:false,baseline:material.clone(),thumbnails:{},previews:{}};
 }
 async function refreshLibrary(){
- const select=$('libraryMaterial'),value=select.value;
- try{const assets=await listAssets();select.replaceChildren(new Option('选择已保存材质',''));for(const asset of assets.filter(a=>a.kind==='material').sort((a,b)=>b.updatedAt-a.updatedAt))select.add(new Option(asset.name,asset.id));select.value=value;}
+ const select=$('libraryMaterial');
+ const show=assets=>{const value=select.value;select.replaceChildren(new Option('选择已保存材质',''));for(const asset of assets.filter(a=>a.kind==='material').sort((a,b)=>b.updatedAt-a.updatedAt))select.add(new Option(asset.name,asset.id));select.value=value;};
+ try{show(await listAssets({onProgress:show}));}
  catch(error){notify('读取资产库失败：'+error.message,6000);}
 }
 async function addMaterialAsset(asset){

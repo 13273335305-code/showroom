@@ -141,7 +141,14 @@ export function createDesignWorkspace(api) {
   }
   async function refresh() {
     const token = ++request; assets = []; release(); $('pickerGrid').replaceChildren(); $('pickerStatus').textContent = '正在读取资产库…';
-    try { const items = await listAssets(); if (token !== request || !dialog.open) return; assets = items.filter(a => a.kind === 'material').sort((a, b) => b.updatedAt - a.updatedAt); renderPicker(); }
+    const show = items => { if (token !== request || !dialog.open) return; assets = items.filter(a => a.kind === 'material').sort((a, b) => b.updatedAt - a.updatedAt); renderPicker(); };
+    try {
+      await listAssets({ onProgress: (items, progress) => {
+        if (token !== request || !dialog.open) return;
+        show(items);
+        if (progress.message) $('pickerStatus').textContent = progress.message;
+      } });
+    }
     catch (error) { if (token === request) $('pickerStatus').textContent = '无法读取资产库：' + error.message; }
   }
   $('addDockAsset').onclick = () => { api.cancelPlacement(); $('assetPickerTitle').textContent = '新增' + (type === 'fabric' ? '面料' : '图案'); $('assetPickerDescription').textContent = type === 'fabric' ? '选择库中面料，添加到底栏后拖放到模型。' : '选择库中图案，添加到底栏后拖到模型表面，不会重复平铺。'; $('pickerSearch').value = ''; dialog.showModal(); refresh(); };

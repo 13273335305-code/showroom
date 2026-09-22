@@ -66,10 +66,10 @@ export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, s
     $('developerModel').textContent = page.name;
     $('developerPhaseStatus').textContent = $('dayCycle').getAttribute('aria-label')?.split('，')[0] || '准备日光场景';
     $('developerFps').textContent = m.fps === null ? '—' : m.fps.toFixed(0) + ' FPS';
-    $('developerCpu').textContent = m.cpu === null ? '等待采样' : m.cpu.toFixed(2) + ' ms / 帧';
-    $('developerGpu').textContent = !m.gpuSupported ? '浏览器不支持' : m.gpu === null ? '等待采样' : m.gpu.toFixed(2) + ' ms / 帧';
+    $('developerCpu').textContent = m.cpu === null ? '等待采样' : (m.cpuPercent === null ? '—' : m.cpuPercent.toFixed(1) + '%') + ' · ' + m.cpu.toFixed(2) + ' ms / 帧';
+    $('developerGpu').textContent = !m.gpuSupported ? '浏览器不支持' : m.gpu === null ? '等待采样' : (m.gpuPercent === null ? '—' : m.gpuPercent.toFixed(1) + '%') + ' · ' + m.gpu.toFixed(2) + ' ms / 帧';
     $('developerNetwork').textContent = Number.isFinite(m.networkKbps) ? m.networkKbps.toFixed(1) + ' Kbps' : '等待采样';
-    $('developerMemory').textContent = Number.isFinite(m.heap) ? (m.heap / 1048576).toFixed(1) + ' MB' : '浏览器不支持';
+    $('developerMemory').textContent = Number.isFinite(m.heap) ? (m.memoryPercent === null ? '—' : m.memoryPercent.toFixed(1) + '%') + ' · ' + (m.heap / 1048576).toFixed(1) + ' MB' : '浏览器不支持';
     $('developerMemory').title = m.heapLimit ? 'JS 堆上限：' + (m.heapLimit / 1048576).toFixed(0) + ' MB' : '';
     if (m.memoryPercent !== null) $('developerMemory').title += '；占用率：' + m.memoryPercent.toFixed(1) + '%';
     if (m.cpuPercent !== null) $('developerCpu').title = 'CPU 占用率估算：' + m.cpuPercent.toFixed(1) + '%';

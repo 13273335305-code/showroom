@@ -21,38 +21,94 @@ async function transaction(mode, operation) {
   });
 }
 let builtinAssetsPromise;
+const progressListeners = new Set();
+let builtinProgress = { loading: false, completed: 0, total: null, errors: [] };
+function progressMessage() {
+  const { loading, completed, total, errors } = builtinProgress;
+  const pending = loading ? (total === null ? '正在检查内置素材…' : `正在加载内置素材 ${completed}/${total}，已显示的素材可直接使用…`) : '';
+  return [pending, errors.length ? `部分内置素材未能加载：${errors.join('；')}。可刷新网页重试。` : ''].filter(Boolean).join(' ');
+}
+async function reportProgress() {
+  if (!progressListeners.size) return;
+  const assets = await transaction('readonly', store => store.getAll());
+  const progress = { ...builtinProgress, message: progressMessage() };
+  for (const listener of progressListeners) {
+    try { listener(assets, progress); } catch (error) { console.error('更新资产列表失败', error); }
+  }
+}
+async function fetchBuiltin(url, timeout, read, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await read(response);
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error('下载超时');
+    throw error;
+  } finally { clearTimeout(timer); }
+}
 async function ensureBuiltinAssets() {
   if (!builtinAssetsPromise) builtinAssetsPromise = (async () => {
+    builtinProgress = { loading: true, completed: 0, total: null, errors: [] };
+    // Show the browser's saved assets before starting any network requests.
+    await reportProgress();
     const manifestUrl = new URL('../assets/builtin/manifest.json', import.meta.url);
-    const manifestResponse = await fetch(manifestUrl, { cache: 'no-cache' });
-    if (!manifestResponse.ok) throw new Error('找不到内置素材清单，请运行“更新内置素材.bat”');
-    const BUILTIN_ASSETS = await manifestResponse.json();
+    const BUILTIN_ASSETS = await fetchBuiltin(manifestUrl, 15000, response => response.json(), { cache: 'no-cache' });
     if (!Array.isArray(BUILTIN_ASSETS)) throw new Error('内置素材清单格式无效');
     const existing = await transaction('readonly', store => store.getAll());
     const known = new Map(existing.map(asset => [asset.id, asset]));
+    builtinProgress.total = BUILTIN_ASSETS.length;
+    await reportProgress();
     for (const definition of BUILTIN_ASSETS) {
-      if (known.has(definition.id) && known.get(definition.id).builtinVersion === definition.version) continue;
-      const url = new URL(definition.url, manifestUrl);
-      url.searchParams.set('v', definition.version);
-      const response = await fetch(url);
-      if (!response.ok) throw new Error('无法载入内置素材：' + definition.name);
-      const file = new File([await response.arrayBuffer()], definition.name + '.formmat', { type: 'application/zip' });
-      const asset = await import('./material-package.js').then(({ unpackMaterial }) => unpackMaterial(file));
-      await transaction('readwrite', store => store.put({
-        ...asset,
-        id: definition.id,
-        name: definition.name,
-        category: definition.category,
-        builtin: true,
-        builtinVersion: definition.version,
-        updatedAt: 0,
-      }));
+      try {
+        if (known.has(definition.id) && known.get(definition.id).builtinVersion === definition.version) continue;
+        const url = new URL(definition.url, manifestUrl);
+        url.searchParams.set('v', definition.version);
+        const bytes = await fetchBuiltin(url, 120000, response => response.arrayBuffer());
+        const file = new File([bytes], definition.name + '.formmat', { type: 'application/zip' });
+        const asset = await import('./material-package.js').then(({ unpackMaterial }) => unpackMaterial(file));
+        await transaction('readwrite', store => store.put({
+          ...asset,
+          id: definition.id,
+          name: definition.name,
+          category: definition.category,
+          builtin: true,
+          builtinVersion: definition.version,
+          updatedAt: 0,
+        }));
+      } catch (error) {
+        builtinProgress.errors.push(definition.name + '（' + error.message + '）');
+      } finally {
+        builtinProgress.completed++;
+        await reportProgress();
+      }
     }
-  })().catch(error => { builtinAssetsPromise = null; throw error; });
+  })().catch(error => {
+    // An unavailable manifest must not hide assets already stored in this browser.
+    builtinProgress.errors.push('素材同步失败（' + error.message + '）');
+  }).finally(async () => {
+    builtinProgress.loading = false;
+    await reportProgress();
+    if (builtinProgress.errors.length) builtinAssetsPromise = null;
+  });
   return builtinAssetsPromise;
 }
-export const listAssets = async () => { await ensureBuiltinAssets(); return transaction('readonly', store => store.getAll()); };
-export const getAsset = async id => { await ensureBuiltinAssets(); return transaction('readonly', store => store.get(id)); };
+export async function listAssets({ onProgress } = {}) {
+  if (onProgress) progressListeners.add(onProgress);
+  try {
+    const syncing = ensureBuiltinAssets();
+    await reportProgress();
+    await syncing;
+    return await transaction('readonly', store => store.getAll());
+  } finally { if (onProgress) progressListeners.delete(onProgress); }
+}
+export const getAsset = async id => {
+  const cached = await transaction('readonly', store => store.get(id));
+  if (cached) return cached;
+  await ensureBuiltinAssets();
+  return transaction('readonly', store => store.get(id));
+};
 export const deleteAsset = id => transaction('readwrite', store => store.delete(id));
 export async function saveAsset(asset) {
   if (!['material', 'model', 'texture'].includes(asset.kind) || !asset.name?.trim()) throw new Error('资产名称或类型无效');

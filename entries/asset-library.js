@@ -168,7 +168,14 @@ function render() {
 }
 async function refresh() {
   const version = ++renderVersion;
-  try { const result = await listAssets(); if (version !== renderVersion) return; assets = result.sort((a, b) => b.updatedAt - a.updatedAt); render(); }
+  const show = result => { if (version !== renderVersion) return; assets = result.sort((a, b) => b.updatedAt - a.updatedAt); render(); };
+  try {
+    const result = await listAssets({ onProgress: (items, progress) => {
+      if (version !== renderVersion) return;
+      show(items); status(progress.message);
+    } });
+    show(result);
+  }
   catch (error) { status(error.message); }
 }
 const tabs = [...document.querySelectorAll('[data-library]')];
