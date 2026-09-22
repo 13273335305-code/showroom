@@ -9,6 +9,10 @@
   background:#fff;
   backdrop-filter:none;
 }
+.system-auth-overlay{position:fixed;inset:0;z-index:100;background:#fff}
+.auth-denied{position:fixed;inset:0;z-index:90;display:grid;place-items:center;background:#f7f9fcf2;color:#304157;text-align:center}
+.auth-denied>div{min-width:min(360px,calc(100vw - 40px));padding:34px 30px;border:1px solid #e4e9f2;border-radius:18px;background:#fff;box-shadow:0 18px 50px #25324618}
+.auth-denied strong{font-size:18px}.auth-denied p{margin:12px 0 22px;color:#8290a0;font-size:12px}.auth-denied button{border:0;border-radius:8px;padding:10px 18px;background:var(--blue);color:#fff;cursor:pointer}
 
 /* ---------- 登录表单 ---------- */
 .login-card{

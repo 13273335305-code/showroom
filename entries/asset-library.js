@@ -2,7 +2,9 @@ import { mountNavigation, downloadFile } from '../shared/navigation.js';
 import { listAssets, getAsset, saveAsset, deleteAsset } from '../shared/asset-store.js';
 import { materialType } from '../shared/material-placement.js';
 import { packMaterial, unpackMaterial } from '../shared/material-package.js';
+import { requireAuth, authState } from '../shared/auth.js';
 
+await requireAuth({ feature: 'assets' });
 const $ = id => document.getElementById(id);
 const libraryNames = { fabric: '面料库', pattern: '图案库', model: '模型库' };
 const libraryType = asset => asset.kind === 'model' ? 'model' : asset.kind === 'texture' ? 'pattern' : materialType(asset);
@@ -169,7 +171,7 @@ function render() {
       modelActions.append(link('设计', './index.html?asset=' + encodeURIComponent(asset.id)));
       const settings = document.createElement('a'); settings.className = 'model-settings'; settings.href = './model-parts.html?asset=' + encodeURIComponent(asset.id);
       settings.title = '配置模型部件'; settings.setAttribute('aria-label', '配置模型部件'); settings.textContent = '⚙'; modelActions.append(settings); actions.append(modelActions);
-    } else actions.append(link('编辑材质', './material-editor.html?asset=' + encodeURIComponent(asset.id)));
+    } else if (authState()?.materialEditor) actions.append(link('编辑材质', './material-editor.html?asset=' + encodeURIComponent(asset.id)));
     info.append(title, description, actions); card.append(art, info, ...createMenu(asset, card));
     renderedCards.set(asset.id, { signature, card }); host.append(card);
   }

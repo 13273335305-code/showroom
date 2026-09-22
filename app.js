@@ -22,6 +22,7 @@ import { configureTextureSampling } from './shared/texture-sampling.js';
 import { prepareAnnotationPicking, createMaterialPicker, AnnotationOcclusion } from './shared/annotation-visibility.js';
 import { createCameraMotion, INTRO_DURATION, INTRO_DISTANCE_RATIO, introFocusBlur, introDockTransform, introSunTransform } from './shared/camera-motion.js';
 import { createShowroom } from './shared/showroom.js';
+import { saveDesignSession, loadDesignSession } from './shared/design-session.js';
 import { compressImageFile } from './shared/asset-thumbnail.js';
 import { createDeveloperPanel } from './shared/developer-panel.js';
 import { loadDeveloperSettings, defaultDeveloperSettings } from './shared/developer-settings.js';
@@ -132,7 +133,7 @@ function formatCount(n){return n>=10000?(n/10000).toFixed(1)+' 万':n.toLocaleSt
 function imageData(texture,maxSize=128,quality=.8){try{if(!texture?.image?.width)return null;const c=document.createElement('canvas'),scale=Math.min(1,maxSize/Math.max(texture.image.width,texture.image.height));c.width=Math.max(1,Math.round(texture.image.width*scale));c.height=Math.max(1,Math.round(texture.image.height*scale));const ctx=c.getContext('2d');ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(texture.image,0,0,c.width,c.height);return c.toDataURL('image/jpeg',quality);}catch{return null;}}
 function init(){
  try{developerSettings=loadDeveloperSettings(localStorage);}catch(error){notify('开发者配置未能读取，已使用默认设置：'+error.message,6000);}
- showLoginShell();
+ if(window.__spenicAuth?.role){loginComplete=true;loginReady=true;}else showLoginShell();
  renderer=new THREE.WebGLRenderer({canvas:$('canvas'),antialias:true,preserveDrawingBuffer:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
  scene=new THREE.Scene();scene.background=new THREE.Color(state.backgroundColor);scene.fog=new THREE.Fog(state.backgroundColor,18,48);
  camera=new THREE.PerspectiveCamera(36,1,.02,100);camera.position.set(6,3.7,7);
@@ -426,6 +427,7 @@ async function loadModel(buffer,name,files=[],{restore=null,parts=null}={}){
 async function loadExample(){
  const assetId=new URLSearchParams(location.search).get('asset');let asset=null,assetError=null;
  if(assetId)try{asset=await getAsset(assetId);if(!asset)throw new Error('资产不存在，可能已被删除');}catch(error){assetError=error;}
+ if(!assetId)try{const session=await loadDesignSession();if(session){await openProject(session);return;}}catch(error){console.warn('恢复设计台状态失败',error);}
  try{
   if(asset?.kind==='model'){await importFiles([asset.file,...(asset.resources||[])],asset.partAssignments);return;}
   const r=await fetch('./MM06-展厅版.fbx');if(!r.ok)throw new Error('找不到示例 FBX');await loadModel(await r.arrayBuffer(),'MM06-展厅版.fbx');
@@ -964,6 +966,8 @@ function bindEvents(){
  document.querySelectorAll('[data-preset]').forEach(b=>b.onclick=()=>{daylightCycle?.cancel();state.preset=b.dataset.preset;Object.assign(state,state.preset==='night'?{backgroundColor:'#172232',exposure:1.05,keyLight:4,fillLight:.7,lightColor:'#dde8ff'}:state.preset==='daylight'?{backgroundColor:'#e5edf3',exposure:1.2,keyLight:4.5,fillLight:1.8,lightColor:'#ffedd4'}:{backgroundColor:DEFAULTS.backgroundColor,exposure:1.1,keyLight:3,fillLight:1.5,lightColor:DEFAULTS.lightColor});applyScene();});$('resetScene').onclick=()=>{daylightCycle?.cancel();state={...DEFAULTS};applyScene();fit();};
  $('canvas').addEventListener('dblclick',event=>{if(annotationMode)return;const hit=pickModelMaterial(event.clientX,event.clientY);if(!hit)return;selectEntry(hit.entry);showPanel('material');$('materialList').querySelector('[data-entry-id="'+hit.entry.id+'"]')?.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'});});
  $('snapshot').onclick=()=>{renderer.render(scene,camera);$('canvas').toBlob(blob=>{if(blob){download(blob,'FORM-'+new Date().toISOString().slice(0,10)+'.png');notify('已导出当前视角 PNG 图片');}},'image/png');};
+ window.__spenicDesignSession={save:async()=>{try{const blob=await saveProject({downloadOutput:false});if(blob)await saveDesignSession(blob);}catch(error){console.warn('保存设计台状态失败',error);}}};
+ window.addEventListener('pagehide',()=>{void window.__spenicDesignSession.save();},{once:true});
  $('saveProject').onclick=saveProject;$('openProject').onclick=()=>$('projectFile').click();$('projectFile').onchange=()=>{const f=$('projectFile').files[0];$('projectFile').value='';if(f)openProject(f);};
  $('saveScene').onclick=()=>{try{const name=sceneName($('sceneName').value);download(packScene(state,name),sceneFilename(name));$('sceneName').value=name;notify('已保存场景：'+name);}catch(error){notify('保存场景失败：'+error.message,6000);}};
  $('openScene').onclick=()=>$('sceneFile').click();
@@ -977,7 +981,7 @@ function bindEvents(){
  };
 }
 function snapshotEntry(e){const m=e.material;return {id:e.id,removed:!!e.removed,name:e.name,category:fabricCategory(e),color:m.color.getHexString(),roughness:m.roughness,metalness:m.metalness,normalStrength:Math.abs(m.normalScale.x),aoStrength:m.aoMapIntensity,emissive:m.emissive.getHexString(),emissiveStrength:m.emissiveIntensity,bumpStrength:m.bumpScale,repeat:e.repeat,physical:{...e.physical},flip:e.flip,maps:Object.fromEntries(MAPS.map(([k])=>[k,m[k]?(e.uploads[k]?'upload':'original'):null]))};}
-async function saveProject(){
+async function saveProject({ downloadOutput = true } = {}){
  if(annotations.some(a=>!a.saved||a.editing))return notify('请先点击 √ 或按回车保存正在输入的标记');
  finishPatternReveals();
  if(!modelSource||loadingModel)return notify('请先完成模型载入');if(entries.some(e=>Object.keys(e.pendingDpi||{}).length))return notify('还有贴图等待指定 DPI，请先应用后再保存项目');busy('正在保存项目','打包 FBX、所有上传贴图与场景设置');await yieldFrame();
@@ -987,7 +991,10 @@ async function saveProject(){
  const hosts=[];model.traverse(o=>{if(o.isMesh)hosts.push(o);});config.annotations=annotations.map(a=>({host:hosts.indexOf(a.host),point:a.point.toArray(),text:a.text}));config.patterns=[];
  for(let i=0;i<patterns.length;i++){const p=patterns[i],path='patterns/'+i;archive[path]=new Uint8Array(await p.file.arrayBuffer());const maps={};for(const [key,file] of Object.entries(p.pbrFiles||{})){const mapPath=path+'-'+key;archive[mapPath]=new Uint8Array(await file.arrayBuffer());maps[key]={path:mapPath,name:file.name,type:file.type};}const m=p.mesh.material;config.patterns.push({path,sourceKey:p.sourceKey,name:p.name,type:p.file.type,host:hosts.indexOf(p.host),slot:p.slot,singlePlacement:!!p.singlePlacement,placement:p.placement,surface:readSurface(m),point:p.point.toArray(),normal:p.normal.toArray(),uv:p.uv,width:p.width,height:p.height,angle:p.angle,pbr:{maps,roughness:m.roughness,metalness:m.metalness,normalScale:m.normalScale.toArray()}});}
  config.patternSources=[];for(let i=0;i<patternSources.length;i++){const source=patternSources[i],path='pattern-sources/'+i;archive[path]=new Uint8Array(await (await packMaterial(patternSourceAsset(source))).arrayBuffer());config.patternSources.push({path,key:source.key});}
- archive['project.json']=strToU8(JSON.stringify(config));download(new Blob([zipSync(archive,{level:0})],{type:'application/zip'}),(modelSource.name.replace(/\.fbx$/i,'')||'FORM')+'.form');notify('已保存完整项目，包含模型与上传贴图');
+ archive['project.json']=strToU8(JSON.stringify(config));
+ const blob=new Blob([zipSync(archive,{level:0})],{type:'application/zip'});
+ if(downloadOutput){download(blob,(modelSource.name.replace(/\.fbx$/i,'')||'FORM')+'.form');notify('已保存完整项目，包含模型与上传贴图');}
+ return blob;
  }catch(e){console.error(e);notify('保存失败：'+e.message,6000);}finally{hideBusy();}
 }
 async function openProject(file){

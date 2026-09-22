@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { getAsset, saveAsset } from '../shared/asset-store.js';
+import { requireAuth } from '../shared/auth.js';
+
+await requireAuth({ feature: 'assets' });
 
 const $=id=>document.getElementById(id),assetId=new URLSearchParams(location.search).get('asset');
 let asset,root,balls=[],selected=-1,assignments={},highlighted=[],slotLookup=new Map(),controls,allowPick=false,pointerStart=null;

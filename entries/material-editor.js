@@ -13,8 +13,10 @@ import { grayscalePixels } from '../shared/image-pixels.js';
 import { configureTextureSampling } from '../shared/texture-sampling.js';
 import { installRoughnessShader } from '../shared/roughness-map.js';
 import { compressImageFile } from '../shared/asset-thumbnail.js';
+import { requireAuth, showAccessDenied } from '../shared/auth.js';
 
 const $ = id => document.getElementById(id);
+const auth = await requireAuth({ feature: 'material' });
 mountNavigation('material');
 let renderer, scene, camera, controls, sphere, plane, assetId, dirty = false, pending = 0;
 let physical = { ...defaultPhysical(), sizeSource: 'manual', initialized: true }, repeat = [1, 1];
@@ -327,4 +329,5 @@ async function init() {
   try { await restoreAsset(); } catch (error) { status('打开资产失败：' + error.message); }
   $('saveMaterial').disabled = false; syncMaterialType();
 }
-init().catch(error => { console.error(error); status('无法初始化材质预览，请检查 WebGL 2 和硬件加速：' + error.message); });
+if (auth.allowed) init().catch(error => { console.error(error); status('无法初始化材质预览，请检查 WebGL 2 和硬件加速：' + error.message); });
+else showAccessDenied('Spenic001 密钥已隐藏材质编辑器功能，请使用完整权限密钥进入。');
