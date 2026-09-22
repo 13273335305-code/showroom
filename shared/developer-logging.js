@@ -1,4 +1,4 @@
-const HEADERS = ['时间', '用户操作', '帧率 (FPS)', '内存占用率 (%)', 'CPU占用率 (%)', 'GPU占用率 (%)', '页面网速 (Kbps)'];
+const HEADERS = ['时间', '用户操作', '帧率 (FPS)', '内存占用率 (%)', 'CPU占用率 (%)', 'GPU占用率 (%)', '页面网速 (Kbps)', '操作耗时 (ms)', '命中检测耗时 (ms)'];
 
 function valueOrEmpty(value, digits = 2) {
   return Number.isFinite(value) ? Number(value.toFixed(digits)) : '';
@@ -23,7 +23,9 @@ export function createDeveloperLogger({ now = () => new Date(), download }) {
       memoryPercent: valueOrEmpty(metrics.memoryPercent),
       cpuPercent: valueOrEmpty(metrics.cpuPercent),
       gpuPercent: valueOrEmpty(metrics.gpuPercent),
-      networkKbps: valueOrEmpty(metrics.networkKbps, 1)
+      networkKbps: valueOrEmpty(metrics.networkKbps, 1),
+      durationMs: valueOrEmpty(metrics.durationMs, 1),
+      pickMs: valueOrEmpty(metrics.pickMs, 1)
     };
     records.push(record);
     return record;
@@ -56,7 +58,7 @@ export function createDeveloperLogger({ now = () => new Date(), download }) {
       if (!records.length || typeof download !== 'function') return false;
       const rows = [HEADERS, ...records.map(record => [
         record.time, record.operation, record.fps, record.memoryPercent,
-        record.cpuPercent, record.gpuPercent, record.networkKbps
+        record.cpuPercent, record.gpuPercent, record.networkKbps, record.durationMs, record.pickMs
       ])];
       const csv = '\uFEFF' + rows.map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
       download(new Blob([csv], { type: 'text/csv;charset=utf-8' }), 'Spenic-操作日志-' + new Date().toISOString().slice(0, 10) + '.csv');

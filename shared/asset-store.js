@@ -1,4 +1,5 @@
 // Blob/File storage shared by the three pages on the same local server origin.
+import { createAssetThumbnail } from './asset-thumbnail.js';
 const DB_NAME = 'spenic-workspace-assets';
 let database;
 function openDatabase() {
@@ -61,13 +62,23 @@ async function ensureBuiltinAssets() {
     builtinProgress.total = BUILTIN_ASSETS.length;
     await reportProgress();
     for (const definition of BUILTIN_ASSETS) {
+      let changed = false;
       try {
-        if (known.has(definition.id) && known.get(definition.id).builtinVersion === definition.version) continue;
+        if (known.has(definition.id) && known.get(definition.id).builtinVersion === definition.version) {
+          const cached = known.get(definition.id);
+          if (!cached.thumbnail) {
+            const thumbnail = await createAssetThumbnail(cached);
+            if (thumbnail) { cached.thumbnail = thumbnail; await transaction('readwrite', store => store.put(cached)); }
+          }
+          continue;
+        }
         const url = new URL(definition.url, manifestUrl);
         url.searchParams.set('v', definition.version);
         const bytes = await fetchBuiltin(url, 120000, response => response.arrayBuffer());
         const file = new File([bytes], definition.name + '.formmat', { type: 'application/zip' });
         const asset = await import('./material-package.js').then(({ unpackMaterial }) => unpackMaterial(file));
+        const thumbnail = await createAssetThumbnail(asset);
+        if (thumbnail) asset.thumbnail = thumbnail;
         await transaction('readwrite', store => store.put({
           ...asset,
           id: definition.id,
@@ -77,11 +88,13 @@ async function ensureBuiltinAssets() {
           builtinVersion: definition.version,
           updatedAt: 0,
         }));
+        changed = true;
       } catch (error) {
         builtinProgress.errors.push(definition.name + '（' + error.message + '）');
+        changed = true;
       } finally {
         builtinProgress.completed++;
-        await reportProgress();
+        if (changed) await reportProgress();
       }
     }
   })().catch(error => {
@@ -113,6 +126,7 @@ export const deleteAsset = id => transaction('readwrite', store => store.delete(
 export async function saveAsset(asset) {
   if (!['material', 'model', 'texture'].includes(asset.kind) || !asset.name?.trim()) throw new Error('资产名称或类型无效');
   const saved = { ...asset, id: asset.id || crypto.randomUUID(), name: asset.name.trim(), updatedAt: Date.now() };
+  if (!saved.thumbnail) { const thumbnail = await createAssetThumbnail(saved); if (thumbnail) saved.thumbnail = thumbnail; }
   await transaction('readwrite', store => store.put(saved));
   return saved;
 }

@@ -6,14 +6,16 @@ import { packMaterial, unpackMaterial } from '../shared/material-package.js';
 const $ = id => document.getElementById(id);
 const libraryNames = { fabric: '面料库', pattern: '图案库', model: '模型库' };
 const libraryType = asset => asset.kind === 'model' ? 'model' : asset.kind === 'texture' ? 'pattern' : materialType(asset);
-let assets = [], previewUrls = [], renderVersion = 0, activeLibrary = 'fabric', openMenu;
+let assets = [], renderVersion = 0, activeLibrary = 'fabric', openMenu;
+const renderedCards = new Map();
+const cardUrls = new Map();
 let editing, editPreview, editPreviewUrl, editVersion = 0;
 const modelPreviews = new Map();
 let previewQueue = Promise.resolve();
 mountNavigation('assets');
 const status = message => { $('status').textContent = message; };
 const previewOf = asset => asset.preview || (asset.kind === 'texture' ? asset.file : asset.maps?.map);
-function imageUrl(blob) { const url = URL.createObjectURL(blob); previewUrls.push(url); return url; }
+function imageUrl(blob) { return URL.createObjectURL(blob); }
 function action(label, handler) {
   const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
   button.onclick = async () => { closeMenu(); button.disabled = true; try { await handler(); } catch (error) { status(error.message); } finally { button.disabled = false; } };
@@ -127,13 +129,13 @@ function renderModelPreview(asset, art) {
   const display = () => {
     if (!art.isConnected) return;
     const blob = modelPreviews.get(asset.id);
-    if (blob) { const img = document.createElement('img'); img.src = imageUrl(blob); img.alt = asset.name + ' 预览图'; art.replaceChildren(img); }
+    if (blob) { const img = document.createElement('img'); const url = imageUrl(blob); cardUrls.set(asset.id, [...(cardUrls.get(asset.id) || []), url]); img.src = url; img.alt = asset.name + ' 预览图'; art.replaceChildren(img); }
     else art.textContent = '可通过「···」设置预览图';
   };
   if (modelPreviews.get(asset.id)) queueMicrotask(display); else previewQueue.then(display);
 }
 function render() {
-  closeMenu(); previewUrls.forEach(url => URL.revokeObjectURL(url)); previewUrls = [];
+  closeMenu();
   const host = $('assetGrid'); host.replaceChildren();
   const query = $('assetSearch').value.trim().toLocaleLowerCase();
   const collection = assets.filter(asset => libraryType(asset) === activeLibrary);
@@ -147,10 +149,15 @@ function render() {
     empty.append(title, text); host.append(empty);
   }
   for (const asset of shown) {
+    const signature = [asset.updatedAt, asset.thumbnail?.size, asset.name, asset.description].join('|');
+    const cached = renderedCards.get(asset.id);
+    if (cached?.signature === signature) { host.append(cached.card); continue; }
+    cardUrls.get(asset.id)?.forEach(url => URL.revokeObjectURL(url));
+    cardUrls.delete(asset.id);
     const card = document.createElement('article'); card.className = 'asset-card'; card.dataset.assetId = asset.id;
     const art = document.createElement('div'); art.className = 'asset-art';
-    const preview = previewOf(asset);
-    if (preview) { const img = document.createElement('img'); img.src = imageUrl(preview); img.alt = asset.name + ' 预览图'; art.append(img); }
+    const preview = asset.thumbnail || previewOf(asset);
+    if (preview) { const img = document.createElement('img'); const url = imageUrl(preview); cardUrls.set(asset.id, [url]); img.src = url; img.alt = asset.name + ' 预览图'; art.append(img); }
     else if (asset.kind === 'model') { art.textContent = '正在生成预览图…'; renderModelPreview(asset, art); }
     else { const shape = document.createElement('div'); shape.className = 'sphere'; if (/^#[\da-f]{6}$/i.test(asset.surface?.color)) shape.style.setProperty('--swatch', asset.surface.color); art.append(shape); }
     const info = document.createElement('div'); info.className = 'asset-info';
@@ -163,12 +170,21 @@ function render() {
       const settings = document.createElement('a'); settings.className = 'model-settings'; settings.href = './model-parts.html?asset=' + encodeURIComponent(asset.id);
       settings.title = '配置模型部件'; settings.setAttribute('aria-label', '配置模型部件'); settings.textContent = '⚙'; modelActions.append(settings); actions.append(modelActions);
     } else actions.append(link('编辑材质', './material-editor.html?asset=' + encodeURIComponent(asset.id)));
-    info.append(title, description, actions); card.append(art, info, ...createMenu(asset, card)); host.append(card);
+    info.append(title, description, actions); card.append(art, info, ...createMenu(asset, card));
+    renderedCards.set(asset.id, { signature, card }); host.append(card);
   }
 }
 async function refresh() {
   const version = ++renderVersion;
-  const show = result => { if (version !== renderVersion) return; assets = result.sort((a, b) => b.updatedAt - a.updatedAt); render(); };
+  const show = result => {
+    if (version !== renderVersion) return;
+    const ids = new Set(result.map(asset => asset.id));
+    for (const id of renderedCards.keys()) if (!ids.has(id)) {
+      cardUrls.get(id)?.forEach(url => URL.revokeObjectURL(url));
+      cardUrls.delete(id); renderedCards.delete(id);
+    }
+    assets = result.sort((a, b) => b.updatedAt - a.updatedAt); render();
+  };
   try {
     const result = await listAssets({ onProgress: (items, progress) => {
       if (version !== renderVersion) return;

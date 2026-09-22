@@ -127,7 +127,7 @@ export function createDesignWorkspace(api) {
     for (const asset of shown) {
       const card = document.createElement('button'); card.className = 'picker-card'; card.dataset.assetId = asset.id;
       const art = document.createElement('div'); art.className = 'picker-preview';
-      if (asset.maps?.map) { const img = document.createElement('img'); img.alt = ''; img.src = URL.createObjectURL(asset.maps.map); urls.push(img.src); art.append(img); }
+      if (asset.thumbnail || asset.maps?.map) { const img = document.createElement('img'); img.alt = ''; img.src = URL.createObjectURL(asset.thumbnail || asset.maps.map); urls.push(img.src); art.append(img); }
       else if (/^#[\da-f]{6}$/i.test(asset.surface?.color)) art.style.background = asset.surface.color;
       const name = document.createElement('strong'); name.textContent = asset.name;
       const hint = document.createElement('small'); hint.textContent = type === 'fabric' ? '平铺面料 · 点击添加' : '单张图案 · 点击添加';

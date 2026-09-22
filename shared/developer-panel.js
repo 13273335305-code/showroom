@@ -224,5 +224,9 @@ export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, s
   renderer.domElement.addEventListener('webglcontextrestored', () => metrics.contextRestored());
   document.addEventListener('visibilitychange', () => { if (open) { metrics.sample(); refresh(); } });
   setInterval(refresh, 750);
-  return { beginFrame: () => metrics.begin(), endFrame: () => metrics.end() };
+  return {
+    beginFrame: () => metrics.begin(),
+    endFrame: () => metrics.end(),
+    record: (operation, extra = {}) => logger.record(operation, { ...latestMetrics, ...extra }),
+  };
 }
