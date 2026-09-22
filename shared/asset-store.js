@@ -1,11 +1,5 @@
 // Blob/File storage shared by the three pages on the same local server origin.
 const DB_NAME = 'spenic-workspace-assets';
-const BUILTIN_ASSETS = [
-  { id: 'builtin-test-embroidery', name: '测试刺绣', category: '面布', url: './assets/builtin/test-embroidery.formmat' },
-  { id: 'builtin-test-fabric', name: '测试面布', category: '面布', url: './assets/builtin/test-fabric.formmat' },
-  { id: 'builtin-test-edge-fabric', name: '测试边布', category: '边布', url: './assets/builtin/test-edge-fabric.formmat' },
-  { id: 'builtin-test-piping', name: '测试包边条', category: '包边条', url: './assets/builtin/test-piping.formmat' },
-];
 let database;
 function openDatabase() {
   if (!database) database = new Promise((resolve, reject) => {
@@ -29,11 +23,18 @@ async function transaction(mode, operation) {
 let builtinAssetsPromise;
 async function ensureBuiltinAssets() {
   if (!builtinAssetsPromise) builtinAssetsPromise = (async () => {
+    const manifestUrl = new URL('../assets/builtin/manifest.json', import.meta.url);
+    const manifestResponse = await fetch(manifestUrl, { cache: 'no-cache' });
+    if (!manifestResponse.ok) throw new Error('找不到内置素材清单，请运行“更新内置素材.bat”');
+    const BUILTIN_ASSETS = await manifestResponse.json();
+    if (!Array.isArray(BUILTIN_ASSETS)) throw new Error('内置素材清单格式无效');
     const existing = await transaction('readonly', store => store.getAll());
-    const known = new Set(existing.map(asset => asset.id));
+    const known = new Map(existing.map(asset => [asset.id, asset]));
     for (const definition of BUILTIN_ASSETS) {
-      if (known.has(definition.id)) continue;
-      const response = await fetch(definition.url);
+      if (known.has(definition.id) && known.get(definition.id).builtinVersion === definition.version) continue;
+      const url = new URL(definition.url, manifestUrl);
+      url.searchParams.set('v', definition.version);
+      const response = await fetch(url);
       if (!response.ok) throw new Error('无法载入内置素材：' + definition.name);
       const file = new File([await response.arrayBuffer()], definition.name + '.formmat', { type: 'application/zip' });
       const asset = await import('./material-package.js').then(({ unpackMaterial }) => unpackMaterial(file));
@@ -43,9 +44,9 @@ async function ensureBuiltinAssets() {
         name: definition.name,
         category: definition.category,
         builtin: true,
+        builtinVersion: definition.version,
         updatedAt: 0,
       }));
-      known.add(definition.id);
     }
   })().catch(error => { builtinAssetsPromise = null; throw error; });
   return builtinAssetsPromise;

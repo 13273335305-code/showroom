@@ -1,0 +1,74 @@
+[
+    {
+        "id":  "builtin-test-piping",
+        "name":  "测试包边条",
+        "category":  "包边条",
+        "materialType":  "fabric",
+        "url":  "./%E6%B5%8B%E8%AF%95%E5%8C%85%E8%BE%B9%E6%9D%A1.formmat",
+        "version":  "141d3035ab5ce0b4f528e43e1befb673035116ce4437ca4c387a11f3ad080760"
+    },
+    {
+        "id":  "builtin-test-edge-fabric",
+        "name":  "测试边布",
+        "category":  "边布",
+        "materialType":  "fabric",
+        "url":  "./%E6%B5%8B%E8%AF%95%E8%BE%B9%E5%B8%83.formmat",
+        "version":  "bf8134bb83ccdf338357d21343abb9d67aa38770f8bff01802a0461239843cc7"
+    },
+    {
+        "id":  "builtin-test-embroidery",
+        "name":  "测试刺绣",
+        "category":  "面布",
+        "materialType":  "pattern",
+        "url":  "./%E6%B5%8B%E8%AF%95%E5%88%BA%E7%BB%A3.formmat",
+        "version":  "dd02b668171d363d98b677073556adfd63728f9e6b8df37a7e796deafa380118"
+    },
+    {
+        "id":  "builtin-test-fabric",
+        "name":  "测试面布",
+        "category":  "面布",
+        "materialType":  "fabric",
+        "url":  "./%E6%B5%8B%E8%AF%95%E9%9D%A2%E5%B8%83.formmat",
+        "version":  "e523c5c199060a2820b4f5fd63531847e52a406d0b63a3eb9e99189ddc08fa82"
+    },
+    {
+        "id":  "builtin-测试面布2",
+        "name":  "测试面布2",
+        "category":  "面布",
+        "materialType":  "fabric",
+        "url":  "./%E6%B5%8B%E8%AF%95%E9%9D%A2%E5%B8%832.formmat",
+        "version":  "4099b958c6b8c443013a32d72c2416bd8d72a2c025eec07a23f633db54929dcc"
+    },
+    {
+        "id":  "builtin-测试面布3",
+        "name":  "测试面布3",
+        "category":  "面布",
+        "materialType":  "fabric",
+        "url":  "./%E6%B5%8B%E8%AF%95%E9%9D%A2%E5%B8%833.formmat",
+        "version":  "3979a45d4b6a0f1f7e60855f5f19974e895eb0978cdcc7dcee92f63c1aa76645"
+    },
+    {
+        "id":  "builtin-测试面布4",
+        "name":  "测试面布4",
+        "category":  "面布",
+        "materialType":  "fabric",
+        "url":  "./%E6%B5%8B%E8%AF%95%E9%9D%A2%E5%B8%834.formmat",
+        "version":  "7b3f21841c2e59a4e7aea9765dff81e40ae402008ae76c64ac002ab92314e8d9"
+    },
+    {
+        "id":  "builtin-测试面布5",
+        "name":  "测试面布5",
+        "category":  "面布",
+        "materialType":  "fabric",
+        "url":  "./%E6%B5%8B%E8%AF%95%E9%9D%A2%E5%B8%835.formmat",
+        "version":  "7e9aa1f63d5f29f0a3138b1d8772f8ecd733b89968ffd31816383d85189d882e"
+    },
+    {
+        "id":  "builtin-测试面布6",
+        "name":  "测试面布6",
+        "category":  "面布",
+        "materialType":  "fabric",
+        "url":  "./%E6%B5%8B%E8%AF%95%E9%9D%A2%E5%B8%836.formmat",
+        "version":  "0f01400297f851971daf8cb38ad7684f96fbd10245a60d7d02a748df9b0bd8f2"
+    }
+]

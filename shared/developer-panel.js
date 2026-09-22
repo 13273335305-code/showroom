@@ -1,12 +1,15 @@
 import { ENVIRONMENT_DEFAULTS, readEnvironment } from './scene-file.js';
 import { PHASE_IDS, readTiming, readDefaultView, readShowroomScale, readDeveloperSettings, saveDeveloperSettings } from './developer-settings.js';
 import { createDeveloperPerformance } from './developer-performance.js';
+import { createDeveloperLogger } from './developer-logging.js';
 
 export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, status, readCamera, getSettings, setSettings, notify, download }) {
   const $ = id => document.getElementById(id);
   const panel = $('developerPanel'), toggle = $('developerToggle'), brand = document.querySelector('.brand-logo');
   const metrics = createDeveloperPerformance(renderer);
+  const logger = createDeveloperLogger({ download });
   let hovered = false, sequence = '', lastKey = 0, open = false, pendingView = null;
+  let latestMetrics = {};
   const labels = ['清晨', '黄昏', '夜晚'];
   const range = (key, label, min, max, step) => `<label class="dev-range">${label}<output data-dev-output="${key}"></output><input data-dev-scene="${key}" type="range" min="${min}" max="${max}" step="${step}"></label>`;
   $('developerLighting').innerHTML = `
@@ -54,8 +57,10 @@ export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, s
     output.textContent = `实时视角：水平 ${angle(view.azimuth)} · 俯视 ${angle(view.elevation)} · 构图 ${view.framing.toFixed(2)}×`;
   }
   function refresh() {
+    if (!open && !logger.isRecording()) return;
+    const m = metrics.sample(); latestMetrics = m; logger.sample(m);
     if (!open) return;
-    const m = metrics.sample(), page = status();
+    const page = status();
     $('developerPageStatus').textContent = m.lost ? '渲染已暂停' : document.hidden ? '页面在后台' : page.loading ? '模型载入中' : page.ready ? '运行正常' : '等待模型';
     $('developerMode').textContent = showroom()?.active ? '展厅模式' : '设计台';
     $('developerModel').textContent = page.name;
@@ -63,8 +68,12 @@ export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, s
     $('developerFps').textContent = m.fps === null ? '—' : m.fps.toFixed(0) + ' FPS';
     $('developerCpu').textContent = m.cpu === null ? '等待采样' : m.cpu.toFixed(2) + ' ms / 帧';
     $('developerGpu').textContent = !m.gpuSupported ? '浏览器不支持' : m.gpu === null ? '等待采样' : m.gpu.toFixed(2) + ' ms / 帧';
+    $('developerNetwork').textContent = Number.isFinite(m.networkKbps) ? m.networkKbps.toFixed(1) + ' Kbps' : '等待采样';
     $('developerMemory').textContent = Number.isFinite(m.heap) ? (m.heap / 1048576).toFixed(1) + ' MB' : '浏览器不支持';
     $('developerMemory').title = m.heapLimit ? 'JS 堆上限：' + (m.heapLimit / 1048576).toFixed(0) + ' MB' : '';
+    if (m.memoryPercent !== null) $('developerMemory').title += '；占用率：' + m.memoryPercent.toFixed(1) + '%';
+    if (m.cpuPercent !== null) $('developerCpu').title = 'CPU 占用率估算：' + m.cpuPercent.toFixed(1) + '%';
+    if (m.gpuPercent !== null) $('developerGpu').title = 'GPU 占用率估算：' + m.gpuPercent.toFixed(1) + '%';
     $('developerDraws').textContent = m.calls.toLocaleString();
     $('developerTriangles').textContent = m.triangles.toLocaleString();
     $('developerResources').textContent = m.geometries + ' 几何体 · ' + m.textures + ' 纹理';
@@ -75,7 +84,7 @@ export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, s
     if (value === open) return;
     open = value; panel.hidden = !value; toggle.setAttribute('aria-expanded', String(value));
     toggle.setAttribute('aria-pressed', String(value)); document.body.classList.toggle('developer-open', value);
-    metrics.setEnabled(value);
+    metrics.setEnabled(value || logger.isRecording());
     if (value) { syncTiming(); syncView(); refresh(); $('developerClose').focus({ preventScroll: true }); }
     else if (!toggle.hidden) toggle.focus({ preventScroll: true });
   }
@@ -161,6 +170,46 @@ export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, s
   $('developerExport').onclick = () => {
     const value = { ...getSettings(), presets: cycle()?.getPresets() || getSettings().presets };
     download(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }), 'Spenic-开发者配置.json');
+  };
+  function operationLabel(target) {
+    const control = target.closest?.('button,select,input,textarea,[role="button"],a,canvas');
+    if (!control) return '';
+    if (control.id === 'developerLogToggle' || control.id === 'developerLogExport') return '';
+    if (control.tagName === 'CANVAS') return '操作三维画布';
+    const text = control.getAttribute('aria-label') || control.title || control.textContent || control.id || control.name || control.type;
+    return String(text).replace(/\s+/g, ' ').trim().slice(0, 120);
+  }
+  document.addEventListener('click', event => {
+    if (!logger.isRecording()) return;
+    const operation = operationLabel(event.target);
+    if (operation) logger.record(operation, latestMetrics);
+  }, true);
+  document.addEventListener('change', event => {
+    if (!logger.isRecording()) return;
+    const operation = operationLabel(event.target);
+    if (operation) logger.record('修改：' + operation, latestMetrics);
+  }, true);
+  $('developerLogToggle').onclick = () => {
+    if (logger.isRecording()) {
+      logger.stop(latestMetrics);
+      $('developerLogToggle').textContent = '开始记录';
+      $('developerLogToggle').classList.add('dev-primary');
+      $('developerLogExport').disabled = !logger.count();
+      $('developerLogStatus').textContent = '已停止 · ' + logger.count() + ' 条';
+      metrics.setEnabled(open);
+      return;
+    }
+    metrics.setEnabled(true);
+    logger.start(latestMetrics);
+    $('developerLogToggle').textContent = '停止记录';
+    $('developerLogToggle').classList.remove('dev-primary');
+    $('developerLogExport').disabled = false;
+    $('developerLogStatus').textContent = '记录中 · 1 条';
+  };
+  $('developerLogExport').onclick = () => {
+    if (!logger.export()) return;
+    logger.record('导出日志', latestMetrics);
+    $('developerLogStatus').textContent = (logger.isRecording() ? '记录中 · ' : '已停止 · ') + logger.count() + ' 条';
   };
   $('developerImport').onclick = () => $('developerFile').click();
   $('developerFile').onchange = async event => {

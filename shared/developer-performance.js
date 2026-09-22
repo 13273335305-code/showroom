@@ -4,6 +4,7 @@ export function createDeveloperPerformance(renderer) {
   let extension = gl.getExtension('EXT_disjoint_timer_query_webgl2');
   let enabled = false, query = null, pending = [], started = 0, frames = 0, cpu = 0, since = 0;
   let gpu = null, gpuAt = 0, previousAutoReset = renderer.info.autoReset;
+  let networkBytes = 0, networkAt = performance.now();
   function clearQueries() {
     if (!gl.isContextLost()) {
       if (query) gl.endQuery(extension.TIME_ELAPSED_EXT);
@@ -14,6 +15,7 @@ export function createDeveloperPerformance(renderer) {
   return {
     setEnabled(value) {
       enabled = value; clearQueries(); frames = 0; cpu = 0; since = performance.now();
+      networkBytes = 0; networkAt = performance.now();
       if (value) { previousAutoReset = renderer.info.autoReset; renderer.info.autoReset = false; }
       else renderer.info.autoReset = previousAutoReset;
     },
@@ -40,13 +42,30 @@ export function createDeveloperPerformance(renderer) {
     },
     sample() {
       const now = performance.now(), elapsed = now - since;
+      const resourceEntries = performance.getEntriesByType?.('resource') || [];
+      const transferred = resourceEntries.reduce((total, entry) => {
+        const bytes = Number(entry.transferSize) || Number(entry.encodedBodySize) || 0;
+        return total + bytes;
+      }, 0);
+      const networkElapsed = Math.max(1, now - networkAt);
+      const networkKbps = transferred >= networkBytes ? (transferred - networkBytes) * 8 / networkElapsed : 0;
+      networkBytes = transferred; networkAt = now;
+      const fps = frames && elapsed > 0 ? frames * 1000 / elapsed : null;
+      const cpuMs = frames ? cpu / frames : null;
+      const gpuMs = now - gpuAt < 2500 ? gpu : null;
+      const heap = performance.memory?.usedJSHeapSize;
+      const heapLimit = performance.memory?.jsHeapSizeLimit;
       const result = {
-        fps: frames && elapsed > 0 ? frames * 1000 / elapsed : null,
-        cpu: frames ? cpu / frames : null,
-        gpu: now - gpuAt < 2500 ? gpu : null,
+        fps,
+        cpu: cpuMs,
+        cpuPercent: cpuMs !== null && fps !== null ? Math.min(100, cpuMs * fps / 10) : null,
+        gpu: gpuMs,
+        gpuPercent: gpuMs !== null && fps !== null ? Math.min(100, gpuMs * fps / 10) : null,
         gpuSupported: !!extension,
-        heap: performance.memory?.usedJSHeapSize,
-        heapLimit: performance.memory?.jsHeapSizeLimit,
+        heap,
+        heapLimit,
+        memoryPercent: Number.isFinite(heap) && Number.isFinite(heapLimit) && heapLimit > 0 ? Math.min(100, heap / heapLimit * 100) : null,
+        networkKbps,
         calls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
         geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures,
         lost: gl.isContextLost()
