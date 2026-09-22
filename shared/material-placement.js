@@ -13,7 +13,12 @@ export function readPlacement(value = {}) {
 export function applyPlacement(texture, value) {
   const { offset: [u, v], angle } = readPlacement(value);
   const r = angle * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
-  if (texture.matrixAutoUpdate) texture.updateMatrix();
+  if (texture.userData?.formPlacementBase) texture.matrix.copy(texture.userData.formPlacementBase);
+  else {
+    if (texture.matrixAutoUpdate) texture.updateMatrix();
+    texture.userData ||= {};
+    texture.userData.formPlacementBase = texture.matrix.clone();
+  }
   const transform = new Matrix3().set(c, s, .5 - c * (.5 + u) - s * (.5 + v), -s, c, .5 + s * (.5 + u) - c * (.5 + v), 0, 0, 1);
   texture.matrix.premultiply(transform);
   texture.matrixAutoUpdate = false;

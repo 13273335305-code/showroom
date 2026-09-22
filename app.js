@@ -495,7 +495,7 @@ function decorateSwatch(el,entry){el.replaceChildren();const color='#'+entry.mat
 function selectEntry(entry){if(!entry||entry.removed)return;selected=entry;activeFabric=fabricCategory(entry);$('fabricCategory').value=activeFabric;$('materialName').value=entry.name;$('materialUsage').textContent=`材质 ${String(entry.id+1).padStart(2,'0')} · 应用于 ${entry.meshes.size} 个网格`;decorateSwatch($('selectedSwatch'),entry);$('baseColor').value='#'+entry.material.color.getHexString();const vals={roughness:entry.material.roughness,metalness:entry.material.metalness,normalStrength:Math.abs(entry.material.normalScale.x),aoStrength:entry.material.aoMapIntensity,emissiveStrength:entry.material.emissiveIntensity,bumpStrength:entry.material.bumpScale};for(const[id,v]of Object.entries(vals)){$(id).value=v;$(id+'Value').textContent=Number(v).toFixed(id==='bumpStrength'?3:2);}$('repeatU').value=entry.repeat[0];$('repeatV').value=entry.repeat[1];updatePhysicalPanel(entry);$('flipNormal').checked=entry.flip;updateSlots();renderMaterials();applyIsolation();designUI?.select({kind:'fabric',entry});}
 function buildSlots(){for(const[key,label,english]of MAPS){const wrap=document.createElement('div');wrap.className='texture-slot';wrap.id='slot-'+key;const upload=document.createElement('button');upload.className='texture-upload';upload.setAttribute('aria-label','上传'+label+'贴图');const span=document.createElement('span');const plus=document.createElement('strong');plus.textContent='＋';span.append(plus,document.createTextNode(label));upload.append(span);const input=document.createElement('input');input.type='file';input.accept='image/png,image/jpeg,image/webp,image/bmp';input.id='texture-'+key;input.onchange=async()=>{const entry=selected,file=input.files[0];input.value='';if(entry&&file){try{await uploadTexture(entry,key,file);}catch{}}};upload.onclick=()=>{if(!selected)return notify('请先导入模型');input.click();};const remove=document.createElement('button');remove.className='remove-texture';remove.textContent='×';remove.title='移除'+label+'贴图';remove.setAttribute('aria-label','移除'+label+'贴图');remove.onclick=()=>removeTexture(selected,key);wrap.append(upload,input,remove);wrap.title=label+' / '+english;$('textureSlots').append(wrap);}}
 function updateSlots(){for(const[key,label]of MAPS){const wrap=$('slot-'+key);const has=!!selected?.material[key];wrap.classList.toggle('has-image',has);wrap.querySelectorAll('img').forEach(i=>i.remove());const src=selected?.uploads[key]?.preview||selected?.thumbnails[key];if(has&&src){const img=new Image();img.src=src;img.alt=label+'预览';wrap.prepend(img);}wrap.querySelector('strong').textContent=has?'✓':'＋';wrap.querySelector('.remove-texture').hidden=!has;wrap.title=selected?.uploads[key]?.file.name||label+(has?' · FBX 内置贴图':' · 点击上传');}}
-function configureTexture(entry,texture,key){texture.colorSpace=MAPS.find(([k])=>k===key)[3]?THREE.SRGBColorSpace:THREE.NoColorSpace;texture.wrapS=texture.wrapT=THREE.RepeatWrapping;if(entry.legacyMaps?.[key])applyLegacyUV(texture,entry.legacyMaps[key]);else if(entry.physical.mode==='physical'){const measured=entry.physical.sizeSource==='dpi'?texture.userData.density:null;setPhysicalTransform(texture,measured?{...entry.physical,...measured}:entry.physical,physicalModel.cmPerUnit);}else{texture.channel=0;texture.matrixAutoUpdate=true;texture.center.set(0,0);texture.offset.set(0,0);texture.rotation=0;texture.repeat.set(...entry.repeat);texture.updateMatrix();}if(entry.placement)applyPlacement(texture,entry.placement);configureTextureSampling(texture,renderer);}
+function configureTexture(entry,texture,key){texture.colorSpace=MAPS.find(([k])=>k===key)[3]?THREE.SRGBColorSpace:THREE.NoColorSpace;texture.wrapS=texture.wrapT=THREE.RepeatWrapping;delete texture.userData?.formPlacementBase;if(entry.legacyMaps?.[key])applyLegacyUV(texture,entry.legacyMaps[key]);else if(entry.physical.mode==='physical'){const measured=entry.physical.sizeSource==='dpi'?texture.userData.density:null;setPhysicalTransform(texture,measured?{...entry.physical,...measured}:entry.physical,physicalModel.cmPerUnit);}else{texture.channel=0;texture.matrixAutoUpdate=true;texture.center.set(0,0);texture.offset.set(0,0);texture.rotation=0;texture.repeat.set(...entry.repeat);texture.updateMatrix();}if(entry.placement)applyPlacement(texture,entry.placement);configureTextureSampling(texture,renderer);}
 async function uploadTexture(entry,key,file,quiet=false,sourceFile=null){
  if(file.size>64*1024*1024){notify('单张贴图请小于 64 MB');return;}
  const started=performance.now(),generation=modelGeneration,token=(entry.mapTokens[key]||0)+1;entry.mapTokens[key]=token;
@@ -642,10 +642,10 @@ function finishMaterialApplyLoading(){
  clearTimeout(materialPreviewTimer);materialPreviewTimer=setTimeout(()=>{preview.className='material-preview';},260);
 }
 function finishReveal(){if(activeReveal){cancelAnimationFrame(activeReveal.frame);for(const effect of activeReveal.effects||[activeReveal.effect])effect.dispose();activeReveal=null;}}
-function playMaterialReveal(hit,previous){
- finishReveal();
- if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;
- const effect=revealMaterial(scene,hit.mesh,hit.slot,previous,hit.point),started=performance.now();
+function playMaterialReveal(hit,previous,prepared=null){
+ if(!prepared)finishReveal();
+ if(matchMedia('(prefers-reduced-motion: reduce)').matches){prepared?.dispose();return;}
+ const effect=prepared||revealMaterial(scene,hit.mesh,hit.slot,previous,hit.point),started=performance.now();
  const session={effects:[effect],frame:0};activeReveal=session;
  const tick=now=>{const p=Math.min(1,(now-started)/REVEAL_DURATION);const eased=p*p*(3-2*p);effect.update(eased);if(p<1)session.frame=requestAnimationFrame(tick);else finishReveal();};
  session.frame=requestAnimationFrame(tick);
@@ -658,8 +658,11 @@ function playMaterialRevealBatch(items){
 async function replaceHitMaterial(hit,source){
  if(hit.entry===source){notify('该部位已经使用这个材质');return false;}
  const started=performance.now(),previous=slotMaterial(hit.mesh,hit.slot);
- if(!assignMaterial(hit.mesh,hit.slot,source.material))return false;
  finishReveal();
+ // Put the old surface above the mesh before swapping materials. This keeps
+ // the first frame of the new texture covered while the GPU warms up.
+ const preparedReveal=revealMaterial(scene,hit.mesh,hit.slot,previous,hit.point);
+ if(!assignMaterial(hit.mesh,hit.slot,source.material)){preparedReveal.dispose();return false;}
  rebuildMaterialUsage(model,entries);selectEntry(source);
  // Let the loading ball paint for one frame before the first expensive GPU work.
  await yieldFrame();
@@ -671,7 +674,7 @@ async function replaceHitMaterial(hit,source){
   renderer.render(scene,camera);
  }catch(error){recordPerformanceOperation('首次应用材质着色器编译失败：'+source.name,{durationMs:performance.now()-compileStarted});}
  await yieldFrame();
- playMaterialReveal(hit,previous);
+ playMaterialReveal(hit,previous,preparedReveal);
  recordPerformanceOperation('首次应用材质完成：'+source.name,{durationMs:performance.now()-started});
  recordPerformanceOperation('应用材质等待加载完成：'+source.name,{durationMs:performance.now()-started});
  recordPerformanceOperation('晕染开始：'+source.name);
