@@ -1,5 +1,5 @@
 // Blob/File storage shared by the three pages on the same local server origin.
-import { createAssetThumbnail } from './asset-thumbnail.js';
+import { compressImageFile, createAssetThumbnail, createRuntimeMaps } from './asset-thumbnail.js';
 const DB_NAME = 'spenic-workspace-assets';
 let database;
 function openDatabase() {
@@ -24,6 +24,20 @@ async function transaction(mode, operation) {
 let builtinAssetsPromise;
 const progressListeners = new Set();
 let builtinProgress = { loading: false, completed: 0, total: null, errors: [] };
+async function normalizeAssetMaps(asset) {
+  if (asset?.kind === 'texture' && asset.file) {
+    const file = await compressImageFile(asset.file, 8192);
+    const runtimeFile = asset.runtimeFile || await compressImageFile(file, 2048);
+    return { ...asset, file, runtimeFile };
+  }
+  if (!asset?.maps || typeof asset.maps !== 'object') return asset;
+  const maps = {};
+  for (const [key, file] of Object.entries(asset.maps)) if (file) maps[key] = await compressImageFile(file, 8192);
+  const runtimeMaps = asset.runtimeMaps && Object.keys(asset.runtimeMaps).length
+    ? asset.runtimeMaps
+    : await createRuntimeMaps({ maps }, 2048);
+  return { ...asset, maps, runtimeMaps };
+}
 function progressMessage() {
   const { loading, completed, total, errors } = builtinProgress;
   const pending = loading ? (total === null ? '正在检查内置素材…' : `正在加载内置素材 ${completed}/${total}，已显示的素材可直接使用…`) : '';
@@ -66,6 +80,11 @@ async function ensureBuiltinAssets() {
       try {
         if (known.has(definition.id) && known.get(definition.id).builtinVersion === definition.version) {
           const cached = known.get(definition.id);
+          const normalized = await normalizeAssetMaps(cached);
+          if (normalized !== cached || !cached.runtimeMaps) {
+            Object.assign(cached, normalized);
+            await transaction('readwrite', store => store.put(cached));
+          }
           if (!cached.thumbnail) {
             const thumbnail = await createAssetThumbnail(cached);
             if (thumbnail) { cached.thumbnail = thumbnail; await transaction('readwrite', store => store.put(cached)); }
@@ -77,6 +96,8 @@ async function ensureBuiltinAssets() {
         const bytes = await fetchBuiltin(url, 120000, response => response.arrayBuffer());
         const file = new File([bytes], definition.name + '.formmat', { type: 'application/zip' });
         const asset = await import('./material-package.js').then(({ unpackMaterial }) => unpackMaterial(file));
+        const normalized = await normalizeAssetMaps(asset);
+        Object.assign(asset, normalized);
         const thumbnail = await createAssetThumbnail(asset);
         if (thumbnail) asset.thumbnail = thumbnail;
         await transaction('readwrite', store => store.put({
@@ -125,7 +146,8 @@ export const getAsset = async id => {
 export const deleteAsset = id => transaction('readwrite', store => store.delete(id));
 export async function saveAsset(asset) {
   if (!['material', 'model', 'texture'].includes(asset.kind) || !asset.name?.trim()) throw new Error('资产名称或类型无效');
-  const saved = { ...asset, id: asset.id || crypto.randomUUID(), name: asset.name.trim(), updatedAt: Date.now() };
+  const normalized = await normalizeAssetMaps(asset);
+  const saved = { ...normalized, id: asset.id || crypto.randomUUID(), name: asset.name.trim(), updatedAt: Date.now() };
   if (!saved.thumbnail) { const thumbnail = await createAssetThumbnail(saved); if (thumbnail) saved.thumbnail = thumbnail; }
   await transaction('readwrite', store => store.put(saved));
   return saved;

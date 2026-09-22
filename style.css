@@ -15,6 +15,8 @@
 .material-preview.following .material-preview-label{opacity:0}
 .material-preview-label{max-width:290px;white-space:normal;text-align:center;letter-spacing:0}
 .material-preview.jelly-ready .material-preview-image{animation:materialHeartbeat 1.3s cubic-bezier(.22,.7,.25,1) infinite;box-shadow:0 0 0 4px #80b8ff66,0 0 30px #5598ff66,inset 0 0 0 1px #fff;animation-fill-mode:both}
+.material-preview.apply-loading::after{content:"";position:absolute;inset:9%;border:3px solid #ffffff80;border-top-color:#2f71ee;border-right-color:#78aaff;border-radius:50%;box-shadow:0 0 0 1px #ffffff66;animation:materialApplySpin .72s linear infinite;pointer-events:none}
+@keyframes materialApplySpin{to{transform:rotate(360deg)}}
 @keyframes materialHeartbeat{
   0%,18%,100%{transform:rotate(var(--preview-angle,0deg)) scale(1);box-shadow:0 0 0 4px #80b8ff66,0 0 30px #5598ff66,inset 0 0 0 1px #fff}
   27%{transform:rotate(var(--preview-angle,0deg)) scale(.92);box-shadow:0 0 0 3px #80b8ff55,0 0 24px #5598ff55,inset 0 0 0 1px #fff}

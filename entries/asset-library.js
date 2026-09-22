@@ -14,7 +14,7 @@ const modelPreviews = new Map();
 let previewQueue = Promise.resolve();
 mountNavigation('assets');
 const status = message => { $('status').textContent = message; };
-const previewOf = asset => asset.preview || (asset.kind === 'texture' ? asset.file : asset.maps?.map);
+const previewOf = asset => asset.preview || asset.thumbnail || (asset.kind === 'texture' ? asset.file : asset.maps?.map);
 function imageUrl(blob) { return URL.createObjectURL(blob); }
 function action(label, handler) {
   const button = document.createElement('button'); button.type = 'button'; button.textContent = label;

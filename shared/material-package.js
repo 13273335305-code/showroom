@@ -1,6 +1,7 @@
 import { zipSync, unzipSync, strToU8, strFromU8 } from '../vendor/three/addons/libs/fflate.module.js';
 import { MATERIAL_MAPS } from './material-data.js';
 import { readPhysical } from '../physical-textures.js';
+import { compressImageFile } from './asset-thumbnail.js';
 
 export async function packMaterial(asset) {
   const archive = {}, maps = {};
@@ -10,7 +11,7 @@ export async function packMaterial(asset) {
     preview = { path: 'preview', type: asset.preview.type };
   }
   for (const [key] of MATERIAL_MAPS) {
-    const file = asset.maps?.[key];
+    const file = asset.maps?.[key] && await compressImageFile(asset.maps[key], 8192);
     if (!file) continue;
     const path = 'textures/' + key;
     archive[path] = new Uint8Array(await file.arrayBuffer());

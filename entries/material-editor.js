@@ -12,6 +12,7 @@ import { createPatternPreview } from '../shared/pattern-preview.js';
 import { grayscalePixels } from '../shared/image-pixels.js';
 import { configureTextureSampling } from '../shared/texture-sampling.js';
 import { installRoughnessShader } from '../shared/roughness-map.js';
+import { compressImageFile } from '../shared/asset-thumbnail.js';
 
 const $ = id => document.getElementById(id);
 mountNavigation('material');
@@ -139,11 +140,13 @@ async function uploadMap(key, file, restoring = false) {
   if (!/\.(png|jpe?g|webp|bmp)$/i.test(file.name) && !['image/png', 'image/jpeg', 'image/webp', 'image/bmp', 'image/x-ms-bmp'].includes(file.type)) throw new Error('请选择 PNG、JPG、WebP 或 BMP 图片');
   if (file.size > 64 * 1024 * 1024) throw new Error('单张贴图不能超过 64 MB');
   const token = tokens[key] = (tokens[key] || 0) + 1;
-  const url = URL.createObjectURL(file);
-  let texture;
+  const originalFile = file;
   pending++; $('saveMaterial').disabled = true; $('exportMaterial').disabled = true;
+  let texture, url, meta;
   try {
-    const meta = readImageDensity(await file.arrayBuffer());
+    meta = readImageDensity(await originalFile.arrayBuffer());
+    file = await compressImageFile(originalFile, 8192);
+    url = URL.createObjectURL(file);
     texture = await new THREE.TextureLoader().loadAsync(url);
     if (tokens[key] !== token) { texture.dispose(); URL.revokeObjectURL(url); return; }
     if (Math.max(texture.image.width, texture.image.height) > renderer.capabilities.maxTextureSize) throw new Error('图片超过显卡支持尺寸');
@@ -166,7 +169,7 @@ async function uploadMap(key, file, restoring = false) {
     $('preview-' + key).src = url; $('file-' + key).textContent = file.name;
     if (key === 'roughnessMap') refreshRoughnessPreview();
     $('upload-' + key).classList.add('has-image'); $('remove-' + key).disabled = false;
-  } catch (error) { texture?.dispose(); URL.revokeObjectURL(url); throw error; }
+  } catch (error) { texture?.dispose(); if (url) URL.revokeObjectURL(url); throw error; }
   finally { pending--; $('saveMaterial').disabled = pending > 0; $('exportMaterial').disabled = pending > 0; }
 }
 function currentAsset() {
