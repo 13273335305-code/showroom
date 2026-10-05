@@ -6,19 +6,46 @@ const $ = id => document.getElementById(id);
 const libraryNames = { fabric: '\u9762\u6599\u5e93', pattern: '\u56fe\u6848\u5e93', model: '\u6a21\u578b\u5e93' };
 const libraryType = asset => asset.kind === 'folder' ? asset.library || 'fabric' : asset.kind === 'model' ? 'model' : asset.kind === 'texture' ? 'pattern' : materialType(asset);
 let assets = [], renderVersion = 0, activeLibrary = 'fabric', activeFolderId = null, openMenu, searchQuery = '';
+const selectedAssetIds = new Set();
 const renderedCards = new Map();
 const cardUrls = new Map();
 let editing, editPreview, editPreviewUrl, editVersion = 0, movingAssetId = null;
 const modelPreviews = new Map();
 let previewQueue = Promise.resolve();
+let fabricPreviewClosingTimer = null;
+let fabricTextureRenderToken = 0;
+let fabricTextureState = null;
 const status = message => { $('status').textContent = message; };
 const previewOf = asset => asset.preview || asset.thumbnail || (asset.kind === 'texture' ? asset.file : asset.maps?.map);
 function imageUrl(blob) { return URL.createObjectURL(blob); }
 function folderChildren(folderId) { return assets.filter(asset => (asset.parentId || null) === folderId && libraryType(asset) === activeLibrary); }
 function folderById(id) { return assets.find(asset => asset.id === id && asset.kind === 'folder'); }
 function updateBreadcrumb() {
-  const current = folderById(activeFolderId);
-  $('libraryBreadcrumb').textContent = current ? libraryNames[activeLibrary] + ' / ' + folderLabel(current) : libraryNames[activeLibrary];
+  const host = $('libraryBreadcrumb'); host.replaceChildren();
+  const back = $('libraryBack'), atRoot = activeFolderId === null;
+  back.classList.toggle('is-disabled', atRoot);
+  back.setAttribute('aria-disabled', String(atRoot));
+  back.tabIndex = atRoot ? -1 : 0;
+  back.title = atRoot ? '已在根目录' : '返回上一级';
+  back.setAttribute('aria-label', atRoot ? '已在根目录' : '返回上一级');
+  const navigate = folderId => {
+    if (folderId === activeFolderId) return;
+    closeMenu(); closeMoreMenu(); activeFolderId = folderId; searchQuery = ''; $('assetSearch').value = ''; render();
+  };
+  const appendLink = (label, folderId, current = false) => {
+    const link = document.createElement('button'); link.type = 'button'; link.className = 'breadcrumb-link'; link.textContent = label;
+    if (current) link.setAttribute('aria-current', 'page');
+    link.onclick = () => navigate(folderId); host.append(link);
+  };
+  appendLink(libraryNames[activeLibrary], null, activeFolderId === null);
+  const path = [], seen = new Set(); let folder = folderById(activeFolderId);
+  while (folder && !seen.has(folder.id)) { path.unshift(folder); seen.add(folder.id); folder = folderById(folder.parentId); }
+  path.forEach((item, index) => {
+    const separator = document.createElement('span'); separator.className = 'breadcrumb-separator'; separator.setAttribute('aria-hidden', 'true');
+    const icon = document.createElement('img'); icon.src = './assets/breadcrumb-separator.svg'; icon.alt = ''; icon.setAttribute('aria-hidden', 'true'); separator.append(icon);
+    host.append(separator);
+    appendLink(item.name, item.id, index === path.length - 1);
+  });
 }
 function openFolder(folderId) {
   const folder = folderById(folderId);
@@ -53,7 +80,7 @@ function folderLabel(folder) {
   while (current && !seen.has(current.id)) {
     names.unshift(current.name); seen.add(current.id); current = folderById(current.parentId);
   }
-  return names.join(' / ');
+  return names.join('>');
 }
 function moveTargets(asset) {
   return assets.filter(candidate => candidate.kind === 'folder' && libraryType(candidate) === libraryType(asset)
@@ -90,6 +117,30 @@ function closeMenu(restoreFocus = false) {
   openMenu = null;
 }
 function closeAssetAddMenu() { $('assetAddMenu').hidden = true; $('importAssets').setAttribute('aria-expanded', 'false'); }
+function syncCardSelection(card, control, selected) {
+  card.classList.toggle('selected', selected);
+  control.setAttribute('aria-pressed', String(selected));
+  control.setAttribute('aria-label', selected ? '取消选择' : '选择资产');
+}
+function createSelectionControl(asset, card) {
+  const control = document.createElement('button');
+  control.type = 'button'; control.className = 'asset-select-control'; control.setAttribute('aria-pressed', 'false');
+  control.setAttribute('aria-label', '选择资产');
+  for (const type of ['pointerdown', 'pointerup', 'pointercancel']) control.addEventListener(type, event => event.stopPropagation());
+  control.onclick = event => {
+    event.preventDefault(); event.stopPropagation();
+    card.classList.remove('is-pressing', 'is-clicking');
+    const selected = !selectedAssetIds.has(asset.id);
+    if (selected) selectedAssetIds.add(asset.id); else selectedAssetIds.delete(asset.id);
+    syncCardSelection(card, control, selected);
+  };
+  return control;
+}
+function filterVisibleAssets(collection) {
+  const category = $('assetCategory')?.value || 'all';
+  return collection.filter(asset => asset.name.toLocaleLowerCase().includes(searchQuery)
+    && (activeLibrary !== 'fabric' || category === 'all' || asset.category === category));
+}
 function createMenu(asset, card) {
   const trigger = document.createElement('button'); trigger.className = 'asset-menu-trigger'; trigger.type = 'button';
   trigger.textContent = '\u22ef'; trigger.setAttribute('aria-label', asset.name + '：更多操作');
@@ -132,13 +183,161 @@ function createMenu(asset, card) {
 document.addEventListener('pointerdown', event => {
   if (openMenu && !openMenu.panel.contains(event.target) && !openMenu.trigger.contains(event.target)) closeMenu();
   const addMenu = $('assetAddMenu'); if (!addMenu.hidden && !addMenu.contains(event.target) && event.target !== $('importAssets')) closeAssetAddMenu();
-  const moreMenu = $('moreMenu'); if (moreMenu && !moreMenu.hidden && !moreMenu.contains(event.target) && event.target !== $('moreOptions')) closeMoreMenu();
+  const moreMenu = $('moreMenu'), moreButton = $('moreOptions'); if (moreMenu && !moreMenu.hidden && !moreMenu.contains(event.target) && !moreButton.contains(event.target)) closeMoreMenu();
 });
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
   if (openMenu) { event.preventDefault(); closeMenu(true); }
   if ($('moreMenu') && !$('moreMenu').hidden) { event.preventDefault(); closeMoreMenu(); }
 });
+
+function previewNumber(value, digits = 2) {
+  return Number.isFinite(Number(value)) ? Number(value).toFixed(digits).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1') : '';
+}
+function fabricPreviewSource(asset) {
+  return asset.maps?.map || asset.preview || asset.thumbnail || null;
+}
+const FABRIC_TEXTURE_SURFACE = { width: 3600, height: 2700 };
+function fabricTextureRange(asset) {
+  const category = asset.category || '其他';
+  if (category === '面布') return { category, defaultWidth: 120, minWidth: 40, maxWidth: 200, step: 4, zoomable: true };
+  if (category === '边布') return { category, defaultWidth: 22, minWidth: 8, maxWidth: 36, step: 1, zoomable: true };
+  return { category, defaultWidth: 8, minWidth: 8, maxWidth: 8, step: 1, zoomable: false };
+}
+function clampFabricTextureWidth(state, value) {
+  return Math.max(state.range.minWidth, Math.min(state.range.maxWidth, value));
+}
+function drawTiledTexture(baseCanvas, bitmap) {
+  const width = FABRIC_TEXTURE_SURFACE.width, height = FABRIC_TEXTURE_SURFACE.height;
+  const context = baseCanvas.getContext('2d', { alpha: false });
+  context.imageSmoothingEnabled = true;
+  context.fillStyle = '#fff'; context.fillRect(0, 0, width, height);
+  if (bitmap.width >= width && bitmap.height >= height) {
+    const scale = Math.max(width / bitmap.width, height / bitmap.height);
+    const drawWidth = bitmap.width * scale, drawHeight = bitmap.height * scale;
+    context.drawImage(bitmap, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+    return;
+  }
+  for (let y = -bitmap.height; y < height + bitmap.height; y += bitmap.height) {
+    for (let x = -bitmap.width; x < width + bitmap.width; x += bitmap.width) context.drawImage(bitmap, x, y);
+  }
+}
+function renderFabricTexture(state) {
+  if (!state?.canvas || !state.baseCanvas) return;
+  const width = FABRIC_TEXTURE_SURFACE.width, height = FABRIC_TEXTURE_SURFACE.height;
+  const context = state.canvas.getContext('2d', { alpha: false });
+  const scale = state.widthCm / state.range.defaultWidth;
+  const tileWidth = width * scale, tileHeight = height * scale;
+  context.clearRect(0, 0, width, height); context.fillStyle = '#fff'; context.fillRect(0, 0, width, height);
+  let startX = width / 2 - tileWidth / 2, startY = height / 2 - tileHeight / 2;
+  while (startX > 0) startX -= tileWidth;
+  while (startY > 0) startY -= tileHeight;
+  for (let y = startY; y < height; y += tileHeight) {
+    for (let x = startX; x < width; x += tileWidth) context.drawImage(state.baseCanvas, x, y, tileWidth, tileHeight);
+  }
+}
+async function loadFabricTexture(asset, source) {
+  const token = ++fabricTextureRenderToken;
+  const canvas = $('fabricPreviewTexture'), fallback = $('fabricPreviewTextureFallback');
+  try {
+    const bitmap = await createImageBitmap(source);
+    if (token !== fabricTextureRenderToken) { bitmap.close(); return; }
+    const baseCanvas = document.createElement('canvas');
+    baseCanvas.width = FABRIC_TEXTURE_SURFACE.width; baseCanvas.height = FABRIC_TEXTURE_SURFACE.height;
+    drawTiledTexture(baseCanvas, bitmap);
+    bitmap.close();
+    const range = fabricTextureRange(asset);
+    const state = { assetId: asset.id, canvas, baseCanvas, range, widthCm: range.defaultWidth };
+    fabricTextureState = state;
+    renderFabricTexture(state);
+    canvas.hidden = false; fallback.hidden = true;
+  } catch (error) {
+    if (token !== fabricTextureRenderToken) return;
+    fabricTextureState = null; canvas.hidden = true; fallback.hidden = false;
+  }
+}
+function fabricPreviewValue(asset, field) {
+  const physical = asset.physical || {};
+  const surface = asset.surface || {};
+  if (field === 'name') return asset.name || '未命名面料';
+  if (field === 'designInfo') return asset.designInfo || asset.description || '未填写';
+  if (field === 'supplier') return asset.supplier || '未填写';
+  if (field === 'size') {
+    const width = previewNumber(physical.widthCm), height = previewNumber(physical.heightCm);
+    return width && height ? `${width} × ${height} cm` : '未填写';
+  }
+  if (field === 'surface') {
+    const color = surface.color || '#FFFFFF';
+    const roughness = previewNumber(surface.roughness, 2);
+    return roughness ? `${color} · 粗糙度 ${roughness}` : color;
+  }
+  return asset[field] || '未填写';
+}
+function closeFabricPreview() {
+  const dialog = $('fabricPreviewDialog');
+  if (!dialog?.open || dialog.classList.contains('is-closing')) return;
+  dialog.classList.add('is-closing');
+  const duration = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : 320;
+  fabricPreviewClosingTimer = setTimeout(() => {
+    fabricPreviewClosingTimer = null;
+    if (dialog.open) dialog.close();
+  }, duration);
+}
+function showFabricPreview(asset) {
+  const dialog = $('fabricPreviewDialog');
+  if (!dialog || asset?.kind !== 'material') return;
+  if (fabricPreviewClosingTimer) { clearTimeout(fabricPreviewClosingTimer); fabricPreviewClosingTimer = null; }
+  dialog.classList.remove('is-closing');
+  fabricTextureRenderToken++;
+  fabricTextureState = null;
+  const source = fabricPreviewSource(asset);
+  const canvas = $('fabricPreviewTexture'), fallback = $('fabricPreviewTextureFallback');
+  canvas.hidden = !source; fallback.hidden = !!source;
+  if (source) loadFabricTexture(asset, source);
+  $('fabricPreviewTitle').textContent = asset.name || '面料详情';
+  $('fabricPreviewCategory').textContent = asset.category || '面料';
+  const fields = [
+    ['名称', 'name'], ['设计信息', 'designInfo'], ['供应商', 'supplier'],
+    ['物理尺寸', 'size'], ['表面参数', 'surface'], ['简介', 'description'],
+  ];
+  const host = $('fabricPreviewFields'); host.replaceChildren();
+  fields.forEach(([label, key]) => {
+    const item = document.createElement('div'); item.className = 'fabric-preview-field' + (key === 'description' ? ' is-wide' : '');
+    const heading = document.createElement('span'); heading.className = 'fabric-preview-field-label'; heading.textContent = label;
+    const value = document.createElement('strong'); value.className = 'fabric-preview-field-value'; value.textContent = key === 'description' ? (asset.description || '未填写') : fabricPreviewValue(asset, key);
+    item.append(heading, value); host.append(item);
+  });
+  dialog.showModal();
+  $('closeFabricPreview').focus();
+}
+$('closeFabricPreview').onclick = closeFabricPreview;
+$('fabricPreviewDialog').addEventListener('click', event => {
+  if (event.target === $('fabricPreviewDialog')) closeFabricPreview();
+});
+$('fabricPreviewDialog').addEventListener('cancel', event => {
+  event.preventDefault();
+  closeFabricPreview();
+});
+$('fabricPreviewDialog').addEventListener('close', () => {
+  if (fabricPreviewClosingTimer) { clearTimeout(fabricPreviewClosingTimer); fabricPreviewClosingTimer = null; }
+  $('fabricPreviewDialog').classList.remove('is-closing');
+  fabricTextureRenderToken++;
+  fabricTextureState = null;
+  const canvas = $('fabricPreviewTexture');
+  canvas.hidden = true;
+  canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+});
+
+$('fabricPreviewTexture').addEventListener('wheel', event => {
+  const state = fabricTextureState;
+  if (!state?.range.zoomable || state.assetId === undefined) return;
+  event.preventDefault();
+  const direction = event.deltaY < 0 ? 1 : -1;
+  const next = clampFabricTextureWidth(state, state.widthCm + direction * state.range.step);
+  if (next === state.widthCm) return;
+  state.widthCm = next;
+  renderFabricTexture(state);
+}, { passive: false });
 
 function showEditPreview(blob) {
   if (editPreviewUrl) URL.revokeObjectURL(editPreviewUrl);
@@ -243,11 +442,8 @@ function render() {
   closeMenu();
   updateBreadcrumb();
   const host = $('assetGrid'); host.replaceChildren();
-  const query = searchQuery;
   const collection = assets.filter(asset => libraryType(asset) === activeLibrary && (asset.parentId || null) === activeFolderId);
-  const category = $('assetCategory')?.value || 'all';
-  let shown = collection.filter(asset => asset.name.toLocaleLowerCase().includes(query)
-    && (activeLibrary !== 'fabric' || category === 'all' || asset.category === category));
+  let shown = filterVisibleAssets(collection);
   const sortMode = $('assetSort')?.value || 'recent';
   shown.sort((a, b) => {
     if (sortMode === 'nameAsc') return a.name.localeCompare(b.name, 'zh-CN');
@@ -264,7 +460,10 @@ function render() {
   for (const asset of shown) {
     const signature = [asset.updatedAt, asset.kind, asset.thumbnail?.size, asset.name, asset.description, asset.designInfo, asset.supplier, asset.category, asset.favorite, asset.children?.join(',')].join('|');
     const cached = asset.kind === 'folder' ? null : renderedCards.get(asset.id);
-    if (cached?.signature === signature) { host.append(cached.card); continue; }
+    if (cached?.signature === signature) {
+      syncCardSelection(cached.card, cached.selectControl, selectedAssetIds.has(asset.id));
+      host.append(cached.card); continue;
+    }
     cardUrls.get(asset.id)?.forEach(url => URL.revokeObjectURL(url));
     cardUrls.delete(asset.id);
     const card = document.createElement('article'); card.className = 'asset-card asset-' + asset.kind + (asset.favorite ? ' is-favorite' : ''); card.dataset.assetId = asset.id;
@@ -305,6 +504,7 @@ function render() {
       const surface = isCardSurface(event);
       if (event.detail === 0 && surface) releaseCard({ pointerId: null });
       if (asset.kind === 'folder' && surface) openFolderCard();
+      if (asset.kind === 'material' && activeLibrary === 'fabric' && surface) showFabricPreview(asset);
     });
     const art = document.createElement('div'); art.className = 'asset-art';
     const urls = [];
@@ -329,8 +529,11 @@ function render() {
       const settings = document.createElement('a'); settings.className = 'model-settings'; settings.href = './model-parts.html?asset=' + encodeURIComponent(asset.id);
       settings.title = '配置模型部件'; settings.setAttribute('aria-label', '配置模型部件'); settings.textContent = '⚙'; modelActions.append(settings); actions.append(modelActions);
     } else actions.append(link('编辑材质', './material-editor.html?asset=' + encodeURIComponent(asset.id)));
-    info.append(title, description, actions); card.append(art, info, ...createMenu(asset, card));
-    renderedCards.set(asset.id, { signature, card }); host.append(card);
+    info.append(title, description, actions);
+    const selectControl = createSelectionControl(asset, card);
+    syncCardSelection(card, selectControl, selectedAssetIds.has(asset.id));
+    card.append(art, info, selectControl, ...createMenu(asset, card));
+    renderedCards.set(asset.id, { signature, card, selectControl }); host.append(card);
   }
   requestAnimationFrame(() => syncAssetScrollbar());
 }
@@ -339,6 +542,7 @@ async function refresh() {
   const show = result => {
     if (version !== renderVersion) return;
     const ids = new Set(result.map(asset => asset.id));
+    for (const id of selectedAssetIds) if (!ids.has(id)) selectedAssetIds.delete(id);
     for (const id of renderedCards.keys()) if (!ids.has(id)) {
       cardUrls.get(id)?.forEach(url => URL.revokeObjectURL(url));
       cardUrls.delete(id); renderedCards.delete(id);
@@ -391,7 +595,7 @@ searchInput.addEventListener('keydown', event => {
   clearSearchIfCancelled();
 });
 $('libraryBack').onclick = event => {
-  if (!activeFolderId) return;
+  if (!activeFolderId) { event.preventDefault(); return; }
   event.preventDefault();
   const folder = folderById(activeFolderId);
   activeFolderId = folder?.parentId || null;
@@ -402,6 +606,12 @@ $('assetSort').addEventListener('change', render);
 $('moreOptions').onclick = () => {
   const menu = $('moreMenu'), button = $('moreOptions');
   menu.hidden = !menu.hidden; button.setAttribute('aria-expanded', String(!menu.hidden));
+};
+$('selectAllAssets').onclick = () => {
+  const collection = assets.filter(asset => libraryType(asset) === activeLibrary && (asset.parentId || null) === activeFolderId);
+  const shown = filterVisibleAssets(collection);
+  shown.forEach(asset => selectedAssetIds.add(asset.id));
+  closeMoreMenu(); render(); status(shown.length ? `已选择 ${shown.length} 项资产` : '当前没有可选择的资产');
 };
 $('refreshAssets').onclick = () => { closeMoreMenu(); refresh(); };
 $('clearSearch').onclick = () => {

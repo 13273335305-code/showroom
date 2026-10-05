@@ -30,13 +30,13 @@
     </div>
   </header>
   <div class="asset-subbar">
-      <a id="libraryBack" class="library-back" href="./index.html" aria-label="返回工作台" title="返回工作台">‹</a>
-    <div class="library-breadcrumb" aria-label="当前位置"><strong id="libraryBreadcrumb">面料库</strong></div>
+      <a id="libraryBack" class="library-back" href="./index.html" aria-label="返回上一级" title="返回上一级"><img src="./assets/library-back.svg" alt="" aria-hidden="true"></a>
+    <div id="libraryBreadcrumb" class="library-breadcrumb" aria-label="当前位置"><span class="breadcrumb-link">面料库</span></div>
     <div class="library-sub-actions">
-      <select id="assetCategory" aria-label="筛选分类"><option value="all">全部</option><option>面布</option><option>边布</option><option>包边条</option><option>其他</option></select>
+      <select id="assetCategory" aria-label="筛选分类"><option value="all">全部分类</option><option>面布</option><option>边布</option><option>包边条</option><option>其他</option></select>
       <select id="assetSort" aria-label="排序方式"><option value="recent">最近更新</option><option value="oldest">最早更新</option><option value="nameAsc">名称升序</option><option value="nameDesc">名称降序</option></select>
-      <button id="moreOptions" class="more-button" type="button" aria-label="更多选项" aria-haspopup="menu" aria-expanded="false" title="更多选项"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="12" cy="19" r="2"></circle></svg></button>
-      <div id="moreMenu" class="more-menu" role="menu" hidden><button type="button" id="refreshAssets" role="menuitem">刷新资产</button><button type="button" id="clearSearch" role="menuitem">清除搜索</button></div>
+      <button id="moreOptions" class="more-button" type="button" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false" title="更多操作"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="3.8" r="2.05"></circle><circle cx="12" cy="12" r="2.05"></circle><circle cx="12" cy="20.2" r="2.05"></circle></svg></button>
+      <div id="moreMenu" class="more-menu" role="menu" hidden><button type="button" id="selectAllAssets" role="menuitem">全选</button><button type="button" id="refreshAssets" role="menuitem">刷新资产</button><button type="button" id="clearSearch" role="menuitem">清除搜索</button></div>
     </div>
   </div>
   <main class="library-main">
@@ -67,6 +67,28 @@
       <p id="moveAssetError" role="alert"></p>
       <div class="asset-dialog-actions"><button id="cancelMove" type="button">取消</button><button id="saveMove" class="primary" type="submit">移动</button></div>
     </form>
+  </dialog>
+  <dialog id="fabricPreviewDialog" class="fabric-preview-dialog" aria-labelledby="fabricPreviewTitle">
+    <div class="fabric-preview-window">
+      <div class="fabric-preview-heading">
+        <div>
+          <p class="fabric-preview-eyebrow">面料预览</p>
+          <h2 id="fabricPreviewTitle">面料详情</h2>
+        </div>
+        <button id="closeFabricPreview" class="fabric-preview-close" type="button" aria-label="关闭面料预览">×</button>
+      </div>
+      <section class="fabric-preview-texture" aria-label="面料纹理图">
+        <canvas id="fabricPreviewTexture" width="3600" height="2700" aria-label="面料纹理图"></canvas>
+        <div id="fabricPreviewTextureFallback" class="fabric-preview-texture-fallback" hidden>暂无纹理图</div>
+      </section>
+      <section class="fabric-preview-details" aria-labelledby="fabricPreviewDetailsTitle">
+        <div class="fabric-preview-details-heading">
+          <h3 id="fabricPreviewDetailsTitle">面料信息</h3>
+          <span id="fabricPreviewCategory"></span>
+        </div>
+        <div id="fabricPreviewFields" class="fabric-preview-fields"></div>
+      </section>
+    </div>
   </dialog>
   <div id="status" class="status-bar" role="status"></div>
   <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>

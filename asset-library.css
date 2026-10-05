@@ -34,9 +34,48 @@
 #assetPreviewEditor p{font-size:12px}
 .asset-dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
 #assetEditError,#moveAssetError{font-size:12px;color:#bf3448;margin:8px 0;overflow-wrap:anywhere}
+
+/* Fabric quick preview: a focused picture-in-picture window with a 4:3
+   texture card above the compact information card. */
+.fabric-preview-dialog{width:min(600px,calc(100vw - 24px));max-width:none;max-height:calc(100vh - 24px);margin:auto;padding:0!important;border:0!important;outline:0!important;border-radius:0;background:transparent;color:#2b415b;overflow:visible;box-shadow:none!important;appearance:none}
+.fabric-preview-dialog::backdrop{background:#20324666;backdrop-filter:blur(11px) saturate(85%);-webkit-backdrop-filter:blur(11px) saturate(85%);animation:fabric-preview-backdrop-in .32s ease-out both}
+.fabric-preview-dialog.is-closing::backdrop{animation:fabric-preview-backdrop-out .32s ease-in both}
+.fabric-preview-window{display:grid;gap:10px;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;animation:fabric-preview-in .2s ease-out both}
+.fabric-preview-dialog.is-closing .fabric-preview-window{animation:fabric-preview-out .32s ease-in both}
+.fabric-preview-heading{display:none}
+.fabric-preview-eyebrow{margin:0 0 2px;color:#4b82dd;font-size:11px;font-weight:700;letter-spacing:.08em}
+.fabric-preview-heading h2{margin:0;color:#203b5b;font-size:20px;line-height:28px;font-weight:700}
+.fabric-preview-close{display:grid;place-items:center;width:34px;height:34px;padding:0;border:1px solid #d5e1ee;border-radius:10px;background:#fff;color:#7086a0;font-size:25px;line-height:1;cursor:pointer}
+.fabric-preview-close:hover,.fabric-preview-close:focus-visible{border-color:#8fb4ed;background:#edf4ff;color:#286bd5;outline:none}
+.fabric-preview-texture,.fabric-preview-details{position:relative;overflow:hidden;border:0!important;outline:0;background:#fff;box-shadow:none!important}
+.fabric-preview-texture{aspect-ratio:4/3;border-radius:13px}
+.fabric-preview-texture canvas{display:block;width:100%;height:100%;image-rendering:auto;cursor:zoom-in;user-select:none}
+.fabric-preview-texture-fallback{display:grid;place-items:center;width:100%;height:100%;background:linear-gradient(135deg,#e4edf5,#cfdae7);color:#7890a8;font-size:14px}
+.fabric-preview-details{aspect-ratio:10/3;min-height:0;padding:12px 14px 11px;border-radius:13px}
+.fabric-preview-details-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.fabric-preview-details-heading h3{margin:0;color:#3978ed;font-size:14px;line-height:20px;font-weight:700}
+.fabric-preview-details-heading span{color:#7a8da5;font-size:12px;line-height:18px}
+.fabric-preview-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 24px}
+.fabric-preview-field{display:grid;min-width:0;gap:2px}
+.fabric-preview-field.is-wide{grid-column:1/-1}
+.fabric-preview-field-label{color:#7f91a7;font-size:11px;line-height:16px}
+.fabric-preview-field-value{min-width:0;overflow:hidden;color:#36516f;font-size:13px;line-height:18px;font-weight:500;text-overflow:ellipsis;white-space:nowrap}
+.fabric-preview-field.is-wide .fabric-preview-field-value{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+@keyframes fabric-preview-in{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes fabric-preview-backdrop-in{from{background:#20324600;backdrop-filter:blur(0) saturate(100%);-webkit-backdrop-filter:blur(0) saturate(100%)}to{background:#20324666;backdrop-filter:blur(11px) saturate(85%);-webkit-backdrop-filter:blur(11px) saturate(85%)}}
+@keyframes fabric-preview-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(8px) scale(.985)}}
+@keyframes fabric-preview-backdrop-out{from{background:#20324666;backdrop-filter:blur(11px) saturate(85%);-webkit-backdrop-filter:blur(11px) saturate(85%)}to{background:#20324600;backdrop-filter:blur(0) saturate(100%);-webkit-backdrop-filter:blur(0) saturate(100%)}}
+@media(max-width:700px){
+  .fabric-preview-dialog{width:min(520px,calc(100vw - 24px))}
+  .fabric-preview-window{gap:9px;padding:0;border-radius:0}
+  .fabric-preview-heading h2{font-size:17px;line-height:24px}
+  .fabric-preview-details{aspect-ratio:auto;min-height:0;padding:13px 14px}
+  .fabric-preview-fields{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 14px}
+}
+@media(prefers-reduced-motion:reduce){.fabric-preview-window,.fabric-preview-dialog::backdrop,.fabric-preview-dialog.is-closing .fabric-preview-window,.fabric-preview-dialog.is-closing::backdrop{animation:none}}
 /* Asset library shell: a translucent fixed bar over an independently scrolling collection. */
 .asset-library-page{--asset-topbar-height:94px;background:#edf4fa;color:#2b415b;overflow:hidden;padding-top:var(--asset-topbar-height)}
-.asset-library-page .asset-topbar{position:fixed;inset:0 0 auto;z-index:30;display:grid;grid-template-columns:minmax(220px,1fr) auto minmax(220px,1fr);align-items:center;width:100%;height:var(--asset-topbar-height);padding:0 clamp(24px,4vw,52px);border:0;border-bottom:1px solid #ffffff70;background:linear-gradient(120deg,#ffffff55,#eaf3ff38 55%,#ffffff4f);box-shadow:inset 0 1px 0 #ffffff90,0 4px 16px #1c3c5a0c;backdrop-filter:blur(22px) saturate(170%);-webkit-backdrop-filter:blur(22px) saturate(170%)}
+.asset-library-page .asset-topbar{position:fixed;inset:0 0 auto;z-index:30;display:grid;grid-template-columns:minmax(220px,1fr) auto minmax(220px,1fr);align-items:center;width:100%;height:var(--asset-topbar-height);padding:0 18px 0 22px;border:0;border-bottom:1px solid #ffffff70;background:linear-gradient(120deg,#ffffff55,#eaf3ff38 55%,#ffffff4f);box-shadow:inset 0 1px 0 #ffffff90,0 4px 16px #1c3c5a0c;backdrop-filter:blur(22px) saturate(170%);-webkit-backdrop-filter:blur(22px) saturate(170%)}
 .asset-brand{display:flex;align-items:center;gap:14px;min-width:0;color:#20344e;text-decoration:none}.asset-brand img{display:block;width:146px;height:36px;object-fit:contain}.asset-brand-divider{display:block;width:1px;height:27px;background:#91a5bc}.asset-brand strong{font-size:21px;letter-spacing:.04em;white-space:nowrap}
 .asset-library-page .library-switcher{display:flex;gap:3px;justify-self:center;padding:4px;border:1px solid #c7d8ed;border-radius:13px;background:#eaf2fcd9}.asset-library-page .library-switcher a{min-width:84px;padding:8px 15px;border-radius:9px;color:#67809e;font-size:14px;font-weight:650;text-align:center;text-decoration:none}.asset-library-page .library-switcher a:hover{color:#286bd5}.asset-library-page .library-switcher a[aria-selected=true]{color:#2465d2;background:#fff;box-shadow:0 1px 4px #417be52b,inset 0 0 0 1px #3f80ff}
 .asset-top-actions{display:flex;align-items:center;justify-self:end;gap:14px;min-width:0}.asset-search{display:flex;align-items:center;width:min(214px,20vw);height:46px;padding:0 12px 0 16px;border:1px solid #cbd9ea;border-radius:14px;background:#ffffffe8;color:#22344d}.asset-search input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:inherit;font-size:14px}.asset-search input::placeholder{color:#94a8bf}.asset-search span:not(.sr-only){font-size:31px;line-height:1;transform:rotate(-20deg);font-family:Arial;font-weight:300}.asset-add-button{display:grid;place-items:center;width:52px;height:52px;padding:0;border:0;border-radius:12px;background:#3978ed;color:#fff;font-size:0;line-height:1;cursor:pointer;box-shadow:none;transition:background-color .18s ease,transform .14s ease,filter .18s ease}.asset-add-button:hover{background:#2869dc;transform:translateY(-1px)}.asset-add-glyph{position:relative;display:block;width:26px;height:26px}.asset-add-glyph::before,.asset-add-glyph::after{content:"";position:absolute;left:50%;top:50%;width:25px;height:3px;border-radius:3px;background:#fff;transform:translate(-50%,-50%)}.asset-add-glyph::after{transform:translate(-50%,-50%) rotate(90deg)}.asset-add-button:active{background:#205fcf;transform:scale(.92)}.asset-add-button:focus-visible{outline:3px solid #91baff;outline-offset:3px}
@@ -45,27 +84,20 @@
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .asset-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:16px;align-items:start}.asset-card{position:relative;display:grid;grid-template-rows:270px 59px;aspect-ratio:auto;min-width:0;overflow:visible;border:1px solid transparent;border-radius:17px;background:#fff;box-shadow:0 9px 22px #45698512;transition:border-color .18s,box-shadow .18s,transform .18s}.asset-card:hover{transform:translateY(-2px);border-color:#b9d1f8;box-shadow:0 14px 28px #45698522}.asset-card.menu-open{z-index:5}.asset-art{height:auto;min-height:0;border-radius:16px 16px 0 0;background:#e1e9f1;overflow:hidden}.asset-art img{object-fit:cover}.asset-art .sphere{width:80px;height:80px;max-height:85%;aspect-ratio:1}.asset-info{min-width:0;padding:13px 14px 14px;display:flex;align-items:center;gap:8px}.asset-library-page .asset-model .asset-actions{display:block}.asset-library-page .asset-info h2{min-width:0;flex:1;margin:0;font-size:14px;line-height:20px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.asset-description,.asset-actions{display:none}.asset-library-page .asset-menu-trigger{position:absolute;right:8px;bottom:7px;display:grid;place-items:center;align-self:end;width:28px;height:28px;margin:0;padding:0;border:0;background:transparent;box-shadow:none;color:#6f87a3;font-size:23px;font-weight:700;line-height:1;border-radius:7px}.asset-library-page .asset-menu-trigger:hover,.asset-library-page .asset-menu-trigger[aria-expanded=true]{color:#2f71ee;background:#edf4ff}.asset-menu{top:auto;right:10px;bottom:45px}
 @media(max-width:1300px){.asset-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}@media(max-width:960px){.asset-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
-@media(max-width:960px){.asset-library-page .asset-topbar{grid-template-columns:minmax(180px,1fr) auto minmax(170px,1fr);padding:0 22px}.asset-brand img{width:124px}.asset-brand strong{font-size:18px}.asset-library-page .library-switcher a{min-width:72px;padding:8px 10px}.asset-search{width:170px}}
-@media(max-width:700px){.asset-library-page{--asset-topbar-height:112px;height:100dvh}.asset-library-page .asset-topbar{display:flex;height:var(--asset-topbar-height);align-items:flex-start;padding:17px 14px}.asset-brand{gap:9px}.asset-brand img{width:96px;height:28px}.asset-brand-divider{height:21px}.asset-brand strong{font-size:16px}.asset-library-page .library-switcher{position:absolute;left:14px;right:14px;bottom:12px;justify-content:stretch}.asset-library-page .library-switcher a{flex:1;min-width:0;font-size:12px}.asset-top-actions{position:absolute;top:10px;right:10px;gap:4px}.asset-search{width:132px;height:38px;border-radius:10px}.asset-add-button{width:38px;height:38px;font-size:27px;border-radius:9px}.asset-library-page .library-main{height:calc(100dvh - var(--asset-topbar-height));padding:14px 12px 20px}.asset-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.asset-info{padding:9px 8px 10px}.asset-library-page .asset-info h2{font-size:12px}.asset-library-page .asset-menu-trigger{margin-right:5px;margin-bottom:5px}.asset-menu{right:5px;bottom:35px}}
+@media(max-width:960px){.asset-library-page .asset-topbar{grid-template-columns:minmax(180px,1fr) auto minmax(170px,1fr);padding:0 18px 0 22px}.asset-brand img{width:124px}.asset-brand strong{font-size:18px}.asset-library-page .library-switcher a{min-width:72px;padding:8px 10px}.asset-search{width:170px}}
+@media(max-width:700px){.asset-library-page{--asset-topbar-height:112px;height:100dvh}.asset-library-page .asset-topbar{display:flex;height:var(--asset-topbar-height);align-items:flex-start;padding:17px 10px 17px 12px}.asset-brand{gap:9px}.asset-brand img{width:96px;height:28px}.asset-brand-divider{height:21px}.asset-brand strong{font-size:16px}.asset-library-page .library-switcher{position:absolute;left:12px;right:10px;bottom:12px;justify-content:stretch}.asset-library-page .library-switcher a{flex:1;min-width:0;font-size:12px}.asset-top-actions{position:absolute;top:10px;right:10px;gap:4px}.asset-search{width:132px;height:38px;border-radius:10px}.asset-add-button{width:38px;height:38px;font-size:27px;border-radius:9px}.asset-library-page .library-main{height:calc(100dvh - var(--asset-topbar-height));padding:14px 12px 20px}.asset-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.asset-info{padding:9px 8px 10px}.asset-library-page .asset-info h2{font-size:12px}.asset-library-page .asset-menu-trigger{margin-right:5px;margin-bottom:5px}.asset-menu{right:5px;bottom:35px}}
 @media(max-width:390px){.asset-grid{grid-template-columns:1fr}}
-
-.asset-card.selected{border-color:#3d82ff;box-shadow:0 0 0 1px #3d82ff,0 9px 22px #45698512}.asset-card.selected:before{content:"";position:absolute;z-index:3;left:13px;top:13px;width:24px;height:24px;border:3px solid #4384ff;border-radius:50%;background:#fff;box-sizing:border-box}.asset-card.selected:after{content:"";position:absolute;z-index:2;left:13px;top:13px;width:24px;height:24px;border-radius:50%;box-shadow:0 0 0 1px #fff}
 
 /* Card interaction and preview ratio. */
 .asset-card{grid-template-rows:auto 59px;aspect-ratio:auto;transform:none;transition:transform .18s ease,box-shadow .18s ease;--card-accent:#3978ed}
 .asset-card .asset-art{width:100%;aspect-ratio:4/3;height:auto;min-height:0;grid-row:1;align-self:stretch}
 .asset-card:hover{z-index:4;transform:scale(1.025);border-color:transparent;box-shadow:0 0 0 3px var(--card-accent),0 14px 28px #45698528}
-.asset-card.selected{z-index:3;border-color:transparent;box-shadow:0 0 0 3px var(--card-accent),0 9px 22px #45698518}
-.asset-card.selected:hover{box-shadow:0 0 0 3px var(--card-accent),0 14px 28px #45698528}
 .asset-library-page .asset-menu-trigger{right:10px;bottom:10px;z-index:4;transform:none!important}
 .asset-library-page .asset-menu-trigger:hover{transform:none!important}
 @media(max-width:700px){.asset-card{grid-template-rows:auto 48px}.asset-card .asset-art{aspect-ratio:4/3}.asset-card:hover{transform:scale(1.015)}}
 
 /* Keep the overflow menu in the metadata row, never in the preview corner. */
 .asset-library-page .asset-menu-trigger{top:auto!important;right:10px!important;bottom:10px!important}
-@keyframes asset-card-click{0%{transform:scale(1)}35%{transform:scale(.94)}72%{transform:scale(1.035)}100%{transform:scale(1.025)}}
-.asset-card.is-clicking{animation:asset-card-click .34s cubic-bezier(.2,.75,.25,1) both;z-index:6}
-@media(prefers-reduced-motion:reduce){.asset-card.is-clicking{animation:none}}
 
 /* Asset library chrome refinements. Keep these selectors scoped above the
    standalone defaults so the reference controls retain their appearance. */
@@ -91,7 +123,7 @@
 .asset-library-page .library-main{scrollbar-width:none}
 .asset-library-page .library-main::-webkit-scrollbar{display:none;width:0;height:0}
 .asset-subbar{position:fixed;top:var(--asset-topbar-height);left:0;right:var(--asset-scrollbar-width);z-index:28;display:flex;align-items:center;height:var(--asset-subbar-height);padding:0 18px 0 22px;border-bottom:1px solid #ffffff88;background:linear-gradient(120deg,#ffffffa6,#eaf3ff8c 55%,#ffffff9e);box-shadow:0 4px 16px #1c3c5a12;backdrop-filter:blur(16px) saturate(125%);-webkit-backdrop-filter:blur(16px) saturate(125%);transition:transform .22s ease,opacity .18s ease;will-change:transform,opacity}
-.library-back{display:grid;place-items:center;width:24px;height:30px;color:#8d9fb3;text-decoration:none;font-size:25px;font-weight:300;line-height:1;transform:translateY(-2px);transition:color .15s ease}.library-back:hover{color:#3978ed}.library-breadcrumb{display:flex;align-items:center;margin-left:10px;min-width:0;color:#58708d;font-size:12px;line-height:1;white-space:nowrap}.library-breadcrumb strong{min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:500}.library-sub-actions{position:relative;display:flex;align-items:center;gap:8px;margin-left:auto}.library-sub-actions select{width:96px;min-width:96px;height:28px;padding:0 22px 0 10px;border:1px solid #ffffff88;border-radius:9px;background:linear-gradient(120deg,#ffffff72,#eaf3ff5e 55%,#ffffff6a);box-shadow:0 3px 12px #1c3c5a0d;color:#58708d;font-size:11px;line-height:26px;cursor:pointer;backdrop-filter:blur(16px) saturate(125%);-webkit-backdrop-filter:blur(16px) saturate(125%)}.library-sub-actions select:focus-visible{outline:2px solid #77a9f7;outline-offset:1px}.more-button{display:grid;place-items:center;width:27px;height:28px;padding:0;border:0;border-radius:0;background:transparent;color:#7c8fa5;font-size:17px;line-height:1;cursor:pointer}.more-button:hover,.more-button[aria-expanded=true]{background:transparent;color:#3978ed}.more-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:40;min-width:124px;padding:4px;border:1px solid #d4e0ed;border-radius:8px;background:#fffffff2;box-shadow:0 8px 24px #26476620;backdrop-filter:blur(12px)}.more-menu button{display:block;width:100%;padding:6px 9px;border:0;border-radius:5px;background:transparent;color:#536d8b;text-align:left;font-size:11px;line-height:18px;cursor:pointer}.more-menu button:hover,.more-menu button:focus-visible{background:#eef5ff;color:#2f71ee;outline:none}.more-menu[hidden]{display:none}
+.library-back{display:grid;place-items:center;width:24px;height:30px;color:#8d9fb3;text-decoration:none;line-height:1;transform:none;transition:opacity .15s ease}.library-back img{display:block;width:16px;height:16px;object-fit:contain;opacity:.72}.library-back:hover img{opacity:1}.library-back.is-disabled{cursor:default;pointer-events:none}.library-back.is-disabled img{opacity:.28}.library-breadcrumb{display:flex;align-items:center;gap:3px;margin-left:10px;min-width:0;color:#58708d;font-size:16px;line-height:18px;white-space:nowrap;overflow:hidden}.asset-library-page .library-breadcrumb .breadcrumb-link{display:block;min-width:0;max-width:180px;overflow:hidden;text-overflow:ellipsis;padding:0;border:0;border-radius:3px;background:transparent;color:#58708d;font:500 16px/18px 'Microsoft YaHei','Segoe UI',sans-serif;white-space:nowrap;text-align:left;cursor:pointer}.asset-library-page .library-breadcrumb .breadcrumb-link:hover{color:#286bd5}.asset-library-page .library-breadcrumb .breadcrumb-link:focus-visible{outline:2px solid #77a9f7;outline-offset:2px}.asset-library-page .library-breadcrumb .breadcrumb-link[aria-current=page]{color:#35506e;cursor:default}.breadcrumb-separator{display:inline-flex;align-items:center;justify-content:center;flex:0 0 13px;width:13px;height:18px}.breadcrumb-separator img{display:block;width:13px;height:18px;object-fit:contain}.library-sub-actions{position:relative;display:flex;align-items:center;gap:8px;margin-left:auto}.library-sub-actions select{width:96px;min-width:96px;height:28px;padding:0 22px 0 10px;border:1px solid #ffffff88;border-radius:9px;background:linear-gradient(120deg,#ffffff72,#eaf3ff5e 55%,#ffffff6a);box-shadow:0 3px 12px #1c3c5a0d;color:#58708d;font-size:10px;line-height:26px;cursor:pointer;backdrop-filter:blur(16px) saturate(125%);-webkit-backdrop-filter:blur(16px) saturate(125%)}.library-sub-actions select:focus-visible{outline:2px solid #77a9f7;outline-offset:1px}.more-button{display:grid;place-items:center;width:27px;height:28px;padding:0;border:0;border-radius:0;background:transparent;color:#7c8fa5;font-size:17px;line-height:1;cursor:pointer}.more-button:hover,.more-button[aria-expanded=true]{background:transparent;color:#3978ed}.more-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:40;min-width:124px;padding:4px;border:1px solid #d4e0ed;border-radius:8px;background:#fffffff2;box-shadow:0 8px 24px #26476620;backdrop-filter:blur(12px)}.more-menu button{display:block;width:100%;padding:6px 9px;border:0;border-radius:5px;background:transparent;color:#536d8b;text-align:left;font-size:11px;line-height:18px;cursor:pointer}.more-menu button:hover,.more-menu button:focus-visible{background:#eef5ff;color:#2f71ee;outline:none}.more-menu[hidden]{display:none}
 .asset-library-page.asset-subbar-collapsed{--asset-subbar-height:0px}
 .asset-library-page.asset-subbar-collapsed .asset-subbar{transform:translateY(-100%);opacity:0;pointer-events:none}
 .asset-scrollbar{position:fixed;top:var(--asset-topbar-height);right:0;bottom:0;z-index:29;width:var(--asset-scrollbar-width);background:#ffffff70;border-left:0;pointer-events:auto;cursor:pointer}
@@ -123,40 +155,38 @@
 /* Final card tuning. */
 .asset-card{grid-template-rows:auto 44px}
 .asset-card .asset-info{padding:8px 14px 9px}
-.asset-card.selected:before,.asset-card.selected:after{display:none!important;content:none!important}
-@keyframes asset-card-click{0%{transform:scale(1)}35%{transform:scale(.975)}70%{transform:scale(1.012)}100%{transform:scale(1.008)}}
-.asset-card.is-clicking{animation-duration:.24s}
-@media(max-width:700px){.asset-card{grid-template-rows:auto 36px}.asset-card .asset-info{padding:6px 8px 7px}.asset-card.is-clicking{animation-duration:.2s}}
+@media(max-width:700px){.asset-card{grid-template-rows:auto 36px}.asset-card .asset-info{padding:6px 8px 7px}}
 
-/* Click feedback is transient; remove the preview edge and avoid end-of-animation jumps. */
+/* Keep click feedback simple and avoid end-of-animation jumps. */
 .asset-card{border:0}
 .asset-card .asset-art{border:0}
-@keyframes asset-card-click{0%{transform:scale(1.025)}35%{transform:scale(.99)}70%{transform:scale(1.01)}100%{transform:scale(1.025)}}
-.asset-card.is-clicking{animation:asset-card-click .28s cubic-bezier(.22,.8,.24,1) both;will-change:transform}
-.asset-card.selected{border:0;box-shadow:none}
-.asset-card.selected:before,.asset-card.selected:after{display:none!important;content:none!important}
-@media(prefers-reduced-motion:reduce){.asset-card.is-clicking{animation:none}}
+.asset-card.selected{z-index:3;border:0;box-shadow:none}
 
-/* Press feedback starts on pointer-down, then rebounds when the pointer is released. */
+/* Press feedback starts on pointer-down and smoothly returns on release. */
 .asset-library-page .asset-art img{display:block;width:100%;height:100%;max-width:none;max-height:none;object-fit:cover;pointer-events:none;user-select:none;-webkit-user-drag:none}
-.asset-card.is-pressing{transform:scale(.99)!important;transition:transform .07s ease-out!important;z-index:6}
-@keyframes asset-card-click{0%{transform:scale(1)}34%{transform:scale(.96)}68%{transform:scale(1.025)}100%{transform:scale(1)}}
-.asset-card.is-clicking{animation:asset-card-click .28s cubic-bezier(.22,.8,.24,1) both}
-@media(max-width:700px){.asset-card.is-pressing{transform:scale(.96)!important}.asset-card.is-clicking{animation-duration:.22s}}
-@media(prefers-reduced-motion:reduce){.asset-card.is-pressing{transform:none!important;transition:none!important}.asset-card.is-clicking{animation:none}}
+.asset-card.is-pressing{transform:scale(.98)!important;transition:transform .07s ease-out!important;z-index:6}
+@media(max-width:700px){.asset-card.is-pressing{transform:scale(.98)!important}}
+@media(prefers-reduced-motion:reduce){.asset-card.is-pressing{transform:none!important;transition:none!important}}
 
 /* Keep the preview exactly aligned with the card width. */
 .asset-card .asset-art{width:100%;margin-left:0}
 .asset-card.is-pressing,.asset-card.is-clicking{backface-visibility:hidden;transform-origin:center center}
-@keyframes asset-card-click{0%{transform:scale(1)}34%{transform:scale(.96)}68%{transform:scale(1.025)}100%{transform:scale(1)}}
-@media(prefers-reduced-motion:reduce){.asset-card.is-clicking{animation:none}}
 
 /* Top-layer accent frame: keep the blue outline above preview pixels. */
 .asset-card:hover{transform:none;box-shadow:0 14px 28px #45698528}
+.asset-card.selected:hover{z-index:4}
 .asset-folder.is-pressing{transform:none!important;transition:none!important}
 .asset-card::after{content:"";position:absolute;inset:-1px;z-index:20;box-sizing:border-box;border:3px solid transparent;border-radius:18px;pointer-events:none}
 .asset-card:hover::after,.asset-card.is-pressing::after,.asset-card.is-clicking::after{border-color:var(--card-accent)}
 .asset-card.is-favorite::before{content:"";position:absolute;z-index:21;top:0;right:0;width:0;height:0;border-top:34px solid var(--favorite-color,#3978ed);border-left:34px solid transparent;pointer-events:none;filter:drop-shadow(-1px 2px 2px #203b5724)}
+.asset-library-page .asset-select-control{position:absolute;top:6px;left:10px;z-index:22;display:grid;place-items:center;width:42px;height:42px;margin:0;padding:0;border:0;border-radius:9px;background:transparent;box-shadow:none;opacity:0;cursor:pointer;transform:scale(.8);transform-origin:center;transition:opacity .16s ease,transform .16s ease}
+.asset-select-control::before,.asset-select-control::after{content:"";position:absolute;left:50%;top:50%;border-radius:50%;transform:translate(-50%,-50%)}
+.asset-select-control::before{width:32px;height:32px;border:3px solid var(--card-accent,#3978ed);background:#fff}
+.asset-select-control::after{width:22.4px;height:22.4px;background:var(--card-accent,#3978ed);transform:translate(-50%,-50%) scale(0);transition:transform .18s cubic-bezier(.2,.8,.2,1)}
+.asset-card:hover .asset-select-control,.asset-card.selected .asset-select-control,.asset-select-control:focus-visible{opacity:1}
+.asset-card.selected .asset-select-control::after{transform:translate(-50%,-50%) scale(1)}
+.asset-select-control:focus-visible{outline:2px solid var(--card-accent,#3978ed);outline-offset:3px}
+@media(max-width:700px){.asset-library-page .asset-select-control{top:5px;left:7px;width:36px;height:36px;border-radius:8px}.asset-library-page .asset-select-control::before{width:28px;height:28px;border-width:2.5px}.asset-library-page .asset-select-control::after{width:19.6px;height:19.6px}}
 
 /* The add control opens both import and folder creation actions. */
 .asset-library-page .asset-top-actions{position:relative}
@@ -180,6 +210,12 @@
 
 /* Secondary controls: use a single crisp triangle for each select arrow. */
 .asset-library-page .library-sub-actions select{width:108px;min-width:108px;padding-right:28px;appearance:none;background-color:#ffffff72;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='%237c8fa5' d='M0 0h8L4 5z'/%3E%3C/svg%3E"),linear-gradient(120deg,#ffffff72,#eaf3ff5e 55%,#ffffff6a);background-position:calc(100% - 10px) 50%,0 0;background-size:8px 5px,100% 100%;background-repeat:no-repeat}
-.asset-library-page .more-button{width:28px;height:28px;font-size:0}
-.asset-library-page .more-button svg{display:block;width:17px;height:17px;fill:currentColor;stroke:none}
-@media(max-width:700px){.asset-library-page .library-sub-actions select{width:84px;min-width:84px;padding-right:22px;background-position:calc(100% - 8px) 50%,0 0}.asset-library-page .more-button{width:25px;height:25px}}
+.asset-library-page .more-button{display:grid;place-items:center;flex:0 0 34px;width:34px;height:28px;margin-left:2px;padding:0;border:1px solid #ffffff88;border-radius:9px;background:linear-gradient(120deg,#ffffff72,#eaf3ff5e 55%,#ffffff6a);color:#58708d;box-shadow:0 3px 12px #1c3c5a0d;line-height:1;transition:background-color .16s ease,border-color .16s ease,color .16s ease,box-shadow .16s ease,transform .14s ease;backdrop-filter:blur(16px) saturate(125%);-webkit-backdrop-filter:blur(16px) saturate(125%)}
+.asset-library-page .more-button:hover,.asset-library-page .more-button[aria-expanded=true]{border-color:#ffffffcc;background:linear-gradient(120deg,#ffffffb8,#eaf3ffb0 55%,#ffffffb8);color:#276bdd;box-shadow:0 4px 12px #3978ed1c}
+.asset-library-page .more-button:active{transform:scale(.94)}
+.asset-library-page .more-button:focus-visible{outline:2px solid #77a9f7;outline-offset:2px}
+.asset-library-page .more-button svg{display:block;width:16px;height:16px;fill:currentColor;stroke:none}
+.asset-library-page .more-menu{top:calc(100% + 8px);min-width:148px;padding:6px;border:1px solid #d5e1ef;border-radius:12px;background:#f8fbffef;box-shadow:0 10px 26px #1d355322;backdrop-filter:blur(16px) saturate(135%);-webkit-backdrop-filter:blur(16px) saturate(135%)}
+.asset-library-page .more-menu button{min-height:32px;padding:7px 10px;border-radius:7px;color:#35506e;font-size:12px;line-height:18px}
+.asset-library-page .more-menu button:hover,.asset-library-page .more-menu button:focus-visible{background:#eaf2ff;color:#2366cd}
+@media(max-width:700px){.asset-library-page .library-sub-actions select{width:84px;min-width:84px;padding-right:22px;background-position:calc(100% - 8px) 50%,0 0}.asset-library-page .more-button{flex-basis:32px;width:32px;height:28px;margin-left:0}.asset-library-page .more-menu{min-width:136px}}
