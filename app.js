@@ -36,9 +36,7 @@ const MAPS=MATERIAL_MAPS;
 const DEFAULTS={...ENVIRONMENT_DEFAULTS,rotation:0,scale:1.2,renderMode:'pbr',autoRotate:false};
 let state={...DEFAULTS},renderer,scene,camera,controls,floor,reflector,stage,ring,grid,key,fill,hemi,model,entries=[],selected=null,materialPicker=null;
 let modelSource=null,modelGeneration=0,currentLoad=0,loadingModel=false,toastTimer;
-let loginReady=false,loginComplete=false;
-let loadingMessageToken=0,loadingMessageTimer=null,loadingSequenceStarted=0,loadingSequenceActive=false;
-const LOGIN_LOADING_MESSAGES=['正在加载展厅','正在加载贴图','正在加载模型'];
+let loadingMessageToken=0,loadingMessageTimer=null,loadingSequenceActive=false;
 let partAssignments=new Map();
 let draggedMaterial=null, assignmentHistory=[],materialPreviewTimer=null;
 let materialHoldTimer=null, materialHoverTimer=null, previewAnimation=null, activeReveal=null, suppressMaterialClick=false, materialPulse=null;
@@ -65,16 +63,6 @@ function renderLoadingMessage(message){
  void progress.offsetWidth;progress.classList.add('subtitle-flash');
  $('loadingTitle').textContent=message;
 }
-function scheduleLoadingSequence(index=0){
- if(index>=LOGIN_LOADING_MESSAGES.length||!loadingSequenceActive)return;
- const delay=Math.max(0,index*1000-(performance.now()-loadingSequenceStarted));
- clearTimeout(loadingMessageTimer);
- loadingMessageTimer=setTimeout(()=>{
-  if(!loadingSequenceActive)return;
-  renderLoadingMessage(LOGIN_LOADING_MESSAGES[index]);
-  scheduleLoadingSequence(index+1);
- },delay);
-}
 function busy(title='请稍候…',detail=''){
  endMaterialDrag();const progress=$('loadingProgress');if(!progress)return;
  progress.hidden=false;$('loading').hidden=false;
@@ -82,32 +70,6 @@ function busy(title='请稍候…',detail=''){
  renderLoadingMessage(title);
 }
 function hideBusy(){loadingMessageToken++;loadingSequenceActive=false;clearTimeout(loadingMessageTimer);$('loading').hidden=true;}
-function showLoginShell(){
- const loading=$('loading'),progress=$('loadingProgress'),card=$('loginCard'),submit=$('loginSubmit'),status=$('loginStatus');
- if(!loading||!card)return;
- loading.hidden=false; progress.hidden=false; card.hidden=false; submit.disabled=true; status.hidden=true;
- loadingSequenceActive=true;loadingSequenceStarted=performance.now();
- renderLoadingMessage(LOGIN_LOADING_MESSAGES[0]);scheduleLoadingSequence(1);
-}
-function showLoginGate(){
- const loading=$('loading'),progress=$('loadingProgress'),card=$('loginCard'),submit=$('loginSubmit'),status=$('loginStatus');
- if(!loading||!card)return;
- const finish=()=>{
-  loadingSequenceActive=false;clearTimeout(loadingMessageTimer);
-  loginReady=true;loading.hidden=false;progress.hidden=true;card.hidden=false;submit.disabled=false;status.hidden=false;
-  status.textContent='加载完成';$('loginKey')?.focus({preventScroll:true});
- };
- const wait=Math.max(0,3000-(performance.now()-loadingSequenceStarted));
- setTimeout(finish,wait);
-}
-function beginLogin(){
- if(!loginReady||loginComplete)return;
- loginComplete=true;loginReady=false;
- const card=$('loginCard');
- if(card)card.hidden=true;
- fit('perspective',{intro:true});
- hideBusy();
-}
 function applyShowroomScale(){
  if(!stage)return;
  const scale=Number.isFinite(developerSettings.showroomScale)?developerSettings.showroomScale:1;
@@ -133,7 +95,6 @@ function formatCount(n){return n>=10000?(n/10000).toFixed(1)+' 万':n.toLocaleSt
 function imageData(texture,maxSize=128,quality=.8){try{if(!texture?.image?.width)return null;const c=document.createElement('canvas'),scale=Math.min(1,maxSize/Math.max(texture.image.width,texture.image.height));c.width=Math.max(1,Math.round(texture.image.width*scale));c.height=Math.max(1,Math.round(texture.image.height*scale));const ctx=c.getContext('2d');ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(texture.image,0,0,c.width,c.height);return c.toDataURL('image/jpeg',quality);}catch{return null;}}
 function init(){
  try{developerSettings=loadDeveloperSettings(localStorage);}catch(error){notify('开发者配置未能读取，已使用默认设置：'+error.message,6000);}
- if(window.__spenicAuth?.role){loginComplete=true;loginReady=true;}else showLoginShell();
  renderer=new THREE.WebGLRenderer({canvas:$('canvas'),antialias:true,preserveDrawingBuffer:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
  scene=new THREE.Scene();scene.background=new THREE.Color(state.backgroundColor);scene.fog=new THREE.Fog(state.backgroundColor,18,48);
  camera=new THREE.PerspectiveCamera(36,1,.02,100);camera.position.set(6,3.7,7);
@@ -407,7 +368,6 @@ function convertMaterials(object){
 }
 function disposeObject(object,list=[]){if(!object)return;const gs=new Set(),ms=new Set(),ts=new Set();object.traverse(o=>{if(o.geometry)gs.add(o.geometry);for(const m of(Array.isArray(o.material)?o.material:[o.material]))if(m)ms.add(m);});for(const e of list){ms.add(e.material);ms.add(e.baseline);Object.values(e.uploads).forEach(u=>{if(u.preview)URL.revokeObjectURL(u.preview);});}ms.forEach(m=>{for(const v of Object.values(m))if(v?.isTexture)ts.add(v);m.dispose();});gs.forEach(g=>g.dispose());ts.forEach(t=>t.dispose());}
 async function loadModel(buffer,name,files=[],{restore=null,parts=null}={}){
-  const gateLogin=!loginComplete&&!restore&&!model;
   showroom?.exit();cameraTween?.cancel();$('showroomMode').disabled=true;setAnnotationMode(false);designUI?.exitRemoval();const request=++currentLoad;loadingModel=true;setOpeningDockHidden(true);setOpeningDayHidden(true);busy('正在加载展厅');await yieldFrame();let parsed;
  try{parsed=await parseFBX(buffer,files);if(request!==currentLoad){disposeObject(parsed.object);return;}
  const info=convertMaterials(parsed.object),box=new THREE.Box3().setFromObject(parsed.object),size=box.getSize(new THREE.Vector3()),max=Math.max(size.x,size.y,size.z);if(!Number.isFinite(max)||max<1e-10)throw new Error('模型尺寸无效');
@@ -419,8 +379,8 @@ async function loadModel(buffer,name,files=[],{restore=null,parts=null}={}){
  if(model){for(const a of annotations)a.el.remove();annotations=[];selectedAnnotation=null;syncAnnotationPanel();clearPatterns();scene.remove(model);disposeObject(model,entries);clearPatternSources();}model=root;restorePartAssignments(parts);physicalModel=nextPhysicalModel;updateModelDimensions();modelGeneration++;assignmentHistory=[];$('undoMaterial').disabled=true;entries=info.entries;for(const entry of entries)entry.material.userData.partTypes=partAssignments.get(entry.id)||new Set();selected=null;modelSource={buffer:buffer.slice(0),name,files};scene.add(model);state.rotation=0;state.scale=DEFAULTS.scale;$('isolate').checked=false;applyScene();fit('perspective',{immediate:true});
  $('modelName').textContent=name;$('modelName').title=name;$('modelStats').textContent=`${info.meshCount} 网格 · ${formatCount(info.triangles)} 三角面`;$('materialCount').textContent=String(entries.length).padStart(2,'0');selectEntry(entries[0]);renderMaterials();if(restore)await restore(entries);if(request!==currentLoad)return;showPanel('scene');
  await renderer.compileAsync(scene,camera);if(request!==currentLoad)return;renderer.render(scene,camera);
- if(!restore&&!gateLogin)fit('perspective',{intro:true});
- if(gateLogin)showLoginGate();else hideBusy();
+ if(!restore)fit('perspective',{intro:true});
+ hideBusy();
  notify(`已载入 ${entries.length} 个独立材质`+(parsed.missing.length?'；缺少 '+parsed.missing.length+' 个外部纹理，可在右侧补充':'')+(info.uvMissing?'；部分网格没有 UV，无法显示贴图':''),6000);
   }catch(error){console.error(error);if(request===currentLoad){hideBusy();setOpeningDockHidden(false);setOpeningDayHidden(false);notify('载入失败：'+error.message,8000);if(!model){$('modelName').textContent='请导入 FBX 模型';$('modelStats').textContent='点击右侧 ＋ 选择文件';}}}finally{if(request===currentLoad){loadingModel=false;$('showroomMode').disabled=!model||!daylightCycle;if(restore){setOpeningDockHidden(false);setOpeningDayHidden(false);}}}
 }
@@ -911,11 +871,6 @@ function bindPatterns(){
 }
 function bindEvents(){
  bindDesignWorkspace();
- const loginForm=$('loginCard'),loginKey=$('loginKey'),loginSubmit=$('loginSubmit');
- if(loginForm){
-  loginKey?.addEventListener('input',()=>{if(loginReady)loginSubmit.disabled=false;});
-  loginForm.addEventListener('submit',event=>{event.preventDefault();beginLogin();});
- }
  const leaveAnnotationsForMaterials=event=>{if(annotationMode)setAnnotationMode(false,{keepInspector:!!event.target.closest('.material-item')});};
  const materialDock=document.querySelector('.material-dock');
  materialDock.addEventListener('pointerdown',leaveAnnotationsForMaterials,true);

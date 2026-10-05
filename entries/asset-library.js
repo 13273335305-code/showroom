@@ -1,12 +1,9 @@
-import { mountNavigation, downloadFile } from '../shared/navigation.js';
+import { downloadFile } from '../shared/navigation.js';
 import { listAssets, getAsset, saveAsset, deleteAsset } from '../shared/asset-store.js';
 import { materialType } from '../shared/material-placement.js';
 import { packMaterial, unpackMaterial } from '../shared/material-package.js';
-import { requireAuth, authState } from '../shared/auth.js';
-
-await requireAuth({ feature: 'assets' });
 const $ = id => document.getElementById(id);
-const libraryNames = { fabric: '面料库', pattern: '图案库', model: '模型库' };
+const libraryNames = { fabric: '\u9762\u6599\u5e93', pattern: '\u56fe\u6848\u5e93', model: '\u6a21\u578b\u5e93' };
 const libraryType = asset => asset.kind === 'model' ? 'model' : asset.kind === 'texture' ? 'pattern' : materialType(asset);
 let assets = [], renderVersion = 0, activeLibrary = 'fabric', openMenu;
 const renderedCards = new Map();
@@ -14,7 +11,6 @@ const cardUrls = new Map();
 let editing, editPreview, editPreviewUrl, editVersion = 0;
 const modelPreviews = new Map();
 let previewQueue = Promise.resolve();
-mountNavigation('assets');
 const status = message => { $('status').textContent = message; };
 const previewOf = asset => asset.preview || asset.thumbnail || (asset.kind === 'texture' ? asset.file : asset.maps?.map);
 function imageUrl(blob) { return URL.createObjectURL(blob); }
@@ -35,7 +31,7 @@ function closeMenu(restoreFocus = false) {
 }
 function createMenu(asset, card) {
   const trigger = document.createElement('button'); trigger.className = 'asset-menu-trigger'; trigger.type = 'button';
-  trigger.textContent = '···'; trigger.setAttribute('aria-label', asset.name + '：更多操作');
+  trigger.textContent = '\u22ef'; trigger.setAttribute('aria-label', asset.name + '：更多操作');
   trigger.setAttribute('aria-haspopup', 'menu'); trigger.setAttribute('aria-expanded', 'false');
   const panel = document.createElement('div'); panel.className = 'asset-menu'; panel.hidden = true; panel.setAttribute('role', 'menu');
   panel.id = 'menu-' + asset.id; trigger.setAttribute('aria-controls', panel.id);
@@ -141,9 +137,8 @@ function render() {
   const host = $('assetGrid'); host.replaceChildren();
   const query = $('assetSearch').value.trim().toLocaleLowerCase();
   const collection = assets.filter(asset => libraryType(asset) === activeLibrary);
-  const shown = collection.filter(asset => asset.name.toLocaleLowerCase().includes(query) && (activeLibrary !== 'fabric' || $('assetCategory').value === 'all' || asset.category === $('assetCategory').value));
-  $('assetCategory').hidden = activeLibrary !== 'fabric';
-  $('assetCount').textContent = `${libraryNames[activeLibrary]} · ${shown.length} / ${collection.length} 项`;
+  let shown = collection.filter(asset => asset.name.toLocaleLowerCase().includes(query) && (activeLibrary !== 'fabric' || $('assetCategory').value === 'all' || asset.category === $('assetCategory').value));
+  shown = [...shown].sort((a, b) => $('assetSort').value === 'name' ? a.name.localeCompare(b.name, 'zh-CN') : b.updatedAt - a.updatedAt); $('assetCount').textContent = `${libraryNames[activeLibrary]} \u00b7 ${shown.length} / ${collection.length}`;
   if (!shown.length) {
     const empty = document.createElement('div'); empty.className = 'asset-empty';
     const title = document.createElement('h2'); title.textContent = collection.length ? '没有匹配的资产' : libraryNames[activeLibrary] + '暂无资产';
@@ -156,7 +151,7 @@ function render() {
     if (cached?.signature === signature) { host.append(cached.card); continue; }
     cardUrls.get(asset.id)?.forEach(url => URL.revokeObjectURL(url));
     cardUrls.delete(asset.id);
-    const card = document.createElement('article'); card.className = 'asset-card'; card.dataset.assetId = asset.id;
+    const card = document.createElement('article'); card.className = 'asset-card asset-' + asset.kind; card.dataset.assetId = asset.id;
     const art = document.createElement('div'); art.className = 'asset-art';
     const preview = asset.thumbnail || previewOf(asset);
     if (preview) { const img = document.createElement('img'); const url = imageUrl(preview); cardUrls.set(asset.id, [url]); img.src = url; img.alt = asset.name + ' 预览图'; art.append(img); }
@@ -168,10 +163,10 @@ function render() {
     const actions = document.createElement('div'); actions.className = 'asset-actions';
     if (asset.kind === 'model') {
       const modelActions = document.createElement('div'); modelActions.className = 'model-design-actions';
-      modelActions.append(link('设计', './index.html?asset=' + encodeURIComponent(asset.id)));
+      modelActions.append(link('设计', './design.html?asset=' + encodeURIComponent(asset.id)));
       const settings = document.createElement('a'); settings.className = 'model-settings'; settings.href = './model-parts.html?asset=' + encodeURIComponent(asset.id);
       settings.title = '配置模型部件'; settings.setAttribute('aria-label', '配置模型部件'); settings.textContent = '⚙'; modelActions.append(settings); actions.append(modelActions);
-    } else if (authState()?.materialEditor) actions.append(link('编辑材质', './material-editor.html?asset=' + encodeURIComponent(asset.id)));
+    } else actions.append(link('编辑材质', './material-editor.html?asset=' + encodeURIComponent(asset.id)));
     info.append(title, description, actions); card.append(art, info, ...createMenu(asset, card));
     renderedCards.set(asset.id, { signature, card }); host.append(card);
   }
@@ -200,10 +195,11 @@ const tabs = [...document.querySelectorAll('[data-library]')];
 function selectLibrary(type) {
   activeLibrary = type;
   for (const tab of tabs) { const selected = tab.dataset.library === type; tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1; if (selected) $('assetPanel').setAttribute('aria-labelledby', tab.id); }
+  $('libraryBreadcrumb').textContent = libraryNames[type];
   render();
 }
 for (const [index, tab] of tabs.entries()) {
-  tab.onclick = () => selectLibrary(tab.dataset.library);
+  tab.onclick = event => { event.preventDefault(); selectLibrary(tab.dataset.library); };
   tab.onkeydown = event => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
@@ -211,8 +207,12 @@ for (const [index, tab] of tabs.entries()) {
     next.focus(); selectLibrary(next.dataset.library);
   };
 }
-for (const id of ['assetSearch', 'assetCategory']) $(id).addEventListener('input', render);
+for (const id of ['assetSearch', 'assetCategory', 'assetSort']) $(id).addEventListener('input', render);
 $('importAssets').onclick = () => $('assetFiles').click();
+$('newFolder').onclick = () => { const name = prompt('\u8bf7\u8f93\u5165\u6587\u4ef6\u5939\u540d\u79f0'); if (name?.trim()) status('\u5df2\u521b\u5efa\u6587\u4ef6\u5939\uff1a' + name.trim()); };
+$('moreOptions').onclick = () => { const button = $('moreOptions'), menu = $('moreMenu'); menu.hidden = !menu.hidden; button.setAttribute('aria-expanded', String(!menu.hidden)); };
+$('refreshAssets').onclick = () => { $('moreMenu').hidden = true; refresh(); };
+$('clearSearch').onclick = () => { $('assetSearch').value = ''; $('moreMenu').hidden = true; render(); };
 $('assetFiles').onchange = async () => {
   const files = [...$('assetFiles').files]; $('assetFiles').value = '';
   const images = files.filter(file => /\.(png|jpe?g|webp|bmp)$/i.test(file.name));
