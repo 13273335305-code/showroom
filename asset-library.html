@@ -1,50 +1,71 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Spenic · 资产库</title>
   <link rel="icon" type="image/png" sizes="64x64" href="assets/spenic-favicon.png">
-  <link rel="stylesheet" href="workspace.css"><link rel="stylesheet" href="header.css"><link rel="stylesheet" href="asset-library.css">
+  <link rel="stylesheet" href="workspace.css"><link rel="stylesheet" href="asset-library.css">
 </head>
 <body class="standalone asset-library-page">
-  <header class="topbar asset-topbar">
-    <a class="brand" href="./index.html" aria-label="Spenic 工作空间首页"><img src="assets/spenic-logo.png" alt="Spenic"><span class="brand-divider"></span><strong>资产库</strong></a>
+  <header class="asset-topbar">
+    <a class="asset-brand" href="./index.html" aria-label="Spenic 工作空间首页"><img src="assets/spenic-logo.png" alt="Spenic"><span class="asset-brand-divider"></span><strong>资产库</strong></a>
     <nav class="library-switcher" role="tablist" aria-label="资产库切换">
-      <button id="modelTab" role="tab" aria-selected="false" aria-controls="assetPanel" data-library="model" tabindex="-1">模型库</button>
-      <button id="fabricTab" role="tab" aria-selected="true" aria-controls="assetPanel" data-library="fabric">面料库</button>
-      <button id="patternTab" role="tab" aria-selected="false" aria-controls="assetPanel" data-library="pattern" tabindex="-1">图案库</button>
+      <a id="modelTab" href="#assetPanel" role="tab" aria-selected="false" aria-controls="assetPanel" data-library="model" tabindex="-1">模型库</a>
+      <a id="fabricTab" href="#assetPanel" role="tab" aria-selected="true" aria-controls="assetPanel" data-library="fabric">面料库</a>
+      <a id="patternTab" href="#assetPanel" role="tab" aria-selected="false" aria-controls="assetPanel" data-library="pattern" tabindex="-1">图案库</a>
     </nav>
     <div class="asset-top-actions">
-      <label class="asset-search"><span class="sr-only">搜索资产</span><input id="assetSearch" type="search" placeholder="搜索" aria-label="搜索资产"><span aria-hidden="true">⌕</span></label>
-      <button id="newFolder" class="top-icon-button" type="button" aria-label="新建文件夹" title="新建文件夹"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5h6l2 2h9v8.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-10.5Z"/><path d="M3.5 7.5v-1a2 2 0 0 1 2-2h4l2 2h4"/></svg></button>
-      <button id="importAssets" class="top-icon-button add-button" type="button" aria-label="增加素材" title="增加素材">＋</button>
-    </div>
-  </header>
-
-  <main class="library-main">
-    <div class="library-subbar">
-      <a class="library-back" href="./index.html" aria-label="返回工作空间">‹</a>
-      <div class="library-breadcrumb" aria-label="当前位置"><span>资产库</span><b>›</b><strong id="libraryBreadcrumb">面料库</strong></div>
-      <div class="library-sub-actions">
-        <select id="assetCategory" aria-label="筛选分类"><option value="all">全部</option><option>面布</option><option>边布</option><option>包边条</option><option>其他</option></select>
-        <select id="assetSort" aria-label="排序方式"><option value="recent">最近更新</option><option value="name">名称</option></select>
-        <button id="moreOptions" class="more-button" type="button" aria-label="更多选项" aria-expanded="false">☰</button>
-        <div id="moreMenu" class="more-menu" hidden><button type="button" id="refreshAssets">刷新资产</button><button type="button" id="clearSearch">清除搜索</button></div>
+      <form id="assetSearchForm" class="asset-search" role="search">
+        <label class="sr-only" for="assetSearch">搜索资产</label>
+        <input id="assetSearch" type="search" placeholder="搜索" aria-label="搜索资产">
+        <button id="assetSearchSubmit" type="submit" aria-label="开始搜索" title="搜索">
+          <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="13.5" cy="13.5" r="8.5"></circle><path d="M20 20l8 8"></path></svg>
+        </button>
+      </form>
+      <button id="importAssets" class="asset-add-button" type="button" aria-label="增加素材" aria-haspopup="menu" aria-expanded="false" title="增加素材"><span class="asset-add-glyph" aria-hidden="true"></span></button>
+      <div id="assetAddMenu" class="asset-add-menu" role="menu" hidden>
+        <button id="importAssetsMenu" type="button">导入素材</button>
+        <button id="createFolder" type="button">新建文件夹</button>
       </div>
     </div>
-
+  </header>
+  <div class="asset-subbar">
+      <a id="libraryBack" class="library-back" href="./index.html" aria-label="返回工作台" title="返回工作台">‹</a>
+    <div class="library-breadcrumb" aria-label="当前位置"><strong id="libraryBreadcrumb">面料库</strong></div>
+    <div class="library-sub-actions">
+      <select id="assetCategory" aria-label="筛选分类"><option value="all">全部</option><option>面布</option><option>边布</option><option>包边条</option><option>其他</option></select>
+      <select id="assetSort" aria-label="排序方式"><option value="recent">最近更新</option><option value="oldest">最早更新</option><option value="nameAsc">名称升序</option><option value="nameDesc">名称降序</option></select>
+      <button id="moreOptions" class="more-button" type="button" aria-label="更多选项" aria-haspopup="menu" aria-expanded="false" title="更多选项"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="12" cy="19" r="2"></circle></svg></button>
+      <div id="moreMenu" class="more-menu" role="menu" hidden><button type="button" id="refreshAssets" role="menuitem">刷新资产</button><button type="button" id="clearSearch" role="menuitem">清除搜索</button></div>
+    </div>
+  </div>
+  <main class="library-main">
     <input id="assetFiles" type="file" accept=".fbx,.png,.jpg,.jpeg,.webp,.bmp,.formmat" multiple hidden>
-    <section id="assetPanel" role="tabpanel" aria-labelledby="fabricTab">
-      <p id="assetCount" role="status"></p>
+    <section id="assetPanel" aria-label="面料资产">
       <section id="assetGrid" class="asset-grid" aria-label="资产列表"></section>
     </section>
-    <p class="library-note">支持 FBX、图片和 .formmat 材质包；资产保存在当前浏览器中。</p>
   </main>
+  <div id="assetScrollbar" class="asset-scrollbar" aria-hidden="true"><span class="asset-scrollbar-thumb"></span></div>
   <dialog id="assetDialog" class="asset-dialog" aria-labelledby="assetDialogTitle">
     <form id="assetEditForm">
       <h2 id="assetDialogTitle"></h2><label id="assetTextLabel" for="assetText">名称</label><textarea id="assetText" rows="3"></textarea>
+      <div id="materialEditFields" hidden>
+        <label for="materialEditName">名称</label><input id="materialEditName" type="text" maxlength="120">
+        <label for="materialEditCategory">分类</label><select id="materialEditCategory"><option value="面布">面布</option><option value="边布">边布</option><option value="包边条">包边条</option><option value="其他">其他</option></select>
+        <label for="materialEditDesignInfo">设计信息</label><textarea id="materialEditDesignInfo" rows="4" maxlength="1000"></textarea>
+        <label for="materialEditSupplier">供应商</label><input id="materialEditSupplier" type="text" maxlength="200">
+      </div>
       <div id="assetPreviewEditor" hidden><img id="assetPreviewImage" alt="当前预览图"><label for="assetPreviewFile">选择预览图</label><input id="assetPreviewFile" type="file" accept="image/png,image/jpeg,image/webp,image/bmp"><p>支持 PNG、JPG、WebP、BMP，最大 16 MB。</p></div>
       <p id="assetEditError" role="alert"></p><div class="asset-dialog-actions"><button id="cancelAssetEdit" type="button">取消</button><button id="saveAssetEdit" class="primary" type="submit">保存</button></div>
+    </form>
+  </dialog>
+  <dialog id="moveDialog" class="asset-dialog" aria-labelledby="moveDialogTitle">
+    <form id="moveAssetForm">
+      <h2 id="moveDialogTitle">移动资产</h2>
+      <label for="moveAssetTarget">目标文件夹</label>
+      <select id="moveAssetTarget"></select>
+      <p id="moveAssetError" role="alert"></p>
+      <div class="asset-dialog-actions"><button id="cancelMove" type="button">取消</button><button id="saveMove" class="primary" type="submit">移动</button></div>
     </form>
   </dialog>
   <div id="status" class="status-bar" role="status"></div>

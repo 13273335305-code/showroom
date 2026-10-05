@@ -183,7 +183,7 @@ async function restoreAsset() {
   if (!id) return;
   const asset = await getAsset(id);
   if (!asset) throw new Error('资产不存在，可能已被删除');
-  libraryMetadata = { description: asset.description, preview: asset.preview };
+  libraryMetadata = { description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, favorite: asset.favorite, preview: asset.preview };
   if (asset.kind === 'texture') { $('name').value = asset.name.replace(/\.[^.]+$/, ''); $('materialType').value = 'pattern'; await uploadMap('map', asset.file); syncMaterialType(); return; }
   if (asset.kind !== 'material') throw new Error('请从资产库选择材质或贴图');
   $('materialType').value = materialType(asset);
@@ -314,7 +314,7 @@ async function init() {
     $('saveMaterial').disabled = true;
     try {
       const current = assetId ? await getAsset(assetId) : null;
-      if (current) libraryMetadata = { description: current.description, preview: current.preview };
+      if (current) libraryMetadata = { description: current.description, designInfo: current.designInfo, supplier: current.supplier, favorite: current.favorite, preview: current.preview };
       const asset = await saveAsset(currentAsset()); assetId = asset.id; dirty = false; history.replaceState(null, '', '?asset=' + encodeURIComponent(asset.id)); status('已保存到资产库');
     }
     catch (error) { status('保存失败：' + error.message); }

@@ -4,20 +4,80 @@ import { materialType } from '../shared/material-placement.js';
 import { packMaterial, unpackMaterial } from '../shared/material-package.js';
 const $ = id => document.getElementById(id);
 const libraryNames = { fabric: '\u9762\u6599\u5e93', pattern: '\u56fe\u6848\u5e93', model: '\u6a21\u578b\u5e93' };
-const libraryType = asset => asset.kind === 'model' ? 'model' : asset.kind === 'texture' ? 'pattern' : materialType(asset);
-let assets = [], renderVersion = 0, activeLibrary = 'fabric', openMenu;
+const libraryType = asset => asset.kind === 'folder' ? asset.library || 'fabric' : asset.kind === 'model' ? 'model' : asset.kind === 'texture' ? 'pattern' : materialType(asset);
+let assets = [], renderVersion = 0, activeLibrary = 'fabric', activeFolderId = null, openMenu, searchQuery = '';
 const renderedCards = new Map();
 const cardUrls = new Map();
-let editing, editPreview, editPreviewUrl, editVersion = 0;
+let editing, editPreview, editPreviewUrl, editVersion = 0, movingAssetId = null;
 const modelPreviews = new Map();
 let previewQueue = Promise.resolve();
 const status = message => { $('status').textContent = message; };
 const previewOf = asset => asset.preview || asset.thumbnail || (asset.kind === 'texture' ? asset.file : asset.maps?.map);
 function imageUrl(blob) { return URL.createObjectURL(blob); }
+function folderChildren(folderId) { return assets.filter(asset => (asset.parentId || null) === folderId && libraryType(asset) === activeLibrary); }
+function folderById(id) { return assets.find(asset => asset.id === id && asset.kind === 'folder'); }
+function updateBreadcrumb() {
+  const current = folderById(activeFolderId);
+  $('libraryBreadcrumb').textContent = current ? libraryNames[activeLibrary] + ' / ' + folderLabel(current) : libraryNames[activeLibrary];
+}
+function openFolder(folderId) {
+  const folder = folderById(folderId);
+  if (!folder) return;
+  activeFolderId = folder.id;
+  searchQuery = '';
+  $('assetSearch').value = '';
+  render();
+}
+function closeMoreMenu() {
+  const menu = $('moreMenu'), button = $('moreOptions');
+  if (!menu || !button) return;
+  menu.hidden = true; button.setAttribute('aria-expanded', 'false');
+}
+async function removeFolderTree(folder) {
+  for (const child of folderChildren(folder.id)) {
+    if (child.kind === 'folder') await removeFolderTree(child);
+    await deleteAsset(child.id);
+  }
+  await deleteAsset(folder.id);
+}
+function folderContains(folderId, ancestorId) {
+  let current = folderById(folderId), seen = new Set();
+  while (current && !seen.has(current.id)) {
+    if (current.id === ancestorId) return true;
+    seen.add(current.id); current = folderById(current.parentId);
+  }
+  return false;
+}
+function folderLabel(folder) {
+  const names = [], seen = new Set(); let current = folder;
+  while (current && !seen.has(current.id)) {
+    names.unshift(current.name); seen.add(current.id); current = folderById(current.parentId);
+  }
+  return names.join(' / ');
+}
+function moveTargets(asset) {
+  return assets.filter(candidate => candidate.kind === 'folder' && libraryType(candidate) === libraryType(asset)
+    && candidate.id !== asset.id && !folderContains(candidate.id, asset.id)).sort((a, b) => folderLabel(a).localeCompare(folderLabel(b), 'zh-CN'));
+}
+function openMoveDialog(asset) {
+  const select = $('moveAssetTarget'); select.replaceChildren();
+  const root = document.createElement('option'); root.value = ''; root.textContent = libraryNames[libraryType(asset)] + '根目录'; select.append(root);
+  for (const folder of moveTargets(asset)) {
+    const option = document.createElement('option'); option.value = folder.id; option.textContent = folderLabel(folder); select.append(option);
+  }
+  movingAssetId = asset.id; $('moveDialogTitle').textContent = '移动「' + asset.name + '」';
+  $('moveAssetError').textContent = ''; $('saveMove').disabled = false; select.value = asset.parentId || '';
+  $('moveDialog').showModal(); select.focus();
+}
 function action(label, handler) {
   const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
   button.onclick = async () => { closeMenu(); button.disabled = true; try { await handler(); } catch (error) { status(error.message); } finally { button.disabled = false; } };
   return button;
+}
+async function toggleFavorite(asset) {
+  const current = await getAsset(asset.id); if (!current) throw new Error('资产已被删除');
+  await saveAsset({ ...current, favorite: !current.favorite });
+  await refresh(); status(current.favorite ? '已取消收藏' : '已收藏');
 }
 function link(label, href) {
   const element = document.createElement('a'); element.className = 'button primary'; element.textContent = label; element.href = href; return element;
@@ -29,25 +89,32 @@ function closeMenu(restoreFocus = false) {
   if (restoreFocus) openMenu.trigger.focus();
   openMenu = null;
 }
+function closeAssetAddMenu() { $('assetAddMenu').hidden = true; $('importAssets').setAttribute('aria-expanded', 'false'); }
 function createMenu(asset, card) {
   const trigger = document.createElement('button'); trigger.className = 'asset-menu-trigger'; trigger.type = 'button';
   trigger.textContent = '\u22ef'; trigger.setAttribute('aria-label', asset.name + '：更多操作');
   trigger.setAttribute('aria-haspopup', 'menu'); trigger.setAttribute('aria-expanded', 'false');
   const panel = document.createElement('div'); panel.className = 'asset-menu'; panel.hidden = true; panel.setAttribute('role', 'menu');
   panel.id = 'menu-' + asset.id; trigger.setAttribute('aria-controls', panel.id);
-  const actions = [action('重命名', () => editAsset(asset, 'name')), action('编辑简介', () => editAsset(asset, 'description')),
-    action('预览图', () => editAsset(asset, 'preview')), action('导出', async () => {
-      if (asset.kind === 'material') downloadFile(await packMaterial(asset), asset.name + '.formmat');
-      else { downloadFile(asset.file, asset.file.name); for (const file of asset.resources || []) downloadFile(file, file.name); }
-    })];
-  if (!asset.builtin) actions.push(action('删除', async () => {
-      if (!confirm('删除「' + asset.name + '」？已导出的文件不受影响。')) return;
-      await deleteAsset(asset.id); await refresh(); status('已删除资产');
-    }));
+  const isMaterial = asset.kind === 'material';
+  const actions = [action('编辑', () => editAsset(asset, isMaterial ? 'material' : 'name')), action('移动', () => openMoveDialog(asset))];
+  if (isMaterial) actions.push(action(asset.favorite ? '取消收藏' : '收藏', () => toggleFavorite(asset)));
+  else if (asset.kind !== 'folder') actions.push(action('导出', async () => {
+    if (asset.kind === 'material') downloadFile(await packMaterial(asset), asset.name + '.formmat');
+    else { downloadFile(asset.file, asset.file.name); for (const file of asset.resources || []) downloadFile(file, file.name); }
+  }));
+  if (!asset.builtin || isMaterial) {
+    const remove = action(asset.kind === 'folder' ? '删除文件夹' : '删除', async () => {
+    if (!confirm((asset.kind === 'folder' ? '删除文件夹「' : '删除「') + asset.name + '」及其中内容？')) return;
+    if (asset.kind === 'folder') await removeFolderTree(asset); else await deleteAsset(asset.id);
+    if (activeFolderId === asset.id) activeFolderId = asset.parentId || null;
+    await refresh(); status(asset.kind === 'folder' ? '已删除文件夹' : '已删除资产');
+    });
+    remove.classList.add('danger'); actions.push(remove);
+  }
   panel.append(...actions);
   const items = [...panel.children];
   items.forEach(item => { item.setAttribute('role', 'menuitem'); item.tabIndex = -1; });
-  items.at(-1).classList.add('danger');
   trigger.onclick = () => {
     const wasOpen = openMenu?.trigger === trigger; closeMenu(); if (wasOpen) return;
     openMenu = { trigger, panel, card }; panel.hidden = false; trigger.setAttribute('aria-expanded', 'true');
@@ -62,8 +129,16 @@ function createMenu(asset, card) {
   };
   return [trigger, panel];
 }
-document.addEventListener('pointerdown', event => { if (openMenu && !openMenu.panel.contains(event.target) && !openMenu.trigger.contains(event.target)) closeMenu(); });
-document.addEventListener('keydown', event => { if (event.key === 'Escape' && openMenu) { event.preventDefault(); closeMenu(true); } });
+document.addEventListener('pointerdown', event => {
+  if (openMenu && !openMenu.panel.contains(event.target) && !openMenu.trigger.contains(event.target)) closeMenu();
+  const addMenu = $('assetAddMenu'); if (!addMenu.hidden && !addMenu.contains(event.target) && event.target !== $('importAssets')) closeAssetAddMenu();
+  const moreMenu = $('moreMenu'); if (moreMenu && !moreMenu.hidden && !moreMenu.contains(event.target) && event.target !== $('moreOptions')) closeMoreMenu();
+});
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  if (openMenu) { event.preventDefault(); closeMenu(true); }
+  if ($('moreMenu') && !$('moreMenu').hidden) { event.preventDefault(); closeMoreMenu(); }
+});
 
 function showEditPreview(blob) {
   if (editPreviewUrl) URL.revokeObjectURL(editPreviewUrl);
@@ -73,17 +148,25 @@ function showEditPreview(blob) {
 }
 function editAsset(asset, field) {
   editing = { id: asset.id, field }; editPreview = null; editVersion++;
+  const isMaterial = field === 'material';
   const isPreview = field === 'preview';
-  $('assetDialogTitle').textContent = { name: '重命名', description: '编辑简介', preview: '预览图' }[field];
+  $('assetDialogTitle').textContent = isMaterial ? '编辑材质' : { name: '重命名', description: '编辑简介', preview: '预览图' }[field];
   $('assetTextLabel').textContent = field === 'name' ? '名称' : '简介';
-  $('assetTextLabel').hidden = $('assetText').hidden = isPreview;
+  $('assetTextLabel').hidden = $('assetText').hidden = isPreview || isMaterial;
+  $('materialEditFields').hidden = !isMaterial;
+  if (isMaterial) {
+    $('materialEditName').value = asset.name || '';
+    $('materialEditCategory').value = ['面布', '边布', '包边条', '其他'].includes(asset.category) ? asset.category : '其他';
+    $('materialEditDesignInfo').value = asset.designInfo || asset.description || '';
+    $('materialEditSupplier').value = asset.supplier || '';
+  }
   $('assetText').value = asset[field] || ''; $('assetText').maxLength = field === 'name' ? 120 : 1000;
   $('assetText').rows = field === 'name' ? 1 : 4;
   $('assetPreviewEditor').hidden = !isPreview; $('assetPreviewFile').value = '';
   $('assetEditError').textContent = ''; $('saveAssetEdit').disabled = false;
   showEditPreview(isPreview ? previewOf(asset) || modelPreviews.get(asset.id) : null);
   $('assetDialog').showModal();
-  (isPreview ? $('assetPreviewFile') : $('assetText')).focus();
+  (isPreview ? $('assetPreviewFile') : isMaterial ? $('materialEditName') : $('assetText')).focus();
 }
 $('cancelAssetEdit').onclick = () => $('assetDialog').close();
 $('assetDialog').addEventListener('close', () => { editVersion++; showEditPreview(null); editing = null; });
@@ -99,16 +182,40 @@ $('assetPreviewFile').onchange = async () => {
   } catch (error) { if (version === editVersion) $('assetEditError').textContent = '预览图无效：' + error.message; }
   finally { if (version === editVersion) $('saveAssetEdit').disabled = false; }
 };
+$('cancelMove').onclick = () => $('moveDialog').close();
+$('moveDialog').addEventListener('close', () => { movingAssetId = null; $('moveAssetError').textContent = ''; });
+$('moveAssetForm').onsubmit = async event => {
+  event.preventDefault(); if (!movingAssetId) return;
+  const targetId = $('moveAssetTarget').value || null, asset = assets.find(item => item.id === movingAssetId);
+  if (!asset) { $('moveDialog').close(); return; }
+  if (asset.kind === 'folder' && targetId && folderContains(targetId, asset.id)) {
+    $('moveAssetError').textContent = '不能移动到当前文件夹或它的子文件夹'; return;
+  }
+  $('saveMove').disabled = true; $('moveAssetError').textContent = '';
+  try {
+    const current = await getAsset(asset.id); if (!current) throw new Error('资产已被删除');
+    await saveAsset({ ...current, parentId: targetId });
+    $('moveDialog').close(); await refresh(); status('已移动资产');
+  } catch (error) { $('moveAssetError').textContent = error.message; }
+  finally { $('saveMove').disabled = false; }
+};
 $('assetEditForm').onsubmit = async event => {
   event.preventDefault(); if (!editing) return;
   const { id, field } = editing;
   $('saveAssetEdit').disabled = true;
   try {
-    const value = field === 'preview' ? editPreview : $('assetText').value.trim();
+    const value = field === 'preview' ? editPreview : field === 'material' ? $('materialEditName').value.trim() : $('assetText').value.trim();
     if (field === 'preview' && !value) throw new Error('请先选择有效的预览图');
-    if (field === 'name' && !value) throw new Error('名称不能为空');
+    if ((field === 'name' || field === 'material') && !value) throw new Error('名称不能为空');
     const current = await getAsset(id); if (!current) throw new Error('资产已被删除');
-    await saveAsset({ ...current, [field]: value });
+    const next = field === 'material' ? {
+      ...current,
+      name: value,
+      category: $('materialEditCategory').value,
+      designInfo: $('materialEditDesignInfo').value.trim(),
+      supplier: $('materialEditSupplier').value.trim(),
+    } : { ...current, [field]: value };
+    await saveAsset(next);
     $('assetDialog').close(); await refresh(); status('已保存');
   } catch (error) { $('assetEditError').textContent = error.message; }
   finally { $('saveAssetEdit').disabled = false; }
@@ -134,11 +241,20 @@ function renderModelPreview(asset, art) {
 }
 function render() {
   closeMenu();
+  updateBreadcrumb();
   const host = $('assetGrid'); host.replaceChildren();
-  const query = $('assetSearch').value.trim().toLocaleLowerCase();
-  const collection = assets.filter(asset => libraryType(asset) === activeLibrary);
-  let shown = collection.filter(asset => asset.name.toLocaleLowerCase().includes(query) && (activeLibrary !== 'fabric' || $('assetCategory').value === 'all' || asset.category === $('assetCategory').value));
-  shown = [...shown].sort((a, b) => $('assetSort').value === 'name' ? a.name.localeCompare(b.name, 'zh-CN') : b.updatedAt - a.updatedAt); $('assetCount').textContent = `${libraryNames[activeLibrary]} \u00b7 ${shown.length} / ${collection.length}`;
+  const query = searchQuery;
+  const collection = assets.filter(asset => libraryType(asset) === activeLibrary && (asset.parentId || null) === activeFolderId);
+  const category = $('assetCategory')?.value || 'all';
+  let shown = collection.filter(asset => asset.name.toLocaleLowerCase().includes(query)
+    && (activeLibrary !== 'fabric' || category === 'all' || asset.category === category));
+  const sortMode = $('assetSort')?.value || 'recent';
+  shown.sort((a, b) => {
+    if (sortMode === 'nameAsc') return a.name.localeCompare(b.name, 'zh-CN');
+    if (sortMode === 'nameDesc') return b.name.localeCompare(a.name, 'zh-CN');
+    if (sortMode === 'oldest') return a.updatedAt - b.updatedAt;
+    return b.updatedAt - a.updatedAt;
+  });
   if (!shown.length) {
     const empty = document.createElement('div'); empty.className = 'asset-empty';
     const title = document.createElement('h2'); title.textContent = collection.length ? '没有匹配的资产' : libraryNames[activeLibrary] + '暂无资产';
@@ -146,17 +262,63 @@ function render() {
     empty.append(title, text); host.append(empty);
   }
   for (const asset of shown) {
-    const signature = [asset.updatedAt, asset.thumbnail?.size, asset.name, asset.description].join('|');
-    const cached = renderedCards.get(asset.id);
+    const signature = [asset.updatedAt, asset.kind, asset.thumbnail?.size, asset.name, asset.description, asset.designInfo, asset.supplier, asset.category, asset.favorite, asset.children?.join(',')].join('|');
+    const cached = asset.kind === 'folder' ? null : renderedCards.get(asset.id);
     if (cached?.signature === signature) { host.append(cached.card); continue; }
     cardUrls.get(asset.id)?.forEach(url => URL.revokeObjectURL(url));
     cardUrls.delete(asset.id);
-    const card = document.createElement('article'); card.className = 'asset-card asset-' + asset.kind; card.dataset.assetId = asset.id;
+    const card = document.createElement('article'); card.className = 'asset-card asset-' + asset.kind + (asset.favorite ? ' is-favorite' : ''); card.dataset.assetId = asset.id;
+    if (asset.favorite) card.style.setProperty('--favorite-color', asset.surface?.color || '#3978ed');
+    let pressPointerId = null;
+    const isCardSurface = event => !event.target.closest('button,a') && (event.pointerType !== 'mouse' || event.button === 0);
+    const openFolderCard = () => {
+      if (asset.kind !== 'folder' || card.classList.contains('folder-opening')) return;
+      card.classList.add('folder-opening');
+      openFolder(asset.id);
+    };
+    const releaseCard = event => {
+      if (event.target && !isCardSurface(event)) return;
+      if (pressPointerId !== null && event.pointerId !== pressPointerId) return;
+      pressPointerId = null;
+      card.classList.remove('is-pressing', 'is-clicking');
+      if (asset.kind === 'folder' && event.type === 'pointerup') {
+        openFolderCard();
+        return;
+      }
+      void card.offsetWidth;
+      card.classList.add('is-clicking');
+      setTimeout(() => card.classList.remove('is-clicking'), 320);
+    };
+    card.addEventListener('pointerdown', event => {
+      if (!isCardSurface(event)) return;
+      pressPointerId = event.pointerId;
+      card.classList.remove('is-clicking');
+      card.classList.add('is-pressing');
+      card.setPointerCapture?.(event.pointerId);
+    });
+    card.addEventListener('pointerup', releaseCard);
+    card.addEventListener('pointercancel', releaseCard);
+    card.addEventListener('lostpointercapture', event => {
+      if (pressPointerId !== null) releaseCard(event);
+    });
+    card.addEventListener('click', event => {
+      const surface = isCardSurface(event);
+      if (event.detail === 0 && surface) releaseCard({ pointerId: null });
+      if (asset.kind === 'folder' && surface) openFolderCard();
+    });
     const art = document.createElement('div'); art.className = 'asset-art';
-    const preview = asset.thumbnail || previewOf(asset);
-    if (preview) { const img = document.createElement('img'); const url = imageUrl(preview); cardUrls.set(asset.id, [url]); img.src = url; img.alt = asset.name + ' 预览图'; art.append(img); }
-    else if (asset.kind === 'model') { art.textContent = '正在生成预览图…'; renderModelPreview(asset, art); }
-    else { const shape = document.createElement('div'); shape.className = 'sphere'; if (/^#[\da-f]{6}$/i.test(asset.surface?.color)) shape.style.setProperty('--swatch', asset.surface.color); art.append(shape); }
+    const urls = [];
+    if (asset.kind === 'folder') {
+      art.classList.add('folder-art');
+      const cover = document.createElement('div'); cover.className = 'folder-cover'; cover.setAttribute('aria-hidden', 'true');
+      art.append(cover);
+    } else {
+      const preview = asset.thumbnail || previewOf(asset);
+      if (preview) { const img = document.createElement('img'); const url = imageUrl(preview); urls.push(url); img.src = url; img.alt = asset.name + ' 预览图'; art.append(img); }
+      else if (asset.kind === 'model') { art.textContent = '正在生成预览图…'; renderModelPreview(asset, art); }
+      else { const shape = document.createElement('div'); shape.className = 'sphere'; if (/^#[\da-f]{6}$/i.test(asset.surface?.color)) shape.style.setProperty('--swatch', asset.surface.color); art.append(shape); }
+    }
+    if (urls.length) cardUrls.set(asset.id, urls);
     const info = document.createElement('div'); info.className = 'asset-info';
     const title = document.createElement('h2'); title.textContent = asset.name; title.title = asset.name;
     const description = document.createElement('p'); description.className = 'asset-description'; description.textContent = asset.description || '暂无简介'; description.title = asset.description || '';
@@ -170,6 +332,7 @@ function render() {
     info.append(title, description, actions); card.append(art, info, ...createMenu(asset, card));
     renderedCards.set(asset.id, { signature, card }); host.append(card);
   }
+  requestAnimationFrame(() => syncAssetScrollbar());
 }
 async function refresh() {
   const version = ++renderVersion;
@@ -193,9 +356,11 @@ async function refresh() {
 }
 const tabs = [...document.querySelectorAll('[data-library]')];
 function selectLibrary(type) {
+  if (type !== activeLibrary) activeFolderId = null;
   activeLibrary = type;
-  for (const tab of tabs) { const selected = tab.dataset.library === type; tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1; if (selected) $('assetPanel').setAttribute('aria-labelledby', tab.id); }
-  $('libraryBreadcrumb').textContent = libraryNames[type];
+  for (const tab of tabs) { const selected = tab.dataset.library === type; tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1; }
+  $('assetPanel').setAttribute('aria-label', libraryNames[type]);
+  if ($('assetCategory')) $('assetCategory').disabled = type !== 'fabric';
   render();
 }
 for (const [index, tab] of tabs.entries()) {
@@ -207,12 +372,55 @@ for (const [index, tab] of tabs.entries()) {
     next.focus(); selectLibrary(next.dataset.library);
   };
 }
-for (const id of ['assetSearch', 'assetCategory', 'assetSort']) $(id).addEventListener('input', render);
-$('importAssets').onclick = () => $('assetFiles').click();
-$('newFolder').onclick = () => { const name = prompt('\u8bf7\u8f93\u5165\u6587\u4ef6\u5939\u540d\u79f0'); if (name?.trim()) status('\u5df2\u521b\u5efa\u6587\u4ef6\u5939\uff1a' + name.trim()); };
-$('moreOptions').onclick = () => { const button = $('moreOptions'), menu = $('moreMenu'); menu.hidden = !menu.hidden; button.setAttribute('aria-expanded', String(!menu.hidden)); };
-$('refreshAssets').onclick = () => { $('moreMenu').hidden = true; refresh(); };
-$('clearSearch').onclick = () => { $('assetSearch').value = ''; $('moreMenu').hidden = true; render(); };
+const searchInput = $('assetSearch');
+$('assetSearchForm').addEventListener('submit', event => {
+  event.preventDefault();
+  searchQuery = searchInput.value.trim().toLocaleLowerCase();
+  render();
+});
+function clearSearchIfCancelled() {
+  if (searchInput.value.trim() || !searchQuery) return;
+  searchQuery = '';
+  render();
+}
+searchInput.addEventListener('input', clearSearchIfCancelled);
+searchInput.addEventListener('search', clearSearchIfCancelled);
+searchInput.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  searchInput.value = '';
+  clearSearchIfCancelled();
+});
+$('libraryBack').onclick = event => {
+  if (!activeFolderId) return;
+  event.preventDefault();
+  const folder = folderById(activeFolderId);
+  activeFolderId = folder?.parentId || null;
+  render();
+};
+$('assetCategory').addEventListener('change', render);
+$('assetSort').addEventListener('change', render);
+$('moreOptions').onclick = () => {
+  const menu = $('moreMenu'), button = $('moreOptions');
+  menu.hidden = !menu.hidden; button.setAttribute('aria-expanded', String(!menu.hidden));
+};
+$('refreshAssets').onclick = () => { closeMoreMenu(); refresh(); };
+$('clearSearch').onclick = () => {
+  searchInput.value = ''; searchQuery = ''; $('assetCategory').value = 'all'; closeMoreMenu(); render();
+};
+$('importAssets').onclick = () => {
+  const menu = $('assetAddMenu'); menu.hidden = !menu.hidden;
+  $('importAssets').setAttribute('aria-expanded', String(!menu.hidden));
+};
+$('importAssetsMenu').onclick = () => { closeAssetAddMenu(); $('assetFiles').click(); };
+$('createFolder').onclick = async () => {
+  closeAssetAddMenu();
+  const name = prompt('请输入文件夹名称');
+  if (!name?.trim()) return;
+  try {
+    await saveAsset({ kind: 'folder', name, parentId: activeFolderId, library: activeLibrary, children: [] });
+    await refresh(); status('已创建文件夹');
+  } catch (error) { status(error.message); }
+};
 $('assetFiles').onchange = async () => {
   const files = [...$('assetFiles').files]; $('assetFiles').value = '';
   const images = files.filter(file => /\.(png|jpe?g|webp|bmp)$/i.test(file.name));
@@ -230,12 +438,68 @@ $('assetFiles').onchange = async () => {
         if (file.size > 64 * 1024 * 1024) throw new Error('贴图不能超过 64 MB');
         asset = { kind: 'texture', name: file.name, file };
       } else throw new Error('不支持的文件类型');
+      asset.parentId = activeFolderId;
       await saveAsset(asset); firstLibrary ??= libraryType(asset); count++;
     } catch (error) { errors.push(file.name + '：' + error.message); }
   }
-  if (firstLibrary) { $('assetSearch').value = ''; $('assetCategory').value = 'all'; selectLibrary(firstLibrary); }
+  if (firstLibrary) selectLibrary(firstLibrary);
   await refresh(); $('importAssets').disabled = false;
   status(`已导入 ${count} 项资产` + (errors.length ? '；' + errors.join('；') : ''));
 };
+
+const libraryScroll = document.querySelector('.library-main');
+const assetScrollbar = document.getElementById('assetScrollbar');
+const assetScrollbarThumb = assetScrollbar?.querySelector('.asset-scrollbar-thumb');
+let previousLibraryScrollTop = libraryScroll?.scrollTop || 0;
+function syncAssetSubbar() {
+  if (!libraryScroll) return;
+  const currentScrollTop = libraryScroll.scrollTop;
+  const delta = currentScrollTop - previousLibraryScrollTop;
+  if (currentScrollTop <= 1 || delta < -1) document.body.classList.remove('asset-subbar-collapsed');
+  else if (delta > 1) document.body.classList.add('asset-subbar-collapsed');
+  previousLibraryScrollTop = currentScrollTop;
+}
+function syncAssetScrollbar() {
+  if (!libraryScroll || !assetScrollbar || !assetScrollbarThumb) return;
+  const maxScroll = libraryScroll.scrollHeight - libraryScroll.clientHeight;
+  assetScrollbar.hidden = false;
+  const trackHeight = assetScrollbar.clientHeight;
+  const thumbHeight = maxScroll <= 1 ? trackHeight : Math.max(72, Math.round(trackHeight * libraryScroll.clientHeight / libraryScroll.scrollHeight));
+  const thumbTravel = Math.max(0, trackHeight - thumbHeight);
+  assetScrollbarThumb.style.height = `${thumbHeight}px`;
+  assetScrollbarThumb.style.transform = `translateY(${maxScroll <= 1 ? 0 : Math.round(thumbTravel * libraryScroll.scrollTop / maxScroll)}px)`;
+}
+let draggingScrollbar = null;
+function scrollFromScrollbar(clientY) {
+  const maxScroll = libraryScroll.scrollHeight - libraryScroll.clientHeight;
+  const trackRect = assetScrollbar.getBoundingClientRect();
+  const thumbHeight = assetScrollbarThumb.offsetHeight;
+  const travel = Math.max(1, trackRect.height - thumbHeight);
+  const offset = Math.max(0, Math.min(travel, clientY - trackRect.top - thumbHeight / 2));
+  libraryScroll.scrollTop = maxScroll * offset / travel;
+}
+assetScrollbar?.addEventListener('pointerdown', event => {
+  if (event.target === assetScrollbarThumb) {
+    draggingScrollbar = { pointerId: event.pointerId, startY: event.clientY, startScroll: libraryScroll.scrollTop };
+    assetScrollbarThumb.setPointerCapture?.(event.pointerId);
+  } else scrollFromScrollbar(event.clientY);
+});
+assetScrollbar?.addEventListener('pointermove', event => {
+  if (!draggingScrollbar || draggingScrollbar.pointerId !== event.pointerId) return;
+  const trackRect = assetScrollbar.getBoundingClientRect();
+  const travel = Math.max(1, trackRect.height - assetScrollbarThumb.offsetHeight);
+  const maxScroll = libraryScroll.scrollHeight - libraryScroll.clientHeight;
+  libraryScroll.scrollTop = draggingScrollbar.startScroll + (event.clientY - draggingScrollbar.startY) * maxScroll / travel;
+});
+assetScrollbar?.addEventListener('pointerup', () => { draggingScrollbar = null; });
+assetScrollbar?.addEventListener('pointercancel', () => { draggingScrollbar = null; });
+assetScrollbar?.addEventListener('wheel', event => {
+  event.preventDefault();
+  libraryScroll.scrollTop += event.deltaY;
+}, { passive: false });
+libraryScroll?.addEventListener('scroll', () => { syncAssetSubbar(); syncAssetScrollbar(); }, { passive: true });
+window.addEventListener('resize', syncAssetScrollbar);
+new ResizeObserver(syncAssetScrollbar).observe(libraryScroll);
+syncAssetScrollbar();
 window.addEventListener('focus', () => { if (!$('assetDialog').open) refresh(); });
 refresh();

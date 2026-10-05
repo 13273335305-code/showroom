@@ -139,3 +139,7 @@ body:not(.standalone) .topbar{z-index:30}.header-actions .button{white-space:now
 .fabric-categories{justify-content:space-between;gap:3px}
 .fabric-categories button{padding:5px 4px;line-height:18px}
 @media(max-width:760px){.material-dock,.material-dock.removal-mode{padding-right:76px}.dock-delete-tools{right:8px;width:58px}.dock-delete-tools #dockDeleteActions button{padding:7px 2px}}
+
+/* Material editor uses a full-width page header instead of the floating glass shell. */
+body.standalone .topbar{inset:0 0 auto;width:100%;margin:0;border:0;border-bottom:1px solid #dae3ec;border-radius:0;background:#fff;box-shadow:0 1px 0 #dce7f3;backdrop-filter:none;-webkit-backdrop-filter:none}
+body.standalone .topbar:after{display:none}

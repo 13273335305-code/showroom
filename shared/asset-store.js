@@ -145,10 +145,16 @@ export const getAsset = async id => {
 };
 export const deleteAsset = id => transaction('readwrite', store => store.delete(id));
 export async function saveAsset(asset) {
-  if (!['material', 'model', 'texture'].includes(asset.kind) || !asset.name?.trim()) throw new Error('资产名称或类型无效');
+  if (!['material', 'model', 'texture', 'folder'].includes(asset.kind) || !asset.name?.trim()) throw new Error('资产名称或类型无效');
   const normalized = await normalizeAssetMaps(asset);
-  const saved = { ...normalized, id: asset.id || crypto.randomUUID(), name: asset.name.trim(), updatedAt: Date.now() };
-  if (!saved.thumbnail) { const thumbnail = await createAssetThumbnail(saved); if (thumbnail) saved.thumbnail = thumbnail; }
+  const saved = { ...normalized, id: asset.id || crypto.randomUUID(), name: asset.name.trim(), updatedAt: Date.now(), favorite: !!asset.favorite };
+  if (saved.kind === 'folder') {
+    saved.children = Array.isArray(saved.children) ? [...new Set(saved.children)] : [];
+    saved.parentId = saved.parentId || null;
+    saved.library = saved.library || 'fabric';
+  } else if (!saved.thumbnail) {
+    const thumbnail = await createAssetThumbnail(saved); if (thumbnail) saved.thumbnail = thumbnail;
+  }
   await transaction('readwrite', store => store.put(saved));
   return saved;
 }
