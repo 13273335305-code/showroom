@@ -4,7 +4,12 @@ export function mountNavigation(active) {
   const brand = header.querySelector('.brand');
   brand.innerHTML = '<img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic"><span class="brand-divider"></span><strong class="brand-title">' + (active === 'design' ? '\u8bbe\u8ba1\u53f0' : '\u5de5\u4f5c\u7a7a\u95f4') + '</strong>';
   brand.setAttribute('aria-label', 'Spenic \u5de5\u4f5c\u7a7a\u95f4\u9996\u9875');
-  const nav = header.querySelector('.app-navigation') || document.createElement('nav');
+  const existingNavigation = header.querySelector('.app-navigation');
+  if (active === 'design') {
+    existingNavigation?.remove();
+    return;
+  }
+  const nav = existingNavigation || document.createElement('nav');
   nav.replaceChildren();
   nav.className = 'app-navigation';
   nav.setAttribute('aria-label', '\u5de5\u4f5c\u7a7a\u95f4\u5165\u53e3');

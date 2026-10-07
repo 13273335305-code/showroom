@@ -62,7 +62,7 @@ body:not(.standalone) .topbar{z-index:30}.header-actions .button{white-space:now
 .pattern-preview{position:absolute;inset:165px 28px 36px;min-width:0;min-height:0}.pattern-drawing{display:block;width:100%;height:100%;overflow:visible}.pattern-drawing text{font:12px 'Microsoft YaHei','Segoe UI',sans-serif;fill:#466078;paint-order:stroke;stroke:#eef2f6;stroke-width:5px;stroke-linejoin:round}.pattern-preview-empty{height:100%;display:grid;place-items:center;border:1px dashed #c6d3e1;border-radius:14px;background:#ffffff40;color:#8294a8;font-size:12px;text-align:center;padding:20px}
 @media(max-width:760px){.pattern-preview{inset:145px 12px 16px}.pattern-drawing text{font-size:11px}}
 .pattern-editing .pattern-preview{inset:0;background:#dce2e8;overflow:hidden;cursor:grab;touch-action:none;outline:none}.pattern-editing .pattern-preview.panning{cursor:grabbing}.pattern-editing .pattern-drawing{overflow:hidden;user-select:none}.pattern-editing .pattern-drawing [data-checker]{filter:drop-shadow(0 3px 9px #263b5224)}.pattern-editing .pattern-drawing text{stroke:#dce2e8}.pattern-editing #materialMaps{margin-top:24px}.pattern-editing .pattern-preview-empty{border:0;border-radius:0;background:transparent}
-.material-dock{padding-right:22px}.dock-carousel{position:relative;flex:1;min-width:0;height:123px;padding:0}.dock-carousel .material-list{height:calc(100% + 15px);margin-top:-15px;padding-top:15px;padding-bottom:0;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:none;touch-action:pan-x}.dock-carousel .material-list::-webkit-scrollbar{display:none;width:0;height:0}.dock-scrollbar{position:absolute;left:0;right:0;bottom:-11px;height:12px;z-index:2;background:transparent;cursor:pointer;touch-action:none}.dock-scrollbar-thumb{position:absolute;left:0;top:0;width:100%;height:10px;border-radius:999px;background:#98a2ae80;box-shadow:0 1px 1px #73809126;cursor:grab;will-change:transform,width}.dock-scrollbar-thumb:active{cursor:grabbing}.dock-carousel .dock-add{position:static;inset:auto;flex:0 0 100px;width:100px;height:84px;margin:0;padding:0;display:grid;place-items:center;align-self:flex-start;border:0;background:transparent;box-shadow:none;font-size:38px;color:#7195c6}.dock-add-icon{display:grid;place-items:center;width:84px;height:84px;border:1px dashed #9fb8d7;border-radius:50%;background:#ffffff60;transition:background .18s,border-color .18s}.dock-add[data-type=pattern] .dock-add-icon{border-radius:12px}.dock-add:hover .dock-add-icon{background:#edf5ff;border-color:#6598e4}
+.material-dock{padding-right:22px}.dock-carousel{position:relative;flex:1;min-width:0;height:123px;padding:0}.dock-carousel .material-list{height:calc(100% + 19px);margin-top:-19px;padding-top:19px;padding-left:27px;padding-right:36px;padding-bottom:0;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:none;touch-action:pan-x}.dock-carousel .material-list::-webkit-scrollbar{display:none;width:0;height:0}.dock-scrollbar{position:absolute;left:0;right:0;bottom:-10px;height:12px;z-index:2;background:transparent;cursor:pointer;touch-action:none}.dock-scrollbar-thumb{position:absolute;left:0;top:0;width:100%;height:10px;border-radius:999px;background:#98a2ae80;box-shadow:0 1px 1px #73809126;cursor:grab;will-change:transform,width}.dock-scrollbar-thumb:active{cursor:grabbing}.dock-carousel .dock-add{position:static;inset:auto;flex:0 0 100px;width:100px;height:84px;margin:0;padding:0;display:grid;place-items:center;align-self:flex-start;border:0;background:transparent;box-shadow:none;font-size:38px;color:#7195c6}.dock-add-icon{display:grid;place-items:center;width:84px;height:84px;border:1px dashed #9fb8d7;border-radius:50%;background:#ffffff60;transition:background .18s,border-color .18s}.dock-add[data-type=pattern] .dock-add-icon{border-radius:12px}.dock-add:hover .dock-add-icon{background:#edf5ff;border-color:#6598e4}
 .dock-carousel .material-item{margin-top:-8px}
 .dock-carousel .material-item:hover .material-thumb{transform:scale(1.1);transform-origin:center;z-index:1}
 @media(max-width:760px){.material-dock{padding-right:14px}.dock-carousel{padding:0;height:122px}.dock-carousel .dock-add{width:88px;flex-basis:88px;height:76px}.dock-add-icon{width:76px;height:76px}}
@@ -140,17 +140,115 @@ body:not(.standalone) .topbar{z-index:30}.header-actions .button{white-space:now
 @media(prefers-reduced-motion:reduce){.workspace .viewport-actions .viewport-toolbar button#annotationMode[aria-pressed=true]{animation:none;opacity:1}}
 /* The fixed deletion area is also the drop target for fabric and pattern cards. */
 .material-dock,.material-dock.removal-mode{padding-right:88px}
-.dock-delete-tools{right:10px;top:44px;bottom:10px;width:66px;display:flex;align-items:center;justify-content:center;border-radius:12px;transition:background .16s,box-shadow .16s}
+.dock-delete-tools{right:0;top:10px;bottom:10px;width:88px;display:flex;align-items:center;justify-content:center;border-left:1px solid #899db02b;border-radius:0;transition:background .16s,box-shadow .16s}
 .dock-trash{width:44px;height:44px;padding:7px;display:grid;place-items:center;border-radius:10px}
 .dock-trash svg{display:block;width:28px;height:28px}
-.dock-delete-tools #dockDeleteActions{width:100%;display:flex;flex-direction:column;align-items:stretch;gap:9px}
+.dock-delete-tools #dockDeleteActions{width:calc(100% - 16px);display:flex;flex-direction:column;align-items:stretch;gap:9px;margin:0 auto}
 .dock-delete-tools #dockDeleteActions button{min-height:36px;padding:7px 2px}
 .dock-delete-tools.drop-ready{background:#ffe9eb;box-shadow:inset 0 0 0 2px #db7180}
 .dock-delete-tools.drop-ready .dock-trash{color:#c54858;border-color:#db7180;background:#fff4f5}
 .dock-delete-tools.drop-blocked{background:#edf0f3;box-shadow:inset 0 0 0 1px #aebac8}
 .fabric-categories{justify-content:space-between;gap:3px}
 .fabric-categories button{padding:5px 4px;line-height:18px}
-@media(max-width:760px){.material-dock,.material-dock.removal-mode{padding-right:76px}.dock-delete-tools{right:8px;width:58px}.dock-delete-tools #dockDeleteActions button{padding:7px 2px}}
+.fabric-browser{gap:0}
+.fabric-browser .dock-carousel{padding-left:0;overflow:visible}
+.fabric-categories{border-right:0}
+.fabric-categories:after{content:'';position:absolute;right:-1px;top:-37px;bottom:-1px;width:1px;background:#899db02b;pointer-events:none}
+@media(max-width:760px){.material-dock,.material-dock.removal-mode{padding-right:66px}.fabric-browser .dock-carousel{padding-left:0}.fabric-categories:after{top:-33px;bottom:5px}.dock-carousel .material-list{padding-left:17px;padding-right:15px}.dock-delete-tools{right:0;width:66px}.dock-delete-tools #dockDeleteActions button{padding:7px 2px}}
+
+ /* Undo remains available from the top bar; keep the dock heading focused on material browsing. */
+#dockUndo{display:none!important}
+
+.capture-panel{display:none;padding:24px 20px 20px;background:#ffffffb8;min-height:100%;color:#253246}
+.design-launch-loading{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;background:linear-gradient(145deg,#f8fbff,#e9f0f7);opacity:1;visibility:visible;transition:opacity .55s ease,visibility 0s linear 0s}
+.design-launch-loading.is-hidden{opacity:0;visibility:hidden;transition:opacity .55s ease,visibility 0s linear .55s}
+.design-launch-card{display:grid;justify-items:center;gap:24px;color:#26384d;text-align:center}
+.design-launch-card strong{font-size:15px;font-weight:650;letter-spacing:.08em;animation:design-launch-breathe 1.5s ease-in-out infinite}
+.design-launch-card span{font-size:11px;color:#8b9bad;letter-spacing:.08em}
+.loading-228{display:inline-flex;gap:5px;margin-bottom:35px;transform:scale(2.2);transform-origin:center}
+.loading-228:before,.loading-228:after{content:"";width:30px;height:20px;border-radius:6px;box-shadow:0 0 0 1.73px inset var(--blue);animation:loading-228 1.5s infinite}
+.loading-228:after{--s:-1}
+@keyframes loading-228{0%{transform:scaleX(var(--s,1)) translate(0) scale(1)}33%{transform:scaleX(var(--s,1)) translate(calc(50% + 2.5px)) scale(1)}66%{transform:scaleX(var(--s,1)) translate(calc(50% + 2.5px)) scale(2)}100%{transform:scaleX(var(--s,1)) translate(0) scale(1)}}
+@keyframes design-launch-breathe{0%,100%{opacity:.45}50%{opacity:1}}
+body.capture-mode #capturePanel{display:block}
+body.capture-mode #inspector>.inspector-title,body.capture-mode #inspector>.tabs,body.capture-mode #inspector>.panel-scroll{display:none}
+.capture-panel-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:18px;border-bottom:1px solid #dce6f0}
+.capture-panel-heading h2{margin:7px 0 0;font-size:18px;font-weight:650;letter-spacing:.02em}
+.capture-panel-heading button{width:28px;height:28px;padding:0;border:1px solid #d5e0ec;border-radius:8px;background:#ffffffb8;color:#71849c;font-size:20px;line-height:1}
+.capture-panel-heading button:hover{background:#edf4ff;color:#2f71ee}
+.capture-size{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:22px 0 8px}
+.capture-size label{display:flex;flex-direction:column;gap:7px;color:#6d7d8e;font-size:11px}
+.capture-size input{width:100%;padding:9px 8px;border:1px solid #d5e0ec;border-radius:7px;background:#fff;color:#253246;font-size:13px;font-variant-numeric:tabular-nums}
+body.capture-mode .topbar,body.capture-mode .material-dock{opacity:0;pointer-events:none}
+body.capture-mode .topbar{transform:translateY(calc(-100% - 24px))}
+body.capture-mode .material-dock{transform:translateY(calc(100% + 24px))}
+body.capture-mode .viewer-heading,body.capture-mode .model-chip,body.capture-mode .view-bottom,body.capture-mode .axis-widget,body.capture-mode .day-cycle,body.capture-mode .annotation-layer{opacity:0;pointer-events:none;transform:translateY(-24px)}
+body.capture-mode .material-dock{transform:translateY(calc(100% + 24px))}
+body.capture-mode .viewport-actions{opacity:0;pointer-events:none}
+body.capture-mode .workspace .inspector{margin-top:10px;margin-bottom:0}
+body.capture-mode .capture-panel{overflow:auto}
+@media(max-width:760px){.capture-panel{padding:20px 16px}.capture-size{gap:8px}.capture-size input{font-size:12px}}
+
+/* Capture controls use a compact inspector while keeping the model viewport wide. */
+body.capture-mode .capture-panel{padding-left:16px;padding-right:16px}
+.capture-orientation{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:12px 0 8px}
+.capture-orientation button{display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid #d5e0ec;border-radius:7px;background:#ffffffb8;color:#71849c;padding:8px 6px;font-size:11px;cursor:pointer}
+.capture-orientation-icon{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:0 0 20px}
+.capture-orientation button:hover{border-color:#9ebcf1;background:#f5f9ff;color:#2f71ee}
+.capture-orientation button[aria-pressed=true]{border-color:#6f9df0;background:#eaf2ff;color:#2f71ee;font-weight:650}
+.capture-background-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:16px 0;padding:12px 0;border-top:1px solid #dce6f0;color:#52647a;font-size:12px;cursor:pointer}
+.capture-background-toggle input{appearance:none;-webkit-appearance:none;position:relative;flex:0 0 34px;width:34px;height:20px;margin:0;border:1px solid #bdcbdc;border-radius:10px;background:#d7e0eb;cursor:pointer;transition:background .2s,border-color .2s}
+.capture-background-toggle input:before{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 3px #263b5230;transition:transform .2s}
+.capture-background-toggle input:checked{background:#2f71ee;border-color:#2f71ee}
+.capture-background-toggle input:checked:before{transform:translateX(14px)}
+body.capture-transparent #viewport{background:repeating-conic-gradient(#e5e8ed 0% 25%,#f8fafc 0% 50%) 0 / 24px 24px}
+body.capture-mode .workspace .inspector{display:none!important}
+body.capture-mode #capturePanel{position:fixed;top:141px;right:24px;width:264px;max-height:calc(100dvh - 165px);min-height:0;margin:0;padding:18px 16px 16px;overflow:auto;z-index:12;border:1px solid #ffffffd9;border-radius:14px;background:linear-gradient(145deg,#ffffffec,#eef5ffdf);box-shadow:0 18px 48px #263b5230;backdrop-filter:blur(18px) saturate(135%);-webkit-backdrop-filter:blur(18px) saturate(135%)}
+@media(min-width:761px) and (max-width:1100px){body.capture-mode #capturePanel{width:233px}}
+@media(max-width:760px){body.capture-mode .workspace{display:block}body.capture-mode #capturePanel{top:141px;right:24px;width:min(264px,calc(100vw - 48px));max-height:calc(100dvh - 165px)}}
+body.capture-mode .viewport-actions{opacity:1;pointer-events:auto;gap:0}
+/* Camera preview: the frame follows the export dimensions while the dimmed
+   surround makes the two side boundaries easy to read against the model. */
+body.capture-mode .capture-frame-blur{display:block;position:absolute;inset:0;z-index:5;pointer-events:none}
+.capture-frame-blur{display:none}
+.capture-frame-blur span{position:absolute;background:#18253635;backdrop-filter:blur(8px) saturate(.9);-webkit-backdrop-filter:blur(8px) saturate(.9);transition:top .42s cubic-bezier(.2,.8,.2,1),width .42s cubic-bezier(.2,.8,.2,1),height .42s cubic-bezier(.2,.8,.2,1)}
+.capture-frame-blur-top{left:0;right:0;top:0;height:calc(50% - var(--capture-frame-height,80%) / 2)}
+.capture-frame-blur-right{right:0;top:calc(50% - var(--capture-frame-height,80%) / 2);width:calc(50% - var(--capture-frame-width,80%) / 2);height:var(--capture-frame-height,80%)}
+.capture-frame-blur-bottom{left:0;right:0;bottom:0;height:calc(50% - var(--capture-frame-height,80%) / 2)}
+.capture-frame-blur-left{left:0;top:calc(50% - var(--capture-frame-height,80%) / 2);width:calc(50% - var(--capture-frame-width,80%) / 2);height:var(--capture-frame-height,80%)}
+body.capture-mode:not(.capture-frame-settled) .capture-frame-blur-top,body.capture-mode:not(.capture-frame-settled) .capture-frame-blur-bottom{animation:capture-mask-height 1.5s cubic-bezier(.16,1,.3,1) both}
+body.capture-mode:not(.capture-frame-settled) .capture-frame-blur-left,body.capture-mode:not(.capture-frame-settled) .capture-frame-blur-right{animation:capture-mask-side 1.5s cubic-bezier(.16,1,.3,1) both}
+body.capture-mode:not(.capture-frame-settled) .capture-frame{animation:capture-frame-shrink 1.5s cubic-bezier(.16,1,.3,1) both}
+body.capture-mode .capture-frame{display:block;position:absolute;left:50%;top:50%;width:var(--capture-frame-width,80%);height:var(--capture-frame-height,80%);transform:translate(-50%,-50%);z-index:6;border:1px solid #ffffffdd;box-shadow:0 0 0 1px #25324666,0 0 28px #0f1d2d30;pointer-events:none;transition:width .42s cubic-bezier(.2,.8,.2,1),height .42s cubic-bezier(.2,.8,.2,1)}
+.capture-frame{display:none}
+.capture-frame:before,.capture-frame:after{content:"";position:absolute;pointer-events:none}
+.capture-frame:before{inset:0;background:linear-gradient(90deg,transparent 32.9%,#ffffff55 33%,transparent 33.1%,transparent 66.9%,#ffffff55 67%,transparent 67.1%),linear-gradient(0deg,transparent 32.9%,#ffffff55 33%,transparent 33.1%,transparent 66.9%,#ffffff55 67%,transparent 67.1%)}
+.capture-frame:after{inset:0;border:1px solid #ffffff70}
+.capture-frame-corner{position:absolute;width:24px;height:24px;border-color:#fff;border-style:solid;z-index:1}
+.capture-frame-corner-tl{left:-1px;top:-1px;border-width:3px 0 0 3px}.capture-frame-corner-tr{right:-1px;top:-1px;border-width:3px 3px 0 0}.capture-frame-corner-bl{left:-1px;bottom:-1px;border-width:0 0 3px 3px}.capture-frame-corner-br{right:-1px;bottom:-1px;border-width:0 3px 3px 0}
+.capture-flash{position:absolute;inset:0;z-index:2;background:#fff;opacity:0;pointer-events:none}.capture-flash.is-flashing{animation:capture-shutter-flash .32s ease-out both}
+@keyframes capture-shutter-flash{0%{opacity:0}12%{opacity:.92}100%{opacity:0}}
+body.capture-mode .capture-frame-corner{filter:drop-shadow(0 1px 3px #15243a88)}
+@keyframes capture-frame-shrink{from{width:100%;height:100%;opacity:1}to{width:var(--capture-frame-width,80%);height:var(--capture-frame-height,80%);opacity:1}}
+@keyframes capture-mask-height{from{height:0}to{height:calc(50% - var(--capture-frame-height,80%) / 2)}}
+@keyframes capture-mask-side{from{top:0;width:0;height:100%}to{top:calc(50% - var(--capture-frame-height,80%) / 2);width:calc(50% - var(--capture-frame-width,80%) / 2);height:var(--capture-frame-height,80%)}}
+body.capture-mode .showroom-tools{max-width:0;overflow:hidden;opacity:0;transform:translateX(20px) scale(.7);pointer-events:none}
+body.capture-mode #capturePanel{animation:capture-panel-in 1.5s cubic-bezier(.16,1,.3,1) both}
+body.capture-mode #capturePanel.capture-closing{animation:capture-panel-out 1.5s cubic-bezier(.16,1,.3,1) both;pointer-events:none}
+@keyframes capture-panel-in{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:translateX(0)}}
+@keyframes capture-panel-out{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(24px)}}
+body.capture-mode.capture-exiting .topbar,body.capture-mode.capture-exiting .material-dock,body.capture-mode.capture-exiting .viewer-heading,body.capture-mode.capture-exiting .model-chip,body.capture-mode.capture-exiting .view-bottom,body.capture-mode.capture-exiting .axis-widget,body.capture-mode.capture-exiting .day-cycle,body.capture-mode.capture-exiting .annotation-layer{opacity:1;pointer-events:auto;transform:none}
+body.capture-mode.capture-exiting .material-dock{transform:none}
+body.capture-mode.capture-exiting .viewport-actions{opacity:1;pointer-events:auto;gap:8px;transition:opacity 1.5s,gap 1.5s cubic-bezier(.16,1,.3,1)}
+body.capture-mode.capture-exiting .showroom-tools{max-width:260px;opacity:1;transform:none;pointer-events:auto}
+body.capture-mode.capture-exiting .capture-frame{animation:capture-frame-expand 1.5s cubic-bezier(.16,1,.3,1) both}
+body.capture-mode.capture-exiting .capture-frame:before{animation:capture-grid-fade-out 1.5s ease-out both}
+body.capture-mode.capture-exiting .capture-frame-blur-top,body.capture-mode.capture-exiting .capture-frame-blur-bottom{animation:capture-mask-height-out 1.5s cubic-bezier(.16,1,.3,1) both}
+body.capture-mode.capture-exiting .capture-frame-blur-left,body.capture-mode.capture-exiting .capture-frame-blur-right{animation:capture-mask-side-out 1.5s cubic-bezier(.16,1,.3,1) both}
+@keyframes capture-frame-expand{from{width:var(--capture-frame-width,80%);height:var(--capture-frame-height,80%);opacity:1}to{width:100%;height:100%;opacity:1}}
+@keyframes capture-mask-height-out{from{height:calc(50% - var(--capture-frame-height,80%) / 2)}to{height:0}}
+@keyframes capture-mask-side-out{from{top:calc(50% - var(--capture-frame-height,80%) / 2);width:calc(50% - var(--capture-frame-width,80%) / 2);height:var(--capture-frame-height,80%)}to{top:0;width:0;height:100%}}
+@keyframes capture-grid-fade-out{from{opacity:1}to{opacity:0}}
 
 /* Material editor uses a full-width page header instead of the floating glass shell. */
 body.standalone .topbar{inset:0 0 auto;width:100%;margin:0;border:0;border-bottom:1px solid #dae3ec;border-radius:0;background:#fff;box-shadow:0 1px 0 #dce7f3;backdrop-filter:none;-webkit-backdrop-filter:none}

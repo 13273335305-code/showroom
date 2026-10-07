@@ -1,0 +1,15 @@
+{
+    "format":  "SPENIC-DESIGN-VIEW",
+    "view":  {
+                 "elevation":  26,
+                 "offset":  [
+                                0.3324245515114773,
+                                -0.9315680339617911,
+                                0.31418243148176195
+                            ],
+                 "azimuth":  40,
+                 "framing":  0.71,
+                 "distance":  7.839512121478259
+             },
+    "version":  1
+}

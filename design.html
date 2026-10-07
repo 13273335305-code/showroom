@@ -12,10 +12,11 @@
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
 </head>
 <body>
+<div id="designLaunchLoading" class="design-launch-loading" role="status" aria-live="polite"><div class="design-launch-card"><div class="loading-228" aria-hidden="true"></div><strong>正在进入设计台</strong></div></div>
 <header class="topbar">
  <a class="brand" href="./index.html" aria-label="Spenic 工作空间首页"><img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic"><span class="brand-divider"></span><strong class="brand-title">设计台</strong></a>
  <button id="developerToggle" class="developer-toggle" type="button" hidden aria-label="开发者模式" title="开发者模式" aria-controls="developerPanel" aria-expanded="false" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="6" r="3.5" fill="currentColor" stroke="none"/><path d="M11 12c-5-1-8 2-8 7h6"/><path d="m14 14-3 3 3 3m6-6 3 3-3 3m-2-7-2 8"/></svg></button>
- <nav class="app-navigation" aria-label="工作空间入口"><a href="./design.html" aria-current="page">设计台</a><a href="./material-editor.html">材质编辑器</a><a href="./asset-library.html">资产库</a></nav><div class="header-actions"><span class="local-badge"><i></i> 本地工作空间</span><button id="openProject" hidden type="button" aria-label="打开项目"></button><button id="headerUndo" class="header-icon-action" type="button" title="撤销换材" aria-label="撤销换材" disabled><span class="header-icon-art header-icon-undo" aria-hidden="true"></span></button><button id="saveProject" class="header-icon-action" type="button" title="保存文件" aria-label="保存文件"><span class="header-icon-art header-icon-save" aria-hidden="true"></span></button><button id="snapshot" class="header-icon-action primary" type="button" title="导出图片" aria-label="导出图片"><span class="header-icon-art header-icon-snapshot" aria-hidden="true"></span></button></div>
+ <div class="header-actions"><span class="local-badge"><i></i> 本地工作空间</span><button id="openProject" hidden type="button" aria-label="打开项目"></button><button id="headerUndo" class="header-icon-action" type="button" title="撤销换材" aria-label="撤销换材" disabled><span class="header-icon-art header-icon-undo" aria-hidden="true"></span></button><button id="saveProject" class="header-icon-action" type="button" title="保存文件" aria-label="保存文件"><span class="header-icon-art header-icon-save" aria-hidden="true"></span></button><button id="snapshot" class="header-icon-action primary" type="button" title="拍摄模式" aria-label="拍摄模式" aria-pressed="false"><span class="header-icon-art header-icon-snapshot" aria-hidden="true"></span></button></div>
 </header>
 <aside id="developerPanel" class="developer-panel" hidden aria-labelledby="developerTitle">
  <header class="dev-header"><div><span class="dev-eyebrow">DEVELOPER</span><h2 id="developerTitle">开发者模式</h2></div><button id="developerClose" type="button" aria-label="关闭开发者模式">×</button></header>
@@ -38,6 +39,8 @@
 <main class="workspace inspector-collapsed">
 <section class="viewport" id="viewport" aria-label="三维模型视图">
  <canvas id="canvas" aria-label="左键旋转、滚轮缩放、中键或右键平移；拖入材质球替换部位材质，双击模型选择材质"></canvas>
+ <div id="captureFrameBlur" class="capture-frame-blur" aria-hidden="true"><span class="capture-frame-blur-top"></span><span class="capture-frame-blur-right"></span><span class="capture-frame-blur-bottom"></span><span class="capture-frame-blur-left"></span></div>
+ <div id="captureFrame" class="capture-frame" aria-hidden="true"><span id="captureFlash" class="capture-flash"></span><span class="capture-frame-corner capture-frame-corner-tl"></span><span class="capture-frame-corner capture-frame-corner-tr"></span><span class="capture-frame-corner capture-frame-corner-bl"></span><span class="capture-frame-corner capture-frame-corner-br"></span></div>
  <div id="materialPreview" class="material-preview" aria-hidden="true"><div class="material-preview-image"></div><div class="material-preview-label"></div></div>
  <div class="viewer-heading"><div class="eyebrow">YOUR MATERIAL. YOUR VISION.</div><h1>让每一种质感，<br>看得见。</h1><p>在光与材质之间，找到理想的表达。</p></div>
  <div class="model-chip"><span class="cube-icon">◇</span><div><strong id="modelName">正在准备展厅…</strong><small id="modelStats">THREE.JS · PBR RENDERING</small></div><button id="importModel" title="导入 FBX 或 GLB 模型" aria-label="导入 FBX 或 GLB 模型">＋</button></div>
@@ -177,6 +180,13 @@
   <div class="help-box" hidden><span>◇</span><p>导入你的模型，探索更多可能。<br><button id="importSecondary" class="text-button">选择 FBX / GLB 与配套纹理 ↗</button></p></div>
  </div>
 </aside>
+<section id="capturePanel" class="capture-panel" hidden aria-labelledby="capturePanelTitle">
+ <div class="capture-panel-heading"><div><span class="eyebrow">CAMERA MODE</span><h2 id="capturePanelTitle">拍摄属性</h2></div><button id="captureExit" type="button" aria-label="退出拍摄模式" title="退出拍摄模式">×</button></div>
+ <div class="capture-size"><label>宽度（px）<input id="captureWidth" type="number" min="1" max="8192" step="1" value="1920"></label><label>高度（px）<input id="captureHeight" type="number" min="1" max="8192" step="1" value="1080"></label></div>
+ <div class="capture-orientation" role="group" aria-label="拍摄方向"><button id="captureLandscape" type="button" aria-pressed="true"><svg class="capture-orientation-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="18" height="10" rx="1.5"/><path d="M6 14h4m4-4h4"/></svg><span>横向</span></button><button id="capturePortrait" type="button" aria-pressed="false"><svg class="capture-orientation-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="1.5"/><path d="M10 6v4m4 4v4"/></svg><span>竖向</span></button></div>
+ <label class="capture-background-toggle" for="captureTransparent"><span>透明背景</span><input id="captureTransparent" type="checkbox" role="switch"></label>
+ <button id="captureShoot" class="button primary full" type="button">拍摄</button>
+</section>
 </main>
 <footer id="materialDock" class="material-dock opening-hidden" aria-hidden="true">
  <div class="dock-heading"><nav class="dock-tabs" aria-label="材质大类"><button id="fabricDockTab" class="active" aria-pressed="true">面料</button><button id="patternDockTab" aria-pressed="false">图案</button></nav><span id="materialCount" hidden>00</span><div class="dock-operations"><button id="dockUndo" class="text-button" disabled>撤销换材</button><button id="dockPatternPlace" class="text-button" hidden>放置图案</button></div></div>

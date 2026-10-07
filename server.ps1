@@ -2,6 +2,7 @@
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath($PSScriptRoot)
 $partsViewFile=Join-Path $root 'parts-default-view.json'
+$designViewFile=Join-Path $root 'design-default-view.json'
 function Read-PartsView($value){
  if($value.format -cne 'SPENIC-MODEL-VIEW' -or $value.version -ne 1){throw 'Invalid view file format'}
  $view=$value.view
@@ -16,13 +17,31 @@ function Read-PartsView($value){
  }
  return @{format='SPENIC-MODEL-VIEW';version=1;view=@{azimuth=$view.azimuth;elevation=$view.elevation;framing=$view.framing;offset=@($view.offset)}}
 }
+function Read-DesignView($value){
+ if($value.format -cne 'SPENIC-DESIGN-VIEW' -or $value.version -ne 1){throw 'Invalid design view file format'}
+ $view=$value.view
+ foreach($key in @('azimuth','elevation','framing')){
+  $number=$view.$key
+  if($number -isnot [ValueType] -or $number -is [bool] -or [double]::IsNaN([double]$number) -or [double]::IsInfinity([double]$number)){throw 'Invalid design view number'}
+ }
+ if($view.azimuth -lt -180 -or $view.azimuth -gt 180 -or $view.elevation -lt 0 -or $view.elevation -gt 89 -or $view.framing -lt .5 -or $view.framing -gt 3){throw 'Design view parameters out of range'}
+ if($null -ne $view.distance){
+  if($view.distance -isnot [ValueType] -or $view.distance -is [bool] -or [double]::IsNaN([double]$view.distance) -or [double]::IsInfinity([double]$view.distance) -or $view.distance -le 0 -or $view.distance -gt 1000){throw 'Invalid design view distance'}
+ }
+ if($view.offset -isnot [Array] -or $view.offset.Count -ne 3){throw 'Invalid design view offset'}
+ foreach($number in $view.offset){
+  if($number -isnot [ValueType] -or $number -is [bool] -or [double]::IsNaN([double]$number) -or [double]::IsInfinity([double]$number) -or [Math]::Abs([double]$number) -gt 1000){throw 'Invalid design view offset'}
+ }
+ return @{format='SPENIC-DESIGN-VIEW';version=1;view=@{azimuth=$view.azimuth;elevation=$view.elevation;framing=$view.framing;distance=$view.distance;offset=@($view.offset)}}
+}
 $listener=$null
 for($candidate=$Port;$candidate -lt $Port+20;$candidate++){
  try {
   $probe=Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$candidate/__form_health" -TimeoutSec 1
   if($probe.Content -eq $root){
    $viewProbe=Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$candidate/__form_parts_view" -TimeoutSec 1
-   if($viewProbe.StatusCode -eq 200){if(-not $NoBrowser){Start-Process "http://127.0.0.1:$candidate/"};exit 0}
+   $designViewProbe=Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$candidate/__form_design_view" -TimeoutSec 1
+   if($viewProbe.StatusCode -eq 200 -and $designViewProbe.StatusCode -eq 200){if(-not $NoBrowser){Start-Process "http://127.0.0.1:$candidate/"};exit 0}
   }
  }catch{}
  try{$listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$candidate);$listener.Start();$Port=$candidate;break}catch{$listener=$null}
@@ -72,6 +91,38 @@ try{
         if([IO.File]::Exists($partsViewFile)){[IO.File]::Replace($temporary,$partsViewFile,[NullString]::Value)}else{[IO.File]::Move($temporary,$partsViewFile)}
         $bytes=[Text.Encoding]::UTF8.GetBytes('{"saved":true,"file":"parts-default-view.json"}')
        }catch{$status='500 Internal Server Error';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Cannot write parts-default-view.json"}')}
+       finally{if([IO.File]::Exists($temporary)){[IO.File]::Delete($temporary)}}
+      }
+     }
+    }else{$status='405 Method Not Allowed';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Method not allowed"}')}
+   }
+   elseif($path -eq '/__form_design_view'){
+    $type='application/json; charset=utf-8'
+    if($method -in @('GET','HEAD')){
+     try{$value=$null;if([IO.File]::Exists($designViewFile)){$value=Read-DesignView ([IO.File]::ReadAllText($designViewFile,[Text.Encoding]::UTF8) | ConvertFrom-Json)};$bytes=[Text.Encoding]::UTF8.GetBytes(($value | ConvertTo-Json -Depth 5 -Compress));if(-not $value){$bytes=[Text.Encoding]::UTF8.GetBytes('null')}}
+     catch{$status='500 Internal Server Error';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Cannot read design-default-view.json"}')}
+    }elseif($method -eq 'POST'){
+     $bodyLength=0
+     $validLength=[int]::TryParse($headers['Content-Length'],[ref]$bodyLength)
+     $allowedOrigin=$true
+     if($headers['Origin']){try{$origin=[Uri]$headers['Origin'];$allowedOrigin=$origin.Scheme -eq 'http' -and $origin.Authority -eq $headers['Host']}catch{$allowedOrigin=$false}}
+     if(-not $allowedOrigin){$status='403 Forbidden';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Origin not allowed"}')}
+     elseif($headers['Content-Type'] -notmatch '^application/json(?:\s*;|$)'){$status='415 Unsupported Media Type';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"JSON required"}')}
+     elseif(-not $validLength -or $bodyLength -le 0 -or $bodyLength -gt 16384 -or $headers['Transfer-Encoding']){$status='400 Bad Request';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Invalid request size"}')}
+     else{
+      try{
+       $body=New-Object char[] $bodyLength;$read=0
+       while($read -lt $bodyLength){$count=$reader.Read($body,$read,$bodyLength-$read);if($count -le 0){throw 'Incomplete request body'};$read+=$count}
+       $text=[Text.Encoding]::UTF8.GetString($wireEncoding.GetBytes((-join $body)))
+       $value=Read-DesignView ($text | ConvertFrom-Json)
+      }catch{$status='400 Bad Request';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Invalid design camera view"}')}
+      if(-not $bytes){
+       $temporary=$designViewFile+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
+       try{
+        [IO.File]::WriteAllText($temporary,($value | ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+        if([IO.File]::Exists($designViewFile)){[IO.File]::Replace($temporary,$designViewFile,[NullString]::Value)}else{[IO.File]::Move($temporary,$designViewFile)}
+        $bytes=[Text.Encoding]::UTF8.GetBytes('{"saved":true,"file":"design-default-view.json"}')
+       }catch{$status='500 Internal Server Error';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Cannot write design-default-view.json"}')}
        finally{if([IO.File]::Exists($temporary)){[IO.File]::Delete($temporary)}}
       }
      }

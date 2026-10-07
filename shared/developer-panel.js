@@ -3,7 +3,7 @@ import { PHASE_IDS, readTiming, readDefaultView, readShowroomScale, readDevelope
 import { createDeveloperPerformance } from './developer-performance.js';
 import { createDeveloperLogger } from './developer-logging.js';
 
-export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, status, readCamera, getSettings, setSettings, notify, download }) {
+export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, status, readCamera, getSettings, setSettings, getDefaultView, saveDefaultView, notify, download }) {
   const $ = id => document.getElementById(id);
   const panel = $('developerPanel'), toggle = $('developerToggle'), brand = document.querySelector('.brand-logo');
   const metrics = createDeveloperPerformance(renderer);
@@ -40,7 +40,7 @@ export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, s
     $('developerTransition').value = getSettings().timing.transition / 1000;
     $('developerHold').value = getSettings().timing.hold / 1000;
   }
-  function syncView(view = getSettings().defaultView) {
+  function syncView(view = getDefaultView?.() || getSettings().defaultView) {
     const values = { azimuth: view.azimuth, elevation: view.elevation, framing: view.framing, showroomScale: getSettings().showroomScale };
     for (const [key, value] of Object.entries(values)) {
       const input = $('developer' + ({ azimuth: 'Azimuth', elevation: 'Elevation', framing: 'Framing', showroomScale: 'ShowroomScale' }[key]));
@@ -143,12 +143,14 @@ export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, s
     const output = panel.querySelector(`[data-dev-view-output="${key}"]`), value = Number($(id).value);
     if (output) output.value = key === 'azimuth' || key === 'elevation' ? Math.round(value) + '°' : value.toFixed(2) + '×';
   });
-  $('developerViewForm').onsubmit = event => {
+  $('developerViewForm').onsubmit = async event => {
     event.preventDefault();
     try {
-      const base = pendingView || getSettings().defaultView;
+      const base = pendingView || getDefaultView?.() || getSettings().defaultView;
       const defaultView = readDefaultView({ ...base, azimuth: $('developerAzimuth').valueAsNumber, elevation: $('developerElevation').valueAsNumber, framing: $('developerFraming').valueAsNumber });
-      commit({ ...getSettings(), defaultView }, '已保存默认视角'); pendingView = null; syncView();
+      if (saveDefaultView) await saveDefaultView(defaultView);
+      else commit({ ...getSettings(), defaultView }, '已保存默认视角');
+      pendingView = null; syncView(); $('developerSaveStatus').textContent = '已保存默认视角'; notify('已保存默认视角');
     } catch (error) { notify('保存失败：' + error.message); }
   };
   $('developerSaveShowroomScale').onclick = () => {
