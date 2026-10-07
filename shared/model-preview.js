@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 
 // One disposable renderer per queued preview; no animation loop or model mutation.
 export async function createModelPreview(asset) {
@@ -7,20 +9,29 @@ export async function createModelPreview(asset) {
   const manager = new THREE.LoadingManager();
   const placeholder = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4//8/AwAI/AL+Xf6QAAAAAElFTkSuQmCC';
   manager.setURLModifier(url => {
+    if (url.includes('/vendor/three/addons/libs/basis/') || url.startsWith('./vendor/three/addons/libs/basis/')) return url;
     if (url.startsWith('data:')) return url;
     if (url.startsWith('blob:')) { urls.add(url); return url; }
     const file = resources.get(decodeURIComponent(url.replace(/\\/g, '/').split('/').pop()).toLowerCase());
     if (!file) return placeholder;
     const result = URL.createObjectURL(file); urls.add(result); return result;
   });
-  let object, renderer;
+  let object, renderer, ktx2Loader;
   try {
     const buffer = await asset.file.arrayBuffer();
-    const ready = new Promise(resolve => { manager.onLoad = resolve; });
-    manager.itemStart('preview');
-    try { object = new FBXLoader(manager).parse(buffer, ''); }
-    finally { manager.itemEnd('preview'); }
-    await ready;
+    if (/\.glb$/i.test(asset.file.name || asset.name || '')) {
+      renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+      ktx2Loader = new KTX2Loader(manager).setTranscoderPath('./vendor/three/addons/libs/basis/').detectSupport(renderer);
+      const gltf = await new Promise((resolve, reject) => new GLTFLoader(manager).setKTX2Loader(ktx2Loader).parse(buffer, '', resolve, reject));
+      object = gltf.scene || gltf.scenes?.[0];
+    } else {
+      const ready = new Promise(resolve => { manager.onLoad = resolve; });
+      manager.itemStart('preview');
+      try { object = new FBXLoader(manager).parse(buffer, ''); }
+      finally { manager.itemEnd('preview'); }
+      await ready;
+    }
+    if (!object) throw new Error('模型没有可显示的场景');
     object.traverse(child => { if (child.isLight || child.isCamera) child.visible = false; });
     object.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(object);
@@ -37,7 +48,7 @@ export async function createModelPreview(asset) {
     const radius = size.length() / longest;
     camera.position.copy(new THREE.Vector3(1.1, .65, 1.35).normalize().multiplyScalar(radius / Math.sin(THREE.MathUtils.degToRad(18)) * 1.08));
     camera.lookAt(0, 0, 0);
-    renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer ||= new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setSize(640, 320); renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.render(scene, camera);
     const blob = await new Promise(resolve => renderer.domElement.toBlob(resolve, 'image/png'));
@@ -53,6 +64,6 @@ export async function createModelPreview(asset) {
         dispose(material);
       }
     });
-    renderer?.dispose(); renderer?.forceContextLoss(); urls.forEach(url => URL.revokeObjectURL(url));
+    if (ktx2Loader?.transcoderPending) ktx2Loader.dispose(); renderer?.dispose(); renderer?.forceContextLoss(); urls.forEach(url => URL.revokeObjectURL(url));
   }
 }

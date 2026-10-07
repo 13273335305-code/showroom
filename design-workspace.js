@@ -4,8 +4,10 @@ import { materialType } from './shared/material-placement.js';
 const $ = id => document.getElementById(id);
 export function createDesignWorkspace(api) {
   let type = 'fabric', target = null, assets = [], urls = [], request = 0;
-  const addButton = $('addDockAsset'), previous = $('scrollLeft'), nextPage = $('scrollRight');
+  const addButton = $('addDockAsset');
   const activeList = () => $(type === 'fabric' ? 'materialList' : 'patternDock');
+  const activeScrollbar = () => $(type === 'fabric' ? 'fabricScrollbar' : 'patternScrollbar');
+  const scrollbarThumb = scrollbar => scrollbar?.querySelector('.dock-scrollbar-thumb');
   let removing = false;
   const checked = new Map(), dockItems = new WeakMap(), dock = document.querySelector('.material-dock');
   const itemKey = item => item.entry || item.source || item.pattern;
@@ -33,7 +35,6 @@ export function createDesignWorkspace(api) {
     $('dockDeleteSelected').disabled = checked.size === 0;
     $('dockDeleteSelected').textContent = checked.size ? `删除 (${checked.size})` : '删除';
     dock.classList.toggle('removal-mode', removing);
-    schedulePaging();
   }
   function exitRemoval() { removing = false; checked.clear(); syncRemoval(); }
   function bindDockItem(button, item) {
@@ -54,34 +55,62 @@ export function createDesignWorkspace(api) {
     exitRemoval(); if (count) api.notify(`已从当前设计台移除 ${count} 个材质或图案`);
   };
   document.addEventListener('keydown', event => { if (removing && event.key === 'Escape') exitRemoval(); });
-  let pagingFrame = 0;
-  function updatePaging() {
-    pagingFrame = 0;
-    const list = activeList(), max = list.scrollWidth - list.clientWidth;
-    previous.hidden = max <= 1 || list.scrollLeft <= 1;
-    nextPage.hidden = max <= 1 || list.scrollLeft >= max - 1;
+  function syncScrollbar() {
+    const list = activeList(), scrollbar = activeScrollbar(), thumb = scrollbarThumb(scrollbar);
+    if (!list || !scrollbar || !thumb) return;
+    const trackWidth = scrollbar.clientWidth, maxScroll = Math.max(0, list.scrollWidth - list.clientWidth);
+    const thumbWidth = maxScroll <= 1 || list.scrollWidth <= 0 ? trackWidth : Math.min(trackWidth, Math.max(48, Math.round(trackWidth * list.clientWidth / list.scrollWidth)));
+    const travel = Math.max(0, trackWidth - thumbWidth);
+    thumb.style.width = `${thumbWidth}px`;
+    thumb.style.transform = `translateX(${maxScroll <= 1 ? 0 : Math.round(travel * list.scrollLeft / maxScroll)}px)`;
   }
-  function schedulePaging() { if (!pagingFrame) pagingFrame = requestAnimationFrame(updatePaging); }
   function syncDock() {
     const list = activeList();
     if (list.lastElementChild !== addButton) list.append(addButton);
-    list.parentElement.append(previous, nextPage);
     addButton.dataset.type = type;
     const label = type === 'fabric' ? '面料' : '图案';
     addButton.setAttribute('aria-label', '从资产库新增' + label); addButton.title = '新增' + label;
-    previous.setAttribute('aria-label', '上一页' + label); nextPage.setAttribute('aria-label', '下一页' + label);
-    previous.setAttribute('aria-controls', list.id); nextPage.setAttribute('aria-controls', list.id);
     syncRemoval();
+    syncScrollbar();
   }
-  function page(direction) {
-    const list = activeList(), first = list.firstElementChild, second = first?.nextElementSibling;
-    const stride = second ? second.offsetLeft - first.offsetLeft : first?.offsetWidth || 100;
-    const amount = Math.max(1, Math.floor(list.clientWidth / stride)) * stride;
-    list.scrollBy({ left: direction * amount, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+  const resizeDock = new ResizeObserver(syncScrollbar);
+  for (const list of [$('materialList'), $('patternDock')]) {
+    resizeDock.observe(list);
+    list.addEventListener('scroll', syncScrollbar, { passive: true });
+    list.addEventListener('wheel', event => {
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      const maxScroll = Math.max(0, list.scrollWidth - list.clientWidth);
+      if (maxScroll <= 0) return;
+      list.scrollLeft += event.deltaY;
+      event.preventDefault();
+    }, { passive: false });
   }
-  previous.onclick = () => page(-1); nextPage.onclick = () => page(1);
-  const resizeDock = new ResizeObserver(schedulePaging);
-  for (const list of [$('materialList'), $('patternDock')]) { resizeDock.observe(list); list.addEventListener('scroll', schedulePaging, { passive: true }); }
+  let draggingScrollbar = null;
+  function scrollFromScrollbar(clientX) {
+    const list = activeList(), scrollbar = activeScrollbar(), thumb = scrollbarThumb(scrollbar);
+    if (!list || !scrollbar || !thumb) return;
+    const maxScroll = Math.max(0, list.scrollWidth - list.clientWidth), track = scrollbar.getBoundingClientRect();
+    const travel = Math.max(1, track.width - thumb.offsetWidth);
+    const offset = Math.max(0, Math.min(travel, clientX - track.left - thumb.offsetWidth / 2));
+    list.scrollLeft = maxScroll * offset / travel;
+  }
+  for (const scrollbar of [$('fabricScrollbar'), $('patternScrollbar')]) {
+    scrollbar.addEventListener('pointerdown', event => {
+      const thumb = scrollbarThumb(scrollbar);
+      if (event.target === thumb) {
+        draggingScrollbar = { pointerId: event.pointerId, startX: event.clientX, startScroll: activeList().scrollLeft };
+        thumb.setPointerCapture?.(event.pointerId);
+      } else scrollFromScrollbar(event.clientX);
+    });
+    scrollbar.addEventListener('pointermove', event => {
+      if (!draggingScrollbar || draggingScrollbar.pointerId !== event.pointerId) return;
+      const list = activeList(), track = scrollbar.getBoundingClientRect(), thumb = scrollbarThumb(scrollbar);
+      const travel = Math.max(1, track.width - thumb.offsetWidth), maxScroll = Math.max(0, list.scrollWidth - list.clientWidth);
+      list.scrollLeft = draggingScrollbar.startScroll + (event.clientX - draggingScrollbar.startX) * maxScroll / travel;
+    });
+    scrollbar.addEventListener('pointerup', () => { draggingScrollbar = null; });
+    scrollbar.addEventListener('pointercancel', () => { draggingScrollbar = null; });
+  }
   const panel = $('compactMaterialPanel');
   panel.innerHTML = `<div class="compact-preview"><div id="compactSwatch"></div><strong id="compactName"></strong></div>
     <label class="color-row">基础颜色<input id="compactColor" type="color" aria-label="基础颜色"></label>
@@ -157,7 +186,7 @@ export function createDesignWorkspace(api) {
   dialog.addEventListener('click', event => { if (event.target === dialog) { const r = dialog.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) dialog.close(); } });
   $('pickerSearch').oninput = renderPicker; $('pickerRefresh').onclick = refresh;
   window.addEventListener('focus', () => { if (dialog.open) refresh(); });
-  new MutationObserver(() => { $('dockUndo').disabled = $('undoMaterial').disabled; }).observe($('undoMaterial'), { attributes: true, attributeFilter: ['disabled'] });
+  new MutationObserver(() => { const disabled = $('undoMaterial').disabled; $('dockUndo').disabled = disabled; $('headerUndo').disabled = disabled; }).observe($('undoMaterial'), { attributes: true, attributeFilter: ['disabled'] });
   setType('fabric');
   return { select, sync, setType, syncDock, bindDockItem, exitRemoval, get removing() { return removing; } };
 }

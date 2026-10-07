@@ -49,11 +49,16 @@ export function preparePhysicalUV(object) {
     if(!mesh.isMesh)return;
     report.meshes++;
     const original=mesh.geometry;
-    if(!original?.attributes.uv){mesh.userData.physicalUV={valid:false};report.missing++;return;}
+    const sourceUV=original?.attributes.uv||original?.attributes.uv1;
+    if(!sourceUV){mesh.userData.physicalUV={valid:false};report.missing++;return;}
     // Split indexed corners so two material slots with different UV densities
     // cannot overwrite each other's calibrated coordinates. Original UVs survive.
     const geometry=original.index?original.toNonIndexed():original.clone();
-    const uv=geometry.attributes.uv,coords=new Float32Array(uv.count*2);
+    // GLTFLoader maps TEXCOORD_1 to uv1. Use it as the physical source when
+    // TEXCOORD_0 is absent, while keeping the generated coordinates in uv2.
+    const uv=geometry.attributes.uv||geometry.attributes.uv1;
+    if(!geometry.attributes.uv)geometry.setAttribute('uv',uv);
+    const coords=new Float32Array(uv.count*2);
     const ranges=Array.isArray(mesh.material)&&geometry.groups.length?geometry.groups:[{start:0,count:uv.count,materialIndex:0}];
     const slots={};
     // Keep each original drawing range's density, including packed UV charts.

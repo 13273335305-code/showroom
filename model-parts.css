@@ -1,2 +1,140 @@
 .parts-layout{height:calc(100vh - 64px);display:grid;grid-template-columns:minmax(0,1fr) 360px;background:#edf1f4}.parts-viewport{position:relative;min-width:0;background:radial-gradient(circle at 50% 43%,#fff 0,#f4f7f9 48%,#dfe7ee 100%)}#partsCanvas{width:100%;height:100%;display:block}.parts-help{position:absolute;left:24px;bottom:20px;padding:9px 12px;border:1px solid #fff;background:#ffffffd9;border-radius:8px;color:#738398;font-size:11px}.parts-loading{position:absolute;inset:0;display:grid;place-items:center;color:#6f8092;background:#edf1f4cc;font-size:14px}.parts-panel{background:#fff;border-left:1px solid #dce3eb;padding:25px 22px;overflow:auto}.parts-panel-heading h1{margin:8px 0 4px;font:500 27px Georgia,serif}.parts-panel-heading p{margin:0 0 20px;color:#8493a3;font-size:11px}.parts-empty{padding:18px 0;color:#9aa8b7;font-size:12px}.part-name{padding:13px 14px;border-radius:9px;background:#f2f6fb;border:1px solid #e2eaf3;font-weight:700;font-size:14px}.parts-note{font-size:11px;line-height:1.7;color:#8998a8}.part-check{display:flex;align-items:center;gap:9px;padding:12px;border-bottom:1px solid #edf1f5;color:#40536a;font-size:12px}.part-check input{accent-color:#2f71ee}.parts-list{margin-top:24px;border-top:1px solid #e6edf4}.parts-list button{display:flex;width:100%;padding:10px 8px;border:0;border-bottom:1px solid #edf1f5;background:#fff;text-align:left;color:#687b90;font-size:11px}.parts-list button:hover,.parts-list button.active{background:#edf4ff;color:#2366cd}.parts-list button small{margin-left:auto;color:#a0adba}@media(max-width:760px){.parts-layout{grid-template-columns:1fr;height:auto;min-height:calc(100vh - 64px)}.parts-viewport{height:55vh;min-height:330px}.parts-panel{border-left:0;border-top:1px solid #dce3eb}.parts-help{left:12px;bottom:12px}.topbar{padding:0 14px}.brand strong{letter-spacing:.05em}}
 .part-swatch{width:18px;height:18px;flex:0 0 18px;border-radius:50%;background:radial-gradient(circle at 30% 25%,#fff,transparent 45%),var(--swatch,#fff);box-shadow:inset -3px -3px 6px #263c5233,0 1px 3px #263c5222}
+
+/* The floating header contributes 78px of page offset on desktop. Keep the
+   configuration canvas within the remaining viewport so the document itself
+   does not gain an unnecessary scrollbar. */
+.parts-layout{height:calc(100dvh - 78px)}
+@media(max-width:760px){.parts-layout{min-height:calc(100dvh - 118px)}}
+.parts-page,.parts-panel{scrollbar-width:none}
+.parts-page::-webkit-scrollbar,.parts-panel::-webkit-scrollbar{display:none}
+
+/* Present the materials inspector as a separate rounded panel. */
+.parts-layout{padding:12px 12px 14px 0;column-gap:18px}
+.parts-panel{border:1px solid #dce3eb;border-radius:16px;box-shadow:0 10px 28px #23394d12}
+@media(max-width:760px){
+  .parts-layout{padding:0;column-gap:0}
+  .parts-panel{border-radius:0 0 16px 16px;border-left:0;border-top:1px solid #dce3eb}
+}
+
+/* Let the model occupy the complete viewport; chrome and inspector float above it. */
+.parts-page{padding-top:0;overflow:hidden}
+.parts-layout{position:fixed;inset:0;z-index:1;display:block;width:100%;height:100dvh;padding:0;background:#edf1f4}
+.parts-viewport{position:absolute;inset:0;width:100%;height:100%}
+.parts-panel{position:absolute;top:88px;right:14px;bottom:14px;z-index:2;width:360px;margin:0}
+
+@media(max-width:760px){
+  .parts-page .topbar{position:fixed;top:8px;left:8px;right:8px;z-index:30;height:94px}
+  .parts-layout{min-height:0}
+  .parts-panel{top:120px;right:10px;bottom:10px;left:10px;width:auto;border-radius:16px;border:1px solid #dce3eb}
+}
+
+.parts-panel-heading{margin-bottom:4px}
+.parts-section{padding:16px 0;border-top:1px solid #e6edf4}
+.parts-section h2{margin:0 0 12px;color:#354c66;font-size:14px;line-height:20px;font-weight:700}
+.parts-field{display:block;margin:0 0 10px;color:#70839a;font-size:11px;line-height:18px}
+.parts-field:last-child{margin-bottom:0}
+.parts-field input{display:block;width:100%;height:34px;margin-top:5px;padding:6px 10px;border:1px solid #d6e0eb;border-radius:7px;background:#f9fbfd;color:#2d425b;font:12px/20px 'Microsoft YaHei','Segoe UI',sans-serif;outline:none}
+.parts-field input:focus{border-color:#6b9eea;box-shadow:0 0 0 2px #6b9eea22;background:#fff}
+.parts-section-heading{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.parts-section-heading p{margin:0;color:#8b9aad;font-size:10px}
+.model-info-list{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0}
+.model-info-list div{min-width:0;padding:9px 10px;border-radius:8px;background:#f4f7fb}
+.model-info-list dt{color:#8494a6;font-size:10px;line-height:16px}
+.model-info-list dd{margin:2px 0 0;color:#3b5068;font-size:12px;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.parts-material-section{padding-bottom:0}
+.parts-material-section .parts-list{margin-top:12px}
+.parts-panel-heading{display:none}
+.parts-editable-section{display:grid;grid-template-columns:6fr 4fr;gap:12px;padding-top:0;border-top:0}
+.parts-editable-section .parts-field{margin:0}
+.parts-identity-field{display:flex;align-items:center;min-width:0;margin:0;padding:3px 0;border-bottom:1px solid #dfe7f0;color:#2f71ee}
+.parts-identity-field input{width:100%;min-width:0;padding:0;border:0;background:transparent;color:inherit;font:700 25px/34px 'Microsoft YaHei','Segoe UI',sans-serif;outline:none}
+.parts-identity-field input::placeholder{color:#2f71ee;opacity:.75}
+.parts-identity-field input:focus{box-shadow:none}
+.identity-edit{flex:0 0 22px;width:22px;height:28px;padding:0;border:0;background:transparent;color:#172330;font-size:19px;line-height:28px;cursor:pointer}
+.identity-edit:hover{color:#2f71ee}
+.parts-classification-title{margin-top:18px!important;margin-bottom:10px!important;padding-top:15px;border-top:1px solid #e6edf4}
+.parts-material-section .parts-list{margin-top:16px}
+.parts-list-item{display:flex;align-items:center;min-width:0;border-bottom:1px solid #edf1f5}
+.parts-list-item .material-row-button{flex:1;min-width:0;width:auto;border-bottom:0}
+.parts-list-item .material-row-button:hover,.parts-list-item.active .material-row-button{background:#edf4ff;color:#2366cd}
+.part-category-select{flex:0 0 88px;width:88px;height:28px;margin-right:8px;padding:0 20px 0 7px;border:1px solid #d6e0eb;border-radius:6px;background:#fff;color:#60758d;font:11px/20px 'Microsoft YaHei','Segoe UI',sans-serif;cursor:pointer}
+.part-category-select:focus{border-color:#6b9eea;outline:2px solid #6b9eea22}
+.parts-list-item .material-row-button{gap:12px;font-size:13px}
+.parts-list-item .part-swatch{width:21px;height:21px;flex-basis:21px}
+.parts-identity-field{gap:7px;align-items:flex-end;border-bottom-color:#dfe5ed}
+.identity-label{flex:0 0 30px;color:#8b9aae;font-size:12px;line-height:16px;font-weight:500}
+.parts-page .identity-edit{display:grid;place-items:center;flex:0 0 22px;width:22px;height:28px;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;color:#172330;font-size:18px;line-height:1;cursor:pointer}
+.parts-page .identity-edit:hover{border:0;background:transparent;color:#2f71ee;box-shadow:none}
+.parts-panel{top:74px;bottom:10px}
+@media(max-width:760px){.parts-panel{top:108px;bottom:10px}}
+.parts-section-heading h2{margin-bottom:0}
+.random-color-toggle{display:inline-flex;align-items:center;gap:7px;color:#71849b;font-size:11px;line-height:20px;cursor:pointer}
+.random-color-toggle input{appearance:none;width:32px;height:18px;margin:0;border:1px solid #c9d6e5;border-radius:999px;background:#dce5ef;position:relative;cursor:pointer;transition:background-color .16s,border-color .16s}
+.random-color-toggle input::after{content:'';position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#fff;box-shadow:0 1px 3px #263c5233;transition:transform .16s}
+.random-color-toggle input:checked{border-color:#3978ed;background:#3978ed}
+.random-color-toggle input:checked::after{transform:translateX(14px)}
+.parts-identity-field input{font-size:21px}
+
+/* 4:3 red framing guide for the model viewport. The inspector floats over the
+   canvas, so reserve its desktop width and center the guide in the visible area. */
+.parts-viewfinder{
+  position:absolute;
+  z-index:3;
+  top:74px;
+  right:374px;
+  bottom:10px;
+  left:0;
+  display:flex;
+  justify-content:center;
+  pointer-events:none;
+}
+.parts-viewfinder::before{
+  content:'';
+  display:block;
+  height:100%;
+  aspect-ratio:4 / 3;
+  box-sizing:border-box;
+  border:3px solid #e53935;
+}
+.parts-viewfinder::after{
+  content:'';
+  position:absolute;
+  top:3px;
+  left:50%;
+  width:auto;
+  height:calc(100% - 6px);
+  aspect-ratio:4 / 3;
+  transform:translateX(-50%);
+  pointer-events:none;
+  opacity:.85;
+  background:
+    repeating-linear-gradient(to bottom,#e53935 0 8px,transparent 8px 14px) 33.3333% 0 / 1px 100% no-repeat,
+    repeating-linear-gradient(to bottom,#e53935 0 8px,transparent 8px 14px) 66.6667% 0 / 1px 100% no-repeat,
+    repeating-linear-gradient(to right,#e53935 0 8px,transparent 8px 14px) 0 33.3333% / 100% 1px no-repeat,
+    repeating-linear-gradient(to right,#e53935 0 8px,transparent 8px 14px) 0 66.6667% / 100% 1px no-repeat;
+}
+@media(max-width:760px){
+  .parts-viewfinder{
+    top:112px;
+    right:0;
+    bottom:10px;
+  }
+}
+@media(min-width:761px) and (max-width:1100px){
+  .parts-viewfinder{top:114px}
+}
+
+/* The parts page uses the same hidden admin entry as the design workspace. */
+.parts-page .developer-panel{
+  top:74px;
+  bottom:14px;
+  left:14px;
+  width:320px;
+}
+.parts-camera-values{display:grid;gap:8px;margin:12px 0 0}
+.parts-camera-values div{padding:8px 9px;border:1px solid #dce5f0;border-radius:8px;background:#ffffff9c}
+.parts-camera-values dt{color:#8292a7;font-size:10px}
+.parts-camera-values dd{margin:3px 0 0;color:#3f536d;font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;word-break:break-word}
+@media(max-width:1100px){.parts-page .developer-panel{top:114px}}
+@media(max-width:760px){.parts-page .developer-panel{top:112px;bottom:176px;left:8px;width:calc(100vw - 16px)}}

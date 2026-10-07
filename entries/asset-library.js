@@ -20,6 +20,9 @@ const previewOf = asset => asset.preview || asset.thumbnail || (asset.kind === '
 function imageUrl(blob) { return URL.createObjectURL(blob); }
 function folderChildren(folderId) { return assets.filter(asset => (asset.parentId || null) === folderId && libraryType(asset) === activeLibrary); }
 function folderById(id) { return assets.find(asset => asset.id === id && asset.kind === 'folder'); }
+function folderPreviewChildren(folder) {
+  return folderChildren(folder.id).filter(child => child.kind !== 'folder').slice(0, 3);
+}
 function updateBreadcrumb() {
   const host = $('libraryBreadcrumb'); host.replaceChildren();
   const back = $('libraryBack'), atRoot = activeFolderId === null;
@@ -109,6 +112,13 @@ async function toggleFavorite(asset) {
 function link(label, href) {
   const element = document.createElement('a'); element.className = 'button primary'; element.textContent = label; element.href = href; return element;
 }
+function menuLink(label, href, title = '') {
+  const element = document.createElement('a');
+  element.className = 'asset-menu-link'; element.textContent = label; element.href = href;
+  if (title) { element.title = title; element.setAttribute('aria-label', title); }
+  element.onclick = () => closeMenu();
+  return element;
+}
 function closeMenu(restoreFocus = false) {
   if (!openMenu) return;
   openMenu.panel.hidden = true; openMenu.trigger.setAttribute('aria-expanded', 'false');
@@ -148,9 +158,12 @@ function createMenu(asset, card) {
   const panel = document.createElement('div'); panel.className = 'asset-menu'; panel.hidden = true; panel.setAttribute('role', 'menu');
   panel.id = 'menu-' + asset.id; trigger.setAttribute('aria-controls', panel.id);
   const isMaterial = asset.kind === 'material';
-  const actions = [action('编辑', () => editAsset(asset, isMaterial ? 'material' : 'name')), action('移动', () => openMoveDialog(asset))];
+  const isModel = asset.kind === 'model';
+  const actions = isModel
+    ? [menuLink('配置', './model-parts.html?asset=' + encodeURIComponent(asset.id)), action('移动', () => openMoveDialog(asset))]
+    : [action('编辑', () => editAsset(asset, isMaterial ? 'material' : 'name')), action('移动', () => openMoveDialog(asset))];
   if (isMaterial) actions.push(action(asset.favorite ? '取消收藏' : '收藏', () => toggleFavorite(asset)));
-  else if (asset.kind !== 'folder') actions.push(action('导出', async () => {
+  else if (!isModel && asset.kind !== 'folder') actions.push(action('导出', async () => {
     if (asset.kind === 'material') downloadFile(await packMaterial(asset), asset.name + '.formmat');
     else { downloadFile(asset.file, asset.file.name); for (const file of asset.resources || []) downloadFile(file, file.name); }
   }));
@@ -195,45 +208,71 @@ function previewNumber(value, digits = 2) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(digits).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1') : '';
 }
 function fabricPreviewSource(asset) {
-  return asset.maps?.map || asset.preview || asset.thumbnail || null;
+  // The preview is always calculated from the material's base-color texture.
+  // Package previews and thumbnails are presentation-only images.
+  return asset.maps?.map || null;
 }
 const FABRIC_TEXTURE_SURFACE = { width: 3600, height: 2700 };
+const FABRIC_BOARD_CM = {
+  面布: { width: 200, height: 150 },
+  边布: { width: 36, height: 27 },
+  包边条: { width: 8, height: 6 },
+};
 function fabricTextureRange(asset) {
   const category = asset.category || '其他';
-  if (category === '面布') return { category, defaultWidth: 120, minWidth: 40, maxWidth: 200, step: 4, zoomable: true };
-  if (category === '边布') return { category, defaultWidth: 22, minWidth: 8, maxWidth: 36, step: 1, zoomable: true };
-  return { category, defaultWidth: 8, minWidth: 8, maxWidth: 8, step: 1, zoomable: false };
+  if (category === '面布') return { category, board: FABRIC_BOARD_CM.面布, defaultWidth: 120, minWidth: 40, maxWidth: 200, step: 4, zoomable: true };
+  if (category === '边布') return { category, board: FABRIC_BOARD_CM.边布, defaultWidth: 22, minWidth: 8, maxWidth: 36, step: 1, zoomable: true };
+  return { category, board: FABRIC_BOARD_CM.包边条, defaultWidth: 8, minWidth: 8, maxWidth: 8, step: 1, zoomable: false };
 }
 function clampFabricTextureWidth(state, value) {
   return Math.max(state.range.minWidth, Math.min(state.range.maxWidth, value));
 }
-function drawTiledTexture(baseCanvas, bitmap) {
-  const width = FABRIC_TEXTURE_SURFACE.width, height = FABRIC_TEXTURE_SURFACE.height;
-  const context = baseCanvas.getContext('2d', { alpha: false });
-  context.imageSmoothingEnabled = true;
-  context.fillStyle = '#fff'; context.fillRect(0, 0, width, height);
-  if (bitmap.width >= width && bitmap.height >= height) {
-    const scale = Math.max(width / bitmap.width, height / bitmap.height);
-    const drawWidth = bitmap.width * scale, drawHeight = bitmap.height * scale;
-    context.drawImage(bitmap, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
-    return;
-  }
-  for (let y = -bitmap.height; y < height + bitmap.height; y += bitmap.height) {
-    for (let x = -bitmap.width; x < width + bitmap.width; x += bitmap.width) context.drawImage(bitmap, x, y);
-  }
+function fabricTexturePhysicalSize(asset, bitmap) {
+  const physical = asset.physical || {};
+  let widthCm = Number(physical.widthCm), heightCm = Number(physical.heightCm);
+  if (!Number.isFinite(widthCm) || widthCm <= 0) widthCm = 10;
+  if (!Number.isFinite(heightCm) || heightCm <= 0) heightCm = widthCm * bitmap.height / Math.max(1, bitmap.width);
+  return { widthCm, heightCm };
 }
 function renderFabricTexture(state) {
-  if (!state?.canvas || !state.baseCanvas) return;
-  const width = FABRIC_TEXTURE_SURFACE.width, height = FABRIC_TEXTURE_SURFACE.height;
+  if (!state?.canvas || !state.bitmap) return;
+  const visibleHeightCm = state.widthCm * state.range.board.height / state.range.board.width;
+  const visibleWidthPx = Math.min(FABRIC_TEXTURE_SURFACE.width, Math.max(1, Math.round(FABRIC_TEXTURE_SURFACE.width * state.widthCm / state.range.board.width)));
+  const visibleHeightPx = Math.min(FABRIC_TEXTURE_SURFACE.height, Math.max(1, Math.round(FABRIC_TEXTURE_SURFACE.height * visibleHeightCm / state.range.board.height)));
+  // The backing canvas is the exported image. Resize it to the current
+  // physical window instead of keeping the maximum board size for every zoom.
+  state.canvas.width = visibleWidthPx;
+  state.canvas.height = visibleHeightPx;
+  const width = visibleWidthPx, height = visibleHeightPx;
   const context = state.canvas.getContext('2d', { alpha: false });
-  const scale = state.widthCm / state.range.defaultWidth;
-  const tileWidth = width * scale, tileHeight = height * scale;
-  context.clearRect(0, 0, width, height); context.fillStyle = '#fff'; context.fillRect(0, 0, width, height);
+  // Keep the board's physical pixel density stable as the viewport changes.
+  // A low-resolution source may be reduced, but is never enlarged merely to
+  // fill the 3600 × 2700 board limit.
+  const pixelsPerCm = FABRIC_TEXTURE_SURFACE.width / state.range.board.width;
+  const desiredTileWidth = state.physical.widthCm * pixelsPerCm;
+  const desiredTileHeight = state.physical.heightCm * pixelsPerCm;
+  const tileScale = Math.min(1, desiredTileWidth / Math.max(1, state.bitmap.width), desiredTileHeight / Math.max(1, state.bitmap.height));
+  const tileWidth = Math.max(1, state.bitmap.width * tileScale);
+  const tileHeight = Math.max(1, state.bitmap.height * tileScale);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
+  context.fillStyle = '#fff'; context.fillRect(0, 0, width, height);
   let startX = width / 2 - tileWidth / 2, startY = height / 2 - tileHeight / 2;
-  while (startX > 0) startX -= tileWidth;
-  while (startY > 0) startY -= tileHeight;
+  startX -= Math.ceil(startX / tileWidth) * tileWidth;
+  startY -= Math.ceil(startY / tileHeight) * tileHeight;
   for (let y = startY; y < height; y += tileHeight) {
-    for (let x = startX; x < width; x += tileWidth) context.drawImage(state.baseCanvas, x, y, tileWidth, tileHeight);
+    for (let x = startX; x < width; x += tileWidth) context.drawImage(state.bitmap, x, y, tileWidth, tileHeight);
+  }
+  state.canvas.dataset.widthCm = String(state.widthCm);
+  state.canvas.dataset.heightCm = String(visibleHeightCm);
+  state.canvas.dataset.widthPx = String(visibleWidthPx);
+  state.canvas.dataset.heightPx = String(visibleHeightPx);
+  state.canvas.style.cursor = state.range.zoomable ? 'zoom-in' : 'default';
+  state.canvas.setAttribute('aria-label', `面料纹理画板 ${previewNumber(state.widthCm)} × ${previewNumber(visibleHeightCm)} cm`);
+  const zoom = $('fabricPreviewZoom');
+  if (zoom) {
+    zoom.hidden = false;
+    zoom.textContent = `${previewNumber(state.widthCm)} × ${previewNumber(visibleHeightCm)} cm`;
   }
 }
 async function loadFabricTexture(asset, source) {
@@ -242,12 +281,9 @@ async function loadFabricTexture(asset, source) {
   try {
     const bitmap = await createImageBitmap(source);
     if (token !== fabricTextureRenderToken) { bitmap.close(); return; }
-    const baseCanvas = document.createElement('canvas');
-    baseCanvas.width = FABRIC_TEXTURE_SURFACE.width; baseCanvas.height = FABRIC_TEXTURE_SURFACE.height;
-    drawTiledTexture(baseCanvas, bitmap);
-    bitmap.close();
     const range = fabricTextureRange(asset);
-    const state = { assetId: asset.id, canvas, baseCanvas, range, widthCm: range.defaultWidth };
+    const physical = fabricTexturePhysicalSize(asset, bitmap);
+    const state = { assetId: asset.id, canvas, bitmap, physical, range, widthCm: range.defaultWidth };
     fabricTextureState = state;
     renderFabricTexture(state);
     canvas.hidden = false; fallback.hidden = true;
@@ -289,9 +325,11 @@ function showFabricPreview(asset) {
   if (fabricPreviewClosingTimer) { clearTimeout(fabricPreviewClosingTimer); fabricPreviewClosingTimer = null; }
   dialog.classList.remove('is-closing');
   fabricTextureRenderToken++;
+  if (fabricTextureState?.bitmap) fabricTextureState.bitmap.close();
   fabricTextureState = null;
   const source = fabricPreviewSource(asset);
   const canvas = $('fabricPreviewTexture'), fallback = $('fabricPreviewTextureFallback');
+  $('fabricPreviewZoom').hidden = true;
   canvas.hidden = !source; fallback.hidden = !!source;
   if (source) loadFabricTexture(asset, source);
   $('fabricPreviewTitle').textContent = asset.name || '面料详情';
@@ -322,8 +360,10 @@ $('fabricPreviewDialog').addEventListener('close', () => {
   if (fabricPreviewClosingTimer) { clearTimeout(fabricPreviewClosingTimer); fabricPreviewClosingTimer = null; }
   $('fabricPreviewDialog').classList.remove('is-closing');
   fabricTextureRenderToken++;
+  if (fabricTextureState?.bitmap) fabricTextureState.bitmap.close();
   fabricTextureState = null;
   const canvas = $('fabricPreviewTexture');
+  $('fabricPreviewZoom').hidden = true;
   canvas.hidden = true;
   canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
 });
@@ -332,7 +372,7 @@ $('fabricPreviewTexture').addEventListener('wheel', event => {
   const state = fabricTextureState;
   if (!state?.range.zoomable || state.assetId === undefined) return;
   event.preventDefault();
-  const direction = event.deltaY < 0 ? 1 : -1;
+  const direction = event.deltaY < 0 ? -1 : 1;
   const next = clampFabricTextureWidth(state, state.widthCm + direction * state.range.step);
   if (next === state.widthCm) return;
   state.widthCm = next;
@@ -446,6 +486,8 @@ function render() {
   let shown = filterVisibleAssets(collection);
   const sortMode = $('assetSort')?.value || 'recent';
   shown.sort((a, b) => {
+    const folderOrder = Number(b.kind === 'folder') - Number(a.kind === 'folder');
+    if (folderOrder) return folderOrder;
     if (sortMode === 'nameAsc') return a.name.localeCompare(b.name, 'zh-CN');
     if (sortMode === 'nameDesc') return b.name.localeCompare(a.name, 'zh-CN');
     if (sortMode === 'oldest') return a.updatedAt - b.updatedAt;
@@ -454,11 +496,11 @@ function render() {
   if (!shown.length) {
     const empty = document.createElement('div'); empty.className = 'asset-empty';
     const title = document.createElement('h2'); title.textContent = collection.length ? '没有匹配的资产' : libraryNames[activeLibrary] + '暂无资产';
-    const text = document.createElement('p'); text.textContent = collection.length ? '尝试更换关键词或筛选条件。' : activeLibrary === 'model' ? '导入 FBX 模型，开始下一次设计。' : '导入图片或材质包，也可以在材质编辑器中新建材质。';
+    const text = document.createElement('p'); text.textContent = collection.length ? '尝试更换关键词或筛选条件。' : activeLibrary === 'model' ? '导入 FBX 或 GLB 模型，开始下一次设计。' : '导入图片或材质包，也可以在材质编辑器中新建材质。';
     empty.append(title, text); host.append(empty);
   }
   for (const asset of shown) {
-    const signature = [asset.updatedAt, asset.kind, asset.thumbnail?.size, asset.name, asset.description, asset.designInfo, asset.supplier, asset.category, asset.favorite, asset.children?.join(',')].join('|');
+    const signature = [asset.updatedAt, asset.kind, asset.preview?.size, asset.thumbnail?.size, asset.name, asset.description, asset.designInfo, asset.supplier, asset.category, asset.favorite, asset.children?.join(',')].join('|');
     const cached = asset.kind === 'folder' ? null : renderedCards.get(asset.id);
     if (cached?.signature === signature) {
       syncCardSelection(cached.card, cached.selectControl, selectedAssetIds.has(asset.id));
@@ -504,16 +546,45 @@ function render() {
       const surface = isCardSurface(event);
       if (event.detail === 0 && surface) releaseCard({ pointerId: null });
       if (asset.kind === 'folder' && surface) openFolderCard();
+      if (asset.kind === 'model' && surface) location.href = './design.html?asset=' + encodeURIComponent(asset.id);
       if (asset.kind === 'material' && activeLibrary === 'fabric' && surface) showFabricPreview(asset);
     });
     const art = document.createElement('div'); art.className = 'asset-art';
     const urls = [];
     if (asset.kind === 'folder') {
       art.classList.add('folder-art');
+      const folderPreviews = folderPreviewChildren(asset);
+      art.classList.add(`folder-preview-count-${folderPreviews.length}`);
+      for (const [index, child] of folderPreviews.entries()) {
+        const preview = previewOf(child);
+        const offsetX = `${index * -10}px`, offsetY = `${index * 10}px`;
+        const stackStyle = element => {
+          element.style.setProperty('--folder-preview-x', offsetX);
+          element.style.setProperty('--folder-preview-y', offsetY);
+          element.style.setProperty('--folder-preview-z', String(3 - index));
+        };
+        if (preview) {
+          const img = document.createElement('img');
+          img.className = 'folder-preview-card';
+          img.src = imageUrl(preview);
+          img.alt = '';
+          img.setAttribute('aria-hidden', 'true');
+          stackStyle(img);
+          urls.push(img.src);
+          art.append(img);
+        } else {
+          const swatch = document.createElement('div');
+          swatch.className = 'folder-preview-card folder-preview-swatch';
+          swatch.setAttribute('aria-hidden', 'true');
+          stackStyle(swatch);
+          if (/^#[\da-f]{6}$/i.test(child.surface?.color)) swatch.style.setProperty('--folder-preview-color', child.surface.color);
+          art.append(swatch);
+        }
+      }
       const cover = document.createElement('div'); cover.className = 'folder-cover'; cover.setAttribute('aria-hidden', 'true');
       art.append(cover);
     } else {
-      const preview = asset.thumbnail || previewOf(asset);
+      const preview = asset.kind === 'model' ? previewOf(asset) : asset.thumbnail || previewOf(asset);
       if (preview) { const img = document.createElement('img'); const url = imageUrl(preview); urls.push(url); img.src = url; img.alt = asset.name + ' 预览图'; art.append(img); }
       else if (asset.kind === 'model') { art.textContent = '正在生成预览图…'; renderModelPreview(asset, art); }
       else { const shape = document.createElement('div'); shape.className = 'sphere'; if (/^#[\da-f]{6}$/i.test(asset.surface?.color)) shape.style.setProperty('--swatch', asset.surface.color); art.append(shape); }
@@ -523,16 +594,11 @@ function render() {
     const title = document.createElement('h2'); title.textContent = asset.name; title.title = asset.name;
     const description = document.createElement('p'); description.className = 'asset-description'; description.textContent = asset.description || '暂无简介'; description.title = asset.description || '';
     const actions = document.createElement('div'); actions.className = 'asset-actions';
-    if (asset.kind === 'model') {
-      const modelActions = document.createElement('div'); modelActions.className = 'model-design-actions';
-      modelActions.append(link('设计', './design.html?asset=' + encodeURIComponent(asset.id)));
-      const settings = document.createElement('a'); settings.className = 'model-settings'; settings.href = './model-parts.html?asset=' + encodeURIComponent(asset.id);
-      settings.title = '配置模型部件'; settings.setAttribute('aria-label', '配置模型部件'); settings.textContent = '⚙'; modelActions.append(settings); actions.append(modelActions);
-    } else actions.append(link('编辑材质', './material-editor.html?asset=' + encodeURIComponent(asset.id)));
+    if (asset.kind !== 'model') actions.append(link('编辑材质', './material-editor.html?asset=' + encodeURIComponent(asset.id)));
     info.append(title, description, actions);
-    const selectControl = createSelectionControl(asset, card);
-    syncCardSelection(card, selectControl, selectedAssetIds.has(asset.id));
-    card.append(art, info, selectControl, ...createMenu(asset, card));
+    const selectControl = asset.kind === 'folder' ? null : createSelectionControl(asset, card);
+    if (selectControl) syncCardSelection(card, selectControl, selectedAssetIds.has(asset.id));
+    card.append(art, info, ...(selectControl ? [selectControl] : []), ...createMenu(asset, card));
     renderedCards.set(asset.id, { signature, card, selectControl }); host.append(card);
   }
   requestAnimationFrame(() => syncAssetScrollbar());
@@ -559,12 +625,20 @@ async function refresh() {
   catch (error) { status(error.message); }
 }
 const tabs = [...document.querySelectorAll('[data-library]')];
-function selectLibrary(type) {
+function selectLibrary(type, { updateUrl = true } = {}) {
   if (type !== activeLibrary) activeFolderId = null;
   activeLibrary = type;
+  if (updateUrl) {
+    const url = new URL(location.href);
+    url.searchParams.set('library', type);
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+  }
   for (const tab of tabs) { const selected = tab.dataset.library === type; tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1; }
   $('assetPanel').setAttribute('aria-label', libraryNames[type]);
-  if ($('assetCategory')) $('assetCategory').disabled = type !== 'fabric';
+  if ($('assetCategory')) {
+    $('assetCategory').disabled = type !== 'fabric';
+    $('assetCategory').hidden = type === 'model';
+  }
   render();
 }
 for (const [index, tab] of tabs.entries()) {
@@ -609,7 +683,7 @@ $('moreOptions').onclick = () => {
 };
 $('selectAllAssets').onclick = () => {
   const collection = assets.filter(asset => libraryType(asset) === activeLibrary && (asset.parentId || null) === activeFolderId);
-  const shown = filterVisibleAssets(collection);
+  const shown = filterVisibleAssets(collection).filter(asset => asset.kind !== 'folder');
   shown.forEach(asset => selectedAssetIds.add(asset.id));
   closeMoreMenu(); render(); status(shown.length ? `已选择 ${shown.length} 项资产` : '当前没有可选择的资产');
 };
@@ -622,39 +696,55 @@ $('importAssets').onclick = () => {
   $('importAssets').setAttribute('aria-expanded', String(!menu.hidden));
 };
 $('importAssetsMenu').onclick = () => { closeAssetAddMenu(); $('assetFiles').click(); };
-$('createFolder').onclick = async () => {
+$('createFolder').onclick = () => {
   closeAssetAddMenu();
-  const name = prompt('请输入文件夹名称');
-  if (!name?.trim()) return;
+  $('newFolderName').value = '';
+  $('newFolderError').textContent = '';
+  $('newFolderDialog').showModal();
+  $('newFolderName').focus();
+};
+$('cancelNewFolder').onclick = () => $('newFolderDialog').close();
+$('newFolderDialog').addEventListener('close', () => {
+  $('newFolderError').textContent = '';
+});
+$('newFolderForm').onsubmit = async event => {
+  event.preventDefault();
+  const name = $('newFolderName').value.trim();
+  if (!name) { $('newFolderError').textContent = '请输入文件夹名称'; $('newFolderName').focus(); return; }
+  const submit = $('newFolderForm').querySelector('button[type=submit]');
+  submit.disabled = true; $('newFolderError').textContent = '';
   try {
     await saveAsset({ kind: 'folder', name, parentId: activeFolderId, library: activeLibrary, children: [] });
-    await refresh(); status('已创建文件夹');
-  } catch (error) { status(error.message); }
+    $('newFolderDialog').close(); await refresh(); status('已创建文件夹');
+  } catch (error) { $('newFolderError').textContent = error.message; }
+  finally { submit.disabled = false; }
 };
 $('assetFiles').onchange = async () => {
   const files = [...$('assetFiles').files]; $('assetFiles').value = '';
-  const images = files.filter(file => /\.(png|jpe?g|webp|bmp)$/i.test(file.name));
+  const resources = files.filter(file => /\.(png|jpe?g|webp|bmp|ktx2|bin)$/i.test(file.name));
   $('importAssets').disabled = true;
-  let count = 0, firstLibrary; const errors = [];
+  let count = 0, firstLibrary, importedModelId = null; const errors = [];
   for (const file of files) {
     try {
       let asset;
       if (/\.formmat$/i.test(file.name)) asset = await unpackMaterial(file);
-      else if (/\.fbx$/i.test(file.name)) {
-        if (file.size > 512 * 1024 * 1024) throw new Error('FBX 不能超过 512 MB');
-        if (images.some(image => image.size > 64 * 1024 * 1024)) throw new Error('配套贴图不能超过 64 MB');
-        asset = { kind: 'model', name: file.name, file, resources: images };
-      } else if (images.includes(file)) {
+      else if (/\.(fbx|glb)$/i.test(file.name)) {
+        if (file.size > 512 * 1024 * 1024) throw new Error('模型不能超过 512 MB');
+        if (resources.some(resource => resource.size > 64 * 1024 * 1024)) throw new Error('配套资源不能超过 64 MB');
+        asset = { kind: 'model', name: file.name, file, resources: resources.filter(resource => resource !== file) };
+      } else if (resources.includes(file) && /\.(png|jpe?g|webp|bmp)$/i.test(file.name)) {
         if (file.size > 64 * 1024 * 1024) throw new Error('贴图不能超过 64 MB');
         asset = { kind: 'texture', name: file.name, file };
-      } else throw new Error('不支持的文件类型');
+      } else if (resources.includes(file)) continue;
+      else throw new Error('不支持的文件类型');
       asset.parentId = activeFolderId;
-      await saveAsset(asset); firstLibrary ??= libraryType(asset); count++;
+      const saved = await saveAsset(asset); firstLibrary ??= libraryType(saved); if (saved.kind === 'model' && !importedModelId) importedModelId = saved.id; count++;
     } catch (error) { errors.push(file.name + '：' + error.message); }
   }
   if (firstLibrary) selectLibrary(firstLibrary);
   await refresh(); $('importAssets').disabled = false;
   status(`已导入 ${count} 项资产` + (errors.length ? '；' + errors.join('；') : ''));
+  if (importedModelId) location.href = './model-parts.html?asset=' + encodeURIComponent(importedModelId);
 };
 
 const libraryScroll = document.querySelector('.library-main');
@@ -712,4 +802,6 @@ window.addEventListener('resize', syncAssetScrollbar);
 new ResizeObserver(syncAssetScrollbar).observe(libraryScroll);
 syncAssetScrollbar();
 window.addEventListener('focus', () => { if (!$('assetDialog').open) refresh(); });
+const initialLibrary = new URLSearchParams(location.search).get('library');
+selectLibrary(Object.hasOwn(libraryNames, initialLibrary) ? initialLibrary : 'fabric', { updateUrl: !!initialLibrary });
 refresh();

@@ -15,7 +15,7 @@
 <header class="topbar">
  <a class="brand" href="./index.html" aria-label="Spenic 工作空间首页"><img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic"><span class="brand-divider"></span><strong class="brand-title">设计台</strong></a>
  <button id="developerToggle" class="developer-toggle" type="button" hidden aria-label="开发者模式" title="开发者模式" aria-controls="developerPanel" aria-expanded="false" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="6" r="3.5" fill="currentColor" stroke="none"/><path d="M11 12c-5-1-8 2-8 7h6"/><path d="m14 14-3 3 3 3m6-6 3 3-3 3m-2-7-2 8"/></svg></button>
- <nav class="app-navigation" aria-label="工作空间入口"><a href="./design.html" aria-current="page">设计台</a><a href="./material-editor.html">材质编辑器</a><a href="./asset-library.html">资产库</a></nav><div class="header-actions"><span class="local-badge"><i></i> 本地工作空间</span><button id="openProject" class="button ghost">打开项目</button><button id="saveProject" class="button ghost">保存项目</button><button id="snapshot" class="button primary">导出图片 <span>↗</span></button></div>
+ <nav class="app-navigation" aria-label="工作空间入口"><a href="./design.html" aria-current="page">设计台</a><a href="./material-editor.html">材质编辑器</a><a href="./asset-library.html">资产库</a></nav><div class="header-actions"><span class="local-badge"><i></i> 本地工作空间</span><button id="openProject" hidden type="button" aria-label="打开项目"></button><button id="headerUndo" class="header-icon-action" type="button" title="撤销换材" aria-label="撤销换材" disabled><span class="header-icon-art header-icon-undo" aria-hidden="true"></span></button><button id="saveProject" class="header-icon-action" type="button" title="保存文件" aria-label="保存文件"><span class="header-icon-art header-icon-save" aria-hidden="true"></span></button><button id="snapshot" class="header-icon-action primary" type="button" title="导出图片" aria-label="导出图片"><span class="header-icon-art header-icon-snapshot" aria-hidden="true"></span></button></div>
 </header>
 <aside id="developerPanel" class="developer-panel" hidden aria-labelledby="developerTitle">
  <header class="dev-header"><div><span class="dev-eyebrow">DEVELOPER</span><h2 id="developerTitle">开发者模式</h2></div><button id="developerClose" type="button" aria-label="关闭开发者模式">×</button></header>
@@ -40,14 +40,14 @@
  <canvas id="canvas" aria-label="左键旋转、滚轮缩放、中键或右键平移；拖入材质球替换部位材质，双击模型选择材质"></canvas>
  <div id="materialPreview" class="material-preview" aria-hidden="true"><div class="material-preview-image"></div><div class="material-preview-label"></div></div>
  <div class="viewer-heading"><div class="eyebrow">YOUR MATERIAL. YOUR VISION.</div><h1>让每一种质感，<br>看得见。</h1><p>在光与材质之间，找到理想的表达。</p></div>
- <div class="model-chip"><span class="cube-icon">◇</span><div><strong id="modelName">正在准备展厅…</strong><small id="modelStats">THREE.JS · PBR RENDERING</small></div><button id="importModel" title="导入 FBX 模型" aria-label="导入 FBX 模型">＋</button></div>
+ <div class="model-chip"><span class="cube-icon">◇</span><div><strong id="modelName">正在准备展厅…</strong><small id="modelStats">THREE.JS · PBR RENDERING</small></div><button id="importModel" title="导入 FBX 或 GLB 模型" aria-label="导入 FBX 或 GLB 模型">＋</button></div>
  <div class="viewport-actions">
   <button id="showroomMode" class="showroom-toggle" type="button" disabled aria-label="进入展厅模式" aria-pressed="false" title="展厅模式：自动旋转、全屏与日光流转">
    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20V5l9-3 9 3v15M3 20h18M7 20v-3h10v3M12 2v4"/><path class="showroom-display" d="m8 10 4-2 4 2v4l-4 2-4-2zm0 0 4 2 4-2m-4 2v4"/><path class="showroom-exit" d="M16 11H8m3-3-3 3 3 3"/></svg>
   </button>
   <div class="showroom-tools">
   <div class="viewport-toolbar" aria-label="视图控制">
-   <button id="fitView" title="适应模型 (F)" aria-label="适应模型"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6.5"/><path d="M12 2v5m0 10v5M2 12h5m10 0h5"/></svg></button>
+   <button id="fitView" title="标尺模式" aria-label="标尺模式" aria-pressed="false"><span class="ruler-icon" aria-hidden="true"></span></button>
    <button id="autoRotate" title="自动旋转" aria-label="自动旋转" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M8 4.5A8.5 8.5 0 0 1 20.5 12V15m-3-3 3 3 2-3M16 19.5A8.5 8.5 0 0 1 3.5 12V9m-2 3 2-3 3 3"/></svg></button>
    <button id="fullscreen" title="全屏展厅" aria-label="全屏展厅"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5"/></svg></button>
    <button id="annotationMode" title="标记模式：点击模型添加标记，Esc 退出" aria-label="标记模式" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4m0 0c5-4 9 4 15 0v12c-6 4-10-4-15 0"/></svg></button>
@@ -75,8 +75,9 @@
  </button>
  <div class="loading" id="loading"><aside id="loadingProgress" class="loading-card"><strong id="loadingTitle">正在加载展厅</strong></aside></div>
  <div id="materialDropHint" class="material-drop-hint" role="status" hidden></div>
- <div class="drop-overlay" id="dropOverlay">松开以导入 FBX<br><small>可以同时拖入配套的纹理图片</small></div>
+ <div class="drop-overlay" id="dropOverlay">松开以导入 FBX 或 GLB<br><small>可以同时拖入配套的纹理图片</small></div>
  <div id="annotationLayer" class="annotation-layer"></div>
+ <svg id="rulerLayer" class="ruler-layer" aria-label="模型长宽高标尺" hidden></svg>
 </section>
 <aside class="inspector" id="inspector" aria-hidden="true">
  <span class="inspector-morph-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="2.5" width="17" height="19" rx="3"/><path d="M11 7h5M11 12h5M11 17h5M7.5 7h.01M7.5 12h.01M7.5 17h.01"/></svg></span>
@@ -114,7 +115,7 @@
      <p id="physicalStatus" class="physical-status" role="status"></p>
     </div>
     <div id="legacyInputs" hidden>   <div class="uv-row"><label>UV 重复 U <input type="number" id="repeatU" min="0.01" max="100" step="0.1" value="1"></label><label>UV 重复 V <input type="number" id="repeatV" min="0.01" max="100" step="0.1" value="1"></label></div></div>
-    <details class="model-calibration"><summary>模型实际尺寸 · 核对单位</summary><p id="modelDimensions"></p><p id="modelUnitSource" class="micro-note"></p><label class="calibration-label">模型最长边（cm）<input id="modelRealSize" type="number" min="0.01" max="1000000" step="0.1"></label><button id="calibrateModel" class="button full">按此尺寸校准模型单位</button><button id="resetModelUnits" class="text-button">恢复 FBX 文件单位</button></details>
+    <details class="model-calibration"><summary>模型实际尺寸 · 核对单位</summary><p id="modelDimensions"></p><p id="modelUnitSource" class="micro-note"></p><label class="calibration-label">模型最长边（cm）<input id="modelRealSize" type="number" min="0.01" max="1000000" step="0.1"></label><button id="calibrateModel" class="button full">按此尺寸校准模型单位</button><button id="resetModelUnits" class="text-button">恢复模型文件单位</button></details>
    </div>
    <p class="micro-note">PNG / JPG / WebP · 颜色与自发光使用 sRGB<br>粗糙度读取 G 通道，金属度读取 B 通道，AO 读取 R 通道</p>
    <div class="section-heading"><h2>表面参数</h2><span>PHYSICAL SURFACE</span></div>
@@ -173,18 +174,18 @@
    <label class="select-row">显示模式 <select id="renderMode"><option value="pbr">PBR 真实材质</option><option value="wire">线框结构</option><option value="flat">平面着色</option></select></label>
    </div><button id="resetScene" class="button full">重置场景设置</button>
   </section>
-  <div class="help-box" hidden><span>◇</span><p>导入你的模型，探索更多可能。<br><button id="importSecondary" class="text-button">选择 FBX 与配套纹理 ↗</button></p></div>
+  <div class="help-box" hidden><span>◇</span><p>导入你的模型，探索更多可能。<br><button id="importSecondary" class="text-button">选择 FBX / GLB 与配套纹理 ↗</button></p></div>
  </div>
 </aside>
 </main>
 <footer id="materialDock" class="material-dock opening-hidden" aria-hidden="true">
  <div class="dock-heading"><nav class="dock-tabs" aria-label="材质大类"><button id="fabricDockTab" class="active" aria-pressed="true">面料</button><button id="patternDockTab" aria-pressed="false">图案</button></nav><span id="materialCount" hidden>00</span><div class="dock-operations"><button id="dockUndo" class="text-button" disabled>撤销换材</button><button id="dockPatternPlace" class="text-button" hidden>放置图案</button></div></div>
- <div class="fabric-browser" id="fabricDock"><nav class="fabric-categories" aria-label="面料分类"><button data-fabric="面布" class="active" aria-pressed="true">面布</button><button data-fabric="边布" aria-pressed="false">边布</button><button data-fabric="包边条" aria-pressed="false">包边条</button><button data-fabric="其他" aria-pressed="false">其他</button></nav><div class="dock-carousel"><div class="material-list" id="materialList" aria-label="面料列表"><button id="addDockAsset" class="dock-add" aria-label="从资产库新增面料" title="新增面料"><span class="dock-add-icon" aria-hidden="true">＋</span></button></div><button id="scrollLeft" class="dock-page previous" aria-label="上一页面料" hidden>‹</button><button id="scrollRight" class="dock-page next" aria-label="下一页面料" hidden>›</button></div></div>
- <div id="patternBrowser" class="dock-carousel" hidden><div class="material-list pattern-list" id="patternDock" aria-label="图案列表" hidden></div></div>
+ <div class="fabric-browser" id="fabricDock"><nav class="fabric-categories" aria-label="面料分类"><button data-fabric="面布" class="active" aria-pressed="true">面布</button><button data-fabric="边布" aria-pressed="false">边布</button><button data-fabric="包边条" aria-pressed="false">包边条</button><button data-fabric="其他" aria-pressed="false">其他</button></nav><div class="dock-carousel"><div class="material-list" id="materialList" aria-label="面料列表"><button id="addDockAsset" class="dock-add" aria-label="从资产库新增面料" title="新增面料"><span class="dock-add-icon" aria-hidden="true">＋</span></button></div><div id="fabricScrollbar" class="dock-scrollbar" aria-hidden="true"><span class="dock-scrollbar-thumb"></span></div></div></div>
+ <div id="patternBrowser" class="dock-carousel" hidden><div class="material-list pattern-list" id="patternDock" aria-label="图案列表" hidden></div><div id="patternScrollbar" class="dock-scrollbar" aria-hidden="true"><span class="dock-scrollbar-thumb"></span></div></div>
  <div class="dock-delete-tools"><button id="dockTrash" class="dock-trash" aria-label="删除材质或图案" title="点击多选，或拖入删除；正在使用的面料不可删除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7"/></svg></button><div id="dockDeleteActions" hidden><button id="dockCancelDelete">取消</button><button id="dockDeleteSelected" disabled>删除</button></div></div>
 </footer>
 <dialog id="assetPicker" aria-labelledby="assetPickerTitle"><header><div><h2 id="assetPickerTitle">从资产库新增</h2><p id="assetPickerDescription"></p></div><button id="closeAssetPicker" aria-label="关闭资产库">×</button></header><div class="picker-tools"><input id="pickerSearch" type="search" aria-label="搜索库中材质" placeholder="搜索材质名称"><button id="pickerRefresh" class="button">刷新</button><a href="./asset-library.html" target="_blank" rel="noopener">管理资产库 ↗</a></div><div id="pickerStatus" role="status"></div><div id="pickerGrid"></div></dialog>
-<div id="toast" role="status" class="toast"></div><input id="modelFile" type="file" accept=".fbx,.png,.jpg,.jpeg,.webp,.bmp" multiple hidden><input id="projectFile" type="file" accept=".form,.zip" hidden>
+<div id="toast" role="status" class="toast"></div><input id="modelFile" type="file" accept=".fbx,.glb,.bin,.ktx2,.png,.jpg,.jpeg,.webp,.bmp" multiple hidden><input id="projectFile" type="file" accept=".form,.zip" hidden>
 <script>window.addEventListener('error',function(e){if(e.target&&e.target.tagName==='SCRIPT'){document.getElementById('loadingTitle').textContent='资源未能载入';}},true);</script>
 <script type="module" src="entries/design.js"></script>
 </body></html>
