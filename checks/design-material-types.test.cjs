@@ -13,14 +13,14 @@ const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:pa
    const base={kind:'material',category:'面布',surface:{color:'#ffffff',roughness:.6,metalness:0},physical:{mode:'physical',sizeSource:'manual',widthCm:30,heightCm:30,angle:0,initialized:true},repeat:[1,1]};
    await saveAsset({...base,name:'测试面料',materialType:'fabric',maps:{map:file}});await saveAsset({...base,name:'测试图案',materialType:'pattern',maps:{map:logo}});
   });
-  await p.locator('#addDockAsset').click();await p.locator('.picker-card').waitFor();assert.equal(await p.locator('.picker-card').count(),1);assert.match(await p.locator('.picker-card').textContent(),/测试面料/);await p.locator('.picker-card').click();
+  await p.locator('#addDockAsset').click();await p.locator('.picker-card').waitFor();assert.equal(await p.locator('.picker-card').count(),1);assert.match(await p.locator('.picker-card').textContent(),/测试面料/);await p.locator('.picker-card').click();await p.locator('#confirmAssetPicker').click();
   await p.waitForFunction(()=>document.querySelectorAll('#materialList .material-item').length===10);assert.equal(await p.locator('#assetPicker').isVisible(),false);
   await p.locator('.material-item.active').click();assert.equal(await p.locator('#inspectorHeading').textContent(),'材质栏');
   assert.equal(await p.locator('#inspector input:visible').count(),4,'Only color, UV U/V, angle visible');
   await p.locator('#compactOffsetU').fill('0.15');await p.locator('#compactOffsetU').press('Tab');await p.locator('#compactAngle').fill('35');
   await p.locator('#backToScene').click();assert.equal(await p.locator('#scenePanel').isVisible(),true);
   await p.locator('#patternDockTab').click();await p.locator('#addDockAsset').click();await p.locator('.picker-card').waitFor();assert.equal(await p.locator('.picker-card').count(),1);assert.match(await p.locator('.picker-card').textContent(),/测试图案/);
-  await p.screenshot({path:'checks/design-asset-picker.png'});await p.locator('.picker-card').click();
+  await p.screenshot({path:'checks/design-asset-picker.png'});await p.locator('.picker-card').click();await p.locator('#confirmAssetPicker').click();
   await p.waitForFunction(()=>document.querySelectorAll('[data-pattern-kind=source]').length===1);
   await p.mouse.click(640,500);assert.equal(await p.locator('[data-pattern-kind=placed]').count(),0,'Clicking the model does not place a pattern');
   await p.locator('#patternDockTab').click();

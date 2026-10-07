@@ -35,7 +35,7 @@ const fs = require('node:fs/promises'), os = require('node:os'), path = require(
       await page.locator(type === 'fabric' ? '#fabricDockTab' : '#patternDockTab').click();
       for (let i = 0; i < count; i++) {
         await page.locator('#addDockAsset').scrollIntoViewIfNeeded(); await page.locator('#addDockAsset').click();
-        await page.locator('.picker-card').click(); await page.locator('#assetPicker').waitFor({ state: 'hidden' });
+        await page.locator('.picker-card').click(); await page.locator('#confirmAssetPicker').click(); await page.locator('#assetPicker').waitFor({ state: 'hidden' });
       }
     }
     async function drop(locator) {

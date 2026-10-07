@@ -46,6 +46,7 @@ const fs = require('node:fs/promises'), os = require('node:os'), path = require(
     for (let i = 1; i <= 8; i++) {
       await page.locator('#addDockAsset').scrollIntoViewIfNeeded(); await page.locator('#addDockAsset').click();
       await page.locator('.picker-card').click();
+      await page.locator('#confirmAssetPicker').click();
       await page.waitForFunction(count => document.querySelectorAll('#patternDock .material-item').length === count, i);
     }
     assert.equal(await page.locator('#patternDock > :last-child').getAttribute('id'), 'addDockAsset');

@@ -41,8 +41,9 @@
   </div>
   <main class="library-main">
     <input id="assetFiles" type="file" accept=".fbx,.glb,.bin,.ktx2,.png,.jpg,.jpeg,.webp,.bmp,.formmat" multiple hidden>
-    <section id="assetPanel" aria-label="面料资产">
-      <section id="assetGrid" class="asset-grid" aria-label="资产列表"></section>
+    <section id="assetPanel" class="is-asset-loading" aria-label="面料资产" aria-busy="true">
+      <div id="assetLoading" class="asset-loading-indicator" role="status" aria-label="正在加载资产"><div class="asset-grid-loader" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></div>
+      <section id="assetGrid" class="asset-grid asset-loading-content" aria-label="资产列表" inert></section>
     </section>
   </main>
   <div id="assetScrollbar" class="asset-scrollbar" aria-hidden="true"><span class="asset-scrollbar-thumb"></span></div>

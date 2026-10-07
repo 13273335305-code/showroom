@@ -2,6 +2,7 @@ import { downloadFile } from '../shared/navigation.js';
 import { listAssets, getAsset, saveAsset, deleteAsset } from '../shared/asset-store.js';
 import { materialType } from '../shared/material-placement.js';
 import { packMaterial, unpackMaterial } from '../shared/material-package.js';
+import { createAssetLoading } from '../shared/asset-loading.js';
 const $ = id => document.getElementById(id);
 const libraryNames = { fabric: '\u9762\u6599\u5e93', pattern: '\u56fe\u6848\u5e93', model: '\u6a21\u578b\u5e93' };
 const libraryType = asset => asset.kind === 'folder' ? asset.library || 'fabric' : asset.kind === 'model' ? 'model' : asset.kind === 'texture' ? 'pattern' : materialType(asset);
@@ -12,6 +13,9 @@ const cardUrls = new Map();
 let editing, editPreview, editPreviewUrl, editVersion = 0, movingAssetId = null;
 const modelPreviews = new Map();
 let previewQueue = Promise.resolve();
+const modelPreviewJobs = new Map(), cardPreviewJobs = new WeakMap();
+let assetsLoading = true;
+const assetLoading = createAssetLoading({ host: $('assetPanel'), grid: $('assetGrid'), indicator: $('assetLoading') });
 let fabricPreviewClosingTimer = null;
 let fabricTextureRenderToken = 0;
 let fabricTextureState = null;
@@ -469,6 +473,7 @@ function renderModelPreview(asset, art) {
         modelPreviews.set(asset.id, await createModelPreview(asset));
       } catch { /* A custom preview remains available if this model cannot be rendered. */ }
     });
+    modelPreviewJobs.set(asset.id, previewQueue);
   }
   const display = () => {
     if (!art.isConnected) return;
@@ -476,9 +481,10 @@ function renderModelPreview(asset, art) {
     if (blob) { const img = document.createElement('img'); const url = imageUrl(blob); cardUrls.set(asset.id, [...(cardUrls.get(asset.id) || []), url]); img.src = url; img.alt = asset.name + ' 预览图'; art.replaceChildren(img); }
     else art.textContent = '可通过「···」设置预览图';
   };
-  if (modelPreviews.get(asset.id)) queueMicrotask(display); else previewQueue.then(display);
+  return (modelPreviewJobs.get(asset.id) || Promise.resolve()).then(display);
 }
 function render() {
+  const loadingToken = assetLoading.begin(), previews = [];
   closeMenu();
   updateBreadcrumb();
   const host = $('assetGrid'); host.replaceChildren();
@@ -504,7 +510,12 @@ function render() {
     const cached = asset.kind === 'folder' ? null : renderedCards.get(asset.id);
     if (cached?.signature === signature) {
       syncCardSelection(cached.card, cached.selectControl, selectedAssetIds.has(asset.id));
-      host.append(cached.card); continue;
+      host.append(cached.card);
+      if (asset.kind === 'model' && !previewOf(asset) && !cached.card.querySelector('.asset-art img')) {
+        cardPreviewJobs.set(cached.card, renderModelPreview(asset, cached.card.querySelector('.asset-art')));
+      }
+      if (cardPreviewJobs.has(cached.card)) previews.push(cardPreviewJobs.get(cached.card));
+      continue;
     }
     cardUrls.get(asset.id)?.forEach(url => URL.revokeObjectURL(url));
     cardUrls.delete(asset.id);
@@ -586,7 +597,10 @@ function render() {
     } else {
       const preview = asset.kind === 'model' ? previewOf(asset) : asset.thumbnail || previewOf(asset);
       if (preview) { const img = document.createElement('img'); const url = imageUrl(preview); urls.push(url); img.src = url; img.alt = asset.name + ' 预览图'; art.append(img); }
-      else if (asset.kind === 'model') { art.textContent = '正在生成预览图…'; renderModelPreview(asset, art); }
+      else if (asset.kind === 'model') {
+        art.textContent = '正在生成预览图…';
+        const job = renderModelPreview(asset, art); cardPreviewJobs.set(card, job); previews.push(job);
+      }
       else { const shape = document.createElement('div'); shape.className = 'sphere'; if (/^#[\da-f]{6}$/i.test(asset.surface?.color)) shape.style.setProperty('--swatch', asset.surface.color); art.append(shape); }
     }
     if (urls.length) cardUrls.set(asset.id, urls);
@@ -602,9 +616,11 @@ function render() {
     renderedCards.set(asset.id, { signature, card, selectControl }); host.append(card);
   }
   requestAnimationFrame(() => syncAssetScrollbar());
+  if (!assetsLoading) void assetLoading.finish(loadingToken, previews);
 }
 async function refresh() {
   const version = ++renderVersion;
+  assetsLoading = true; assetLoading.begin();
   const show = result => {
     if (version !== renderVersion) return;
     const ids = new Set(result.map(asset => asset.id));
@@ -618,11 +634,16 @@ async function refresh() {
   try {
     const result = await listAssets({ onProgress: (items, progress) => {
       if (version !== renderVersion) return;
-      show(items); status(progress.message);
+      status(progress.message);
     } });
+    if (version !== renderVersion) return;
+    assetsLoading = false;
     show(result);
   }
-  catch (error) { status(error.message); }
+  catch (error) {
+    if (version !== renderVersion) return;
+    assetsLoading = false; status(error.message); render();
+  }
 }
 const tabs = [...document.querySelectorAll('[data-library]')];
 function selectLibrary(type, { updateUrl = true } = {}) {
