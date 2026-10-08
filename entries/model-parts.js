@@ -4,6 +4,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { getAsset, saveAsset } from '../shared/asset-store.js';
+import { requireAuth } from '../shared/auth.js';
+await requireAuth({ feature: 'parts' });
 const $=id=>document.getElementById(id),assetId=new URLSearchParams(location.search).get('asset');
 let asset,root,balls=[],selected=-1,assignments={},highlighted=[],slotLookup=new Map(),controls,allowPick=false,pointerStart=null,randomColorMode=false,viewportOffset=0;
 let developerOpen=false,savedCameraView={azimuth:40,elevation:26,framing:1.18,offset:[0,0,0]};

@@ -25,6 +25,7 @@ import { prepareAnnotationPicking, createMaterialPicker, AnnotationOcclusion } f
 import { createCameraMotion, INTRO_DURATION, INTRO_DISTANCE_RATIO, introFocusBlur, introDockTransform, introSunTransform } from './shared/camera-motion.js';
 import { createShowroom } from './shared/showroom.js';
 import { saveDesignSession, loadDesignSession } from './shared/design-session.js';
+import { getProject as getStoredProject, saveProject as saveStoredProject } from './shared/project-store.js';
 import { compressImageFile } from './shared/asset-thumbnail.js';
 import { createDeveloperPanel } from './shared/developer-panel.js';
 import { loadDeveloperSettings, defaultDeveloperSettings, readDefaultView } from './shared/developer-settings.js';
@@ -39,7 +40,7 @@ let physicalModel={cmPerUnit:1,fbxCmPerUnit:1,rawSize:[1,1,1],unitKnown:false,ca
 const MAPS=MATERIAL_MAPS;
 const DEFAULTS={...ENVIRONMENT_DEFAULTS,rotation:0,scale:1.2,renderMode:'pbr',autoRotate:false};
 let state={...DEFAULTS},renderer,scene,camera,controls,floor,reflector,stage,ring,grid,key,fill,hemi,model,entries=[],selected=null,materialPicker=null;
-let modelSource=null,modelGeneration=0,currentLoad=0,loadingModel=false,toastTimer;
+let modelSource=null,modelGeneration=0,currentLoad=0,loadingModel=false,toastTimer,activeProjectId=null,activeProjectName='';
 let loadingMessageToken=0,loadingMessageTimer=null,loadingSequenceActive=false;
 let partAssignments=new Map();
 let draggedMaterial=null, assignmentHistory=[],materialPreviewTimer=null;
@@ -581,7 +582,11 @@ async function loadModel(buffer,name,files=[],{restore=null,parts=null}={}){
   }catch(error){console.error(error);if(request===currentLoad){hideBusy();setOpeningDockHidden(false);setOpeningDayHidden(false);notify('载入失败：'+error.message,8000);if(!model){$('modelName').textContent='请导入 FBX 或 GLB 模型';$('modelStats').textContent='点击右侧 ＋ 选择文件';}}}finally{if(request===currentLoad){loadingModel=false;$('showroomMode').disabled=!model||!daylightCycle;if(restore){setOpeningDockHidden(false);setOpeningDayHidden(false);}}}
 }
 async function loadExample(){
- const assetId=new URLSearchParams(location.search).get('asset');let asset=null,assetError=null;
+ const params=new URLSearchParams(location.search),projectId=params.get('project'),assetId=params.get('asset');let asset=null,assetError=null;
+ if(projectId){
+  try{const saved=await getStoredProject(projectId);if(!saved)throw new Error('项目不存在，可能已被删除');activeProjectId=saved.id;activeProjectName=saved.name;await openProject(saved.blob);return;}
+  catch(error){notify('打开项目失败：'+error.message,6000);}
+ }
  if(assetId)try{asset=await getAsset(assetId);if(!asset)throw new Error('资产不存在，可能已被删除');}catch(error){assetError=error;}
  if(!assetId)try{const session=await loadDesignSession();if(session){await openProject(session);return;}}catch(error){console.warn('恢复设计台状态失败',error);}
  try{
@@ -632,7 +637,7 @@ async function saveSelectedToLibrary(){
   await saveAsset(asset);await refreshLibrary();notify('已保存「'+asset.name+'」到资产库');
  }catch(error){notify('保存资产失败：'+error.message,6000);}finally{button.disabled=false;}
 }
-async function importFiles(files,parts=null){if(loadingModel)return notify('请等待当前模型加载完成');const list=[...files],modelFile=list.find(f=>/\.(fbx|glb)$/i.test(f.name));if(!modelFile)return notify('请选择一个 .fbx 或 .glb 文件，可同时附带纹理图片');if(modelFile.size>512*1024*1024)return notify('模型文件过大，请使用小于 512 MB 的模型');await loadModel(await modelFile.arrayBuffer(),modelFile.name,list.filter(f=>f!==modelFile),{parts});}
+async function importFiles(files,parts=null){if(loadingModel)return notify('请等待当前模型加载完成');const list=[...files],modelFile=list.find(f=>/\.(fbx|glb)$/i.test(f.name));if(!modelFile)return notify('请选择一个 .fbx 或 .glb 文件，可同时附带纹理图片');if(modelFile.size>512*1024*1024)return notify('模型文件过大，请使用小于 512 MB 的模型');activeProjectId=null;activeProjectName='';await loadModel(await modelFile.arrayBuffer(),modelFile.name,list.filter(f=>f!==modelFile),{parts});}
 function renderMaterials(){const host=$('materialList');host.replaceChildren();document.querySelectorAll('[data-fabric]').forEach(b=>{b.classList.toggle('active',b.dataset.fabric===activeFabric);b.setAttribute('aria-pressed',String(b.dataset.fabric===activeFabric));});for(const entry of entries.filter(e=>!e.removed&&fabricCategory(e)===activeFabric)){const button=document.createElement('button');button.className='material-item'+(entry===selected?' active':'');button.setAttribute('aria-pressed',String(entry===selected));button.draggable=false;button.dataset.entryId=entry.id;button.addEventListener('pointerdown',event=>startMaterialDrag(event,entry));button.addEventListener('dblclick',event=>{event.preventDefault();event.stopPropagation();endMaterialDrag();pulseMaterialUsage(entry);});button.setAttribute('aria-label','选择材质 '+entry.name);const swatch=document.createElement('div');swatch.className='material-thumb';decorateSwatch(swatch,entry);const name=document.createElement('strong');name.textContent=entry.name;button.append(swatch,name);button.onclick=()=>{if(suppressMaterialClick){suppressMaterialClick=false;return;}setPatternMode(false);designUI?.setType('fabric');if(!replaceCategoryMaterials(entry,activeFabric)){selectEntry(entry);showPanel('material');}};designUI?.bindDockItem(button,{kind:'fabric',entry});host.append(button);}designUI?.syncDock();$('materialCount').textContent=String(entries.filter(e=>!e.removed).length).padStart(2,'0');}
 function stopMaterialPulse(){if(!materialPulse)return;cancelAnimationFrame(materialPulse.frame);for(const item of materialPulse.items){if(Array.isArray(item.mesh.material))item.mesh.material=item.original;else item.mesh.material=item.original;item.highlight.dispose();}materialPulse=null;}
 function pulseMaterialUsage(entry){
@@ -1121,9 +1126,9 @@ function bindEvents(){
  $('canvas').addEventListener('dblclick',event=>{if(annotationMode)return;const hit=pickModelMaterial(event.clientX,event.clientY);if(!hit)return;selectEntry(hit.entry);showPanel('material');$('materialList').querySelector('[data-entry-id="'+hit.entry.id+'"]')?.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'});});
  $('snapshot').onclick=()=>setCaptureMode(!captureMode);
  document.addEventListener('keydown',event=>{if(captureMode&&event.key==='Escape'){event.preventDefault();event.stopPropagation();setCaptureMode(false);}},true);
- window.__spenicDesignSession={save:async()=>{try{const blob=await saveProject({downloadOutput:false});if(blob)await saveDesignSession(blob);}catch(error){console.warn('保存设计台状态失败',error);}}};
+ window.__spenicDesignSession={save:async()=>{try{const blob=await saveProject({downloadOutput:false,saveToLibrary:false});if(blob)await saveDesignSession(blob);}catch(error){console.warn('保存设计台状态失败',error);}}};
  window.addEventListener('pagehide',()=>{void window.__spenicDesignSession.save();},{once:true});
- $('headerUndo').onclick=undoMaterialAssignment;$('saveProject').onclick=saveProject;$('openProject').onclick=()=>$('projectFile').click();$('projectFile').onchange=()=>{const f=$('projectFile').files[0];$('projectFile').value='';if(f)openProject(f);};
+ $('headerUndo').onclick=undoMaterialAssignment;$('saveProject').onclick=saveProject;$('openProject').onclick=()=>$('projectFile').click();$('projectFile').onchange=()=>{const f=$('projectFile').files[0];$('projectFile').value='';if(f){activeProjectId=null;activeProjectName='';openProject(f);}};
  $('saveScene').onclick=()=>{try{const name=sceneName($('sceneName').value);download(packScene(state,name),sceneFilename(name));$('sceneName').value=name;notify('已保存场景：'+name);}catch(error){notify('保存场景失败：'+error.message,6000);}};
  $('openScene').onclick=()=>$('sceneFile').click();
  $('sceneFile').onchange=async()=>{
@@ -1136,7 +1141,13 @@ function bindEvents(){
  };
 }
 function snapshotEntry(e){const m=e.material;return {id:e.id,removed:!!e.removed,name:e.name,category:fabricCategory(e),color:m.color.getHexString(),roughness:m.roughness,metalness:m.metalness,normalStrength:Math.abs(m.normalScale.x),aoStrength:m.aoMapIntensity,emissive:m.emissive.getHexString(),emissiveStrength:m.emissiveIntensity,bumpStrength:m.bumpScale,repeat:e.repeat,physical:{...e.physical},flip:e.flip,maps:Object.fromEntries(MAPS.map(([k])=>[k,m[k]?(e.uploads[k]?'upload':'original'):null]))};}
-async function saveProject({ downloadOutput = true } = {}){
+function projectNameFromModel(name){return String(name||'FORM').replace(/\.(fbx|glb)$/i,'').trim()||'FORM';}
+function projectThumbnail(){
+ const canvas=$('canvas');
+ if(!canvas?.toBlob)return Promise.resolve(null);
+ return new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.82));
+}
+async function saveProject({ downloadOutput = true, saveToLibrary = downloadOutput } = {}){
  if(annotations.some(a=>!a.saved||a.editing))return notify('请先点击 √ 或按回车保存正在输入的标记');
  finishPatternReveals();
  if(!modelSource||loadingModel)return notify('请先完成模型载入');if(entries.some(e=>Object.keys(e.pendingDpi||{}).length))return notify('还有贴图等待指定 DPI，请先应用后再保存项目');busy('正在保存项目','打包模型、所有上传贴图与场景设置');await yieldFrame();
@@ -1148,7 +1159,11 @@ async function saveProject({ downloadOutput = true } = {}){
  config.patternSources=[];for(let i=0;i<patternSources.length;i++){const source=patternSources[i],path='pattern-sources/'+i;archive[path]=new Uint8Array(await (await packMaterial(patternSourceAsset(source))).arrayBuffer());config.patternSources.push({path,key:source.key});}
  archive['project.json']=strToU8(JSON.stringify(config));
  const blob=new Blob([zipSync(archive,{level:0})],{type:'application/zip'});
- if(downloadOutput){download(blob,(modelSource.name.replace(/\.(fbx|glb)$/i,'')||'FORM')+'.form');notify('已保存完整项目，包含模型与上传贴图');}
+ if(saveToLibrary){
+  const saved=await saveStoredProject({id:activeProjectId,name:activeProjectName||projectNameFromModel(modelSource.name),modelName:modelSource.name,blob,thumbnail:await projectThumbnail()});
+  activeProjectId=saved.id;activeProjectName=saved.name;
+ }
+ if(downloadOutput){download(blob,projectNameFromModel(modelSource.name)+'.form');notify(saveToLibrary?'已保存项目并下载完整文件':'已保存完整项目，包含模型与上传贴图');}
  return blob;
  }catch(e){console.error(e);notify('保存失败：'+e.message,6000);}finally{hideBusy();}
 }

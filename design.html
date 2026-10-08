@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="header.css">
 <link rel="stylesheet" href="showroom.css">
 <link rel="stylesheet" href="developer.css">
+<link rel="stylesheet" href="login.css">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
 </head>
 <body>
@@ -16,7 +17,7 @@
 <header class="topbar">
  <a class="brand" href="./index.html" aria-label="Spenic 工作空间首页"><img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic"><span class="brand-divider"></span><strong class="brand-title">设计台</strong></a>
  <button id="developerToggle" class="developer-toggle" type="button" hidden aria-label="开发者模式" title="开发者模式" aria-controls="developerPanel" aria-expanded="false" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="6" r="3.5" fill="currentColor" stroke="none"/><path d="M11 12c-5-1-8 2-8 7h6"/><path d="m14 14-3 3 3 3m6-6 3 3-3 3m-2-7-2 8"/></svg></button>
- <div class="header-actions"><span class="local-badge"><i></i> 本地工作空间</span><button id="openProject" hidden type="button" aria-label="打开项目"></button><button id="headerUndo" class="header-icon-action" type="button" title="撤销换材" aria-label="撤销换材" disabled><span class="header-icon-art header-icon-undo" aria-hidden="true"></span></button><button id="saveProject" class="header-icon-action" type="button" title="保存文件" aria-label="保存文件"><span class="header-icon-art header-icon-save" aria-hidden="true"></span></button><button id="snapshot" class="header-icon-action primary" type="button" title="拍摄模式" aria-label="拍摄模式" aria-pressed="false"><span class="header-icon-art header-icon-snapshot" aria-hidden="true"></span></button></div>
+ <div class="header-actions"><span class="local-badge"><i></i> 本地工作空间</span><button id="openProject" hidden type="button" aria-label="打开项目"></button><button id="headerUndo" class="header-icon-action" type="button" title="撤销换材" aria-label="撤销换材" disabled><span class="header-icon-art header-icon-undo" aria-hidden="true"></span></button><button id="saveProject" class="header-icon-action" type="button" title="保存项目" aria-label="保存项目"><span class="header-icon-art header-icon-save" aria-hidden="true"></span></button><button id="snapshot" class="header-icon-action primary" type="button" title="拍摄模式" aria-label="拍摄模式" aria-pressed="false"><span class="header-icon-art header-icon-snapshot" aria-hidden="true"></span></button></div>
 </header>
 <aside id="developerPanel" class="developer-panel" hidden aria-labelledby="developerTitle">
  <header class="dev-header"><div><span class="dev-eyebrow">DEVELOPER</span><h2 id="developerTitle">开发者模式</h2></div><button id="developerClose" type="button" aria-label="关闭开发者模式">×</button></header>

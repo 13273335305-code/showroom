@@ -2,10 +2,10 @@ export function mountNavigation(active) {
   if (active !== 'design') window.name = 'spenic-secondary';
   const header = document.querySelector('.topbar');
   const brand = header.querySelector('.brand');
-  brand.innerHTML = '<img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic"><span class="brand-divider"></span><strong class="brand-title">' + (active === 'design' ? '\u8bbe\u8ba1\u53f0' : '\u5de5\u4f5c\u7a7a\u95f4') + '</strong>';
-  brand.setAttribute('aria-label', 'Spenic \u5de5\u4f5c\u7a7a\u95f4\u9996\u9875');
+  brand.innerHTML = '<img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic"><span class="brand-divider"></span><strong class="brand-title">' + (active === 'design' ? '\u8bbe\u8ba1\u53f0' : active === 'material' ? '\u6750\u8d28\u7f16\u8f91\u5668' : '\u5de5\u4f5c\u7a7a\u95f4') + '</strong>';
+  brand.setAttribute('aria-label', active === 'material' ? 'Spenic \u6750\u8d28\u7f16\u8f91\u5668' : 'Spenic \u5de5\u4f5c\u7a7a\u95f4\u9996\u9875');
   const existingNavigation = header.querySelector('.app-navigation');
-  if (active === 'design') {
+  if (active === 'design' || active === 'material') {
     existingNavigation?.remove();
     return;
   }
@@ -13,7 +13,7 @@ export function mountNavigation(active) {
   nav.replaceChildren();
   nav.className = 'app-navigation';
   nav.setAttribute('aria-label', '\u5de5\u4f5c\u7a7a\u95f4\u5165\u53e3');
-  const links = [['design', '\u8bbe\u8ba1\u53f0', './design.html'], ['material', '\u6750\u8d28\u7f16\u8f91\u5668', './material-editor.html'], ['assets', '\u8d44\u4ea7\u5e93', './asset-library.html']];
+  const links = [['design', '\u8bbe\u8ba1\u53f0', './design.html'], ['material', '\u6750\u8d28\u7f16\u8f91\u5668', './material-editor.html'], ['projects', '\u9879\u76ee\u5e93', './project-library.html'], ['assets', '\u8d44\u4ea7\u5e93', './asset-library.html']];
   for (const [id, name, href] of links) {
     const link = document.createElement('a');
     link.href = href;

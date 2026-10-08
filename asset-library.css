@@ -168,14 +168,14 @@
 
 
 /* Final card tuning. */
-.asset-card{grid-template-rows:auto 44px}
+.asset-card{grid-template-rows:auto 44px;box-shadow:0 7px 16px #45698524}
 .asset-card .asset-info{padding:8px 14px 9px}
 @media(max-width:700px){.asset-card{grid-template-rows:auto 36px}.asset-card .asset-info{padding:6px 8px 7px}}
 
 /* Keep click feedback simple and avoid end-of-animation jumps. */
 .asset-card{border:0}
 .asset-card .asset-art{border:0}
-.asset-card.selected{z-index:3;border:0;box-shadow:none}
+.asset-card.selected{z-index:3;border:0;box-shadow:0 7px 16px #4569851c}
 
 /* Press feedback starts on pointer-down and smoothly returns on release. */
 .asset-library-page .asset-art img{display:block;width:100%;height:100%;max-width:none;max-height:none;object-fit:cover;pointer-events:none;user-select:none;-webkit-user-drag:none}
@@ -240,3 +240,10 @@
 .asset-library-page .more-menu button{min-height:32px;padding:7px 10px;border-radius:7px;color:#35506e;font-size:12px;line-height:18px}
 .asset-library-page .more-menu button:hover,.asset-library-page .more-menu button:focus-visible{background:#eaf2ff;color:#2366cd}
 @media(max-width:700px){.asset-library-page .library-sub-actions select{width:80px;min-width:80px;padding-right:18px;background-position:calc(100% - 8px) 50%,0 0}.asset-library-page .more-button{flex-basis:32px;width:32px;height:28px;margin-left:0}.asset-library-page .more-menu{min-width:136px}}
+
+/* Horizontal page turn for switching the three asset collections. */
+.asset-grid{perspective:1200px;transform-style:preserve-3d}
+.asset-grid.page-turn-next{animation:asset-page-turn-next .42s cubic-bezier(.2,.78,.28,1) both;transform-origin:left center}
+.asset-grid.page-turn-previous{animation:asset-page-turn-previous .42s cubic-bezier(.2,.78,.28,1) both;transform-origin:right center}
+@keyframes asset-page-turn-next{0%{opacity:.2;transform:translateX(48px) rotateY(-8deg) scale(.985)}55%{opacity:1;transform:translateX(-5px) rotateY(1deg) scale(1.002)}100%{opacity:1;transform:none}}
+@keyframes asset-page-turn-previous{0%{opacity:.2;transform:translateX(-48px) rotateY(8deg) scale(.985)}55%{opacity:1;transform:translateX(5px) rotateY(-1deg) scale(1.002)}100%{opacity:1;transform:none}}

@@ -41,11 +41,10 @@ function withDpi(png, x, y) {
     await page.locator('[data-material-type=pattern]').click();
     assert.equal(await page.locator('#materialCanvas').isVisible(), false);
     assert.equal(await page.locator('.preview-controls').isVisible(), false);
-    assert.equal(await page.locator('#readDpi').isVisible(), false);
+    for (const selector of ['#readDpi', '#sizeNote', '.pbr-help', '.pbr-columns']) assert.equal(await page.locator(selector).count(), 0);
     await upload('map', fixture); await checkAuto();
-    assert.match(await page.locator('#sizeNote').textContent(), /300 × 150.01 DPI.*自动/);
     assert.match(await page.locator('[data-width]').textContent(), /4.6567 cm/);
-    for (const selector of ['.preview-copy', '#sizeNote', '#pbrHeading', '.pbr-help', '.pbr-columns']) assert.equal(await page.locator(selector).isVisible(), false);
+    for (const selector of ['.preview-copy', '#pbrHeading']) assert.equal(await page.locator(selector).isVisible(), false);
     const ratio = await page.locator('[data-image-frame]').evaluate(el => Number(el.getAttribute('width')) / Number(el.getAttribute('height')));
     assert.ok(Math.abs(ratio - expectedWidth / expectedHeight) < .0001, 'Preview respects physical aspect, including unequal DPI axes');
     const geometry = await page.evaluate(() => {
@@ -64,7 +63,6 @@ function withDpi(png, x, y) {
     const resetBounds = await page.locator('[data-image-frame]').boundingBox();
     assert.ok(Math.abs(resetBounds.x - originalBounds.x) < .1 && Math.abs(resetBounds.width - originalBounds.width) < .1);
     await upload('normalMap', 'checks/fabric-no-dpi.png'); await checkAuto();
-    assert.match(await page.locator('#sizeNote').textContent(), /已自动/);
     await page.locator('#name').fill('自动 DPI 图案');
     const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#exportMaterial').click()]);
     const saved = path.join(temp, 'pattern.formmat'); await download.saveAs(saved);
@@ -87,13 +85,17 @@ function withDpi(png, x, y) {
     await page.locator('#widthCm').fill('24'); await page.locator('#widthCm').press('Tab');
     await page.locator('#heightCm').fill('12'); await page.locator('#heightCm').press('Tab');
     await upload('map', 'checks/fabric-no-dpi.png'); assert.deepEqual(await dimensions(), [24, 12]);
-    assert.match(await page.locator('#sizeNote').textContent(), /未记录有效 DPI/);
+    assert.match(await page.locator('#status').textContent(), /未记录有效 DPI/);
     await page.locator('[data-material-type=fabric]').click();
     assert.equal(await page.locator('#materialCanvas').isVisible(), true);
-    await upload('map', fixture); assert.deepEqual(await dimensions(), [24, 12], 'Fabric uploads retain manual sizing');
+    await upload('map', fixture); await checkAuto();
+    assert.equal(await page.locator('#sizing').inputValue(), 'physical', 'Fabric uploads switch to physical sizing when DPI is present');
     await page.locator('[data-material-type=pattern]').click(); await checkAuto();
     await page.locator('#widthCm').fill('24'); await page.locator('#widthCm').press('Tab');
     await page.locator('#heightCm').fill('12'); await page.locator('#heightCm').press('Tab');
+    await page.locator('[data-material-type=fabric]').click();
+    await page.locator('[data-material-type=pattern]').click();
+    assert.deepEqual(await dimensions(), [24, 12], 'Switching types preserves manual sizing');
     await page.locator('.editor-panel').evaluate(el => el.scrollTop = 0);
     await page.screenshot({ path: path.join(temp, 'dimensions-desktop.png') });
     await page.setViewportSize({ width: 390, height: 844 });

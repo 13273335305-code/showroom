@@ -13,10 +13,13 @@ import { grayscalePixels } from '../shared/image-pixels.js';
 import { configureTextureSampling } from '../shared/texture-sampling.js';
 import { installRoughnessShader } from '../shared/roughness-map.js';
 import { compressImageFile } from '../shared/asset-thumbnail.js';
+import { requireAuth } from '../shared/auth.js';
 
 const $ = id => document.getElementById(id);
+await requireAuth({ feature: 'material' });
 mountNavigation('material');
-let renderer, scene, camera, controls, sphere, plane, assetId, dirty = false, pending = 0;
+let renderer, scene, camera, controls, plane, assetId, dirty = false, pending = 0;
+let previewUv, previewPhysicalUv, previewPositions;
 let physical = { ...defaultPhysical(), sizeSource: 'manual', initialized: true }, repeat = [1, 1];
 let legacyMaps = {}, savedPlacement, libraryMetadata = {};
 const files = {}, urls = {}, tokens = {}, density = {}, embeddedDensity = {};
@@ -26,6 +29,57 @@ const material = new THREE.MeshStandardMaterial({ color: '#c2aa8b', roughness: .
 installRoughnessShader(material);
 const status = message => { $('status').textContent = message; };
 const sliders = [['roughness', '粗糙度', 1, .01], ['metalness', '金属度', 1, .01], ['normalStrength', '法线强度', 3, .05], ['aoStrength', 'AO 强度', 3, .05], ['emissiveStrength', '自发光强度', 3, .05], ['bumpStrength', '凹凸强度', .2, .005]];
+
+function initEditorScrollbar() {
+  const panel = document.querySelector('.editor-panel');
+  const scrollbar = $('editorScrollbar');
+  const thumb = scrollbar?.querySelector('.editor-scrollbar-thumb');
+  if (!panel || !scrollbar || !thumb) return;
+  let dragging = null, syncFrame = 0;
+  const sync = () => {
+    syncFrame = 0;
+    const maxScroll = Math.max(0, panel.scrollHeight - panel.clientHeight);
+    if (matchMedia('(max-width:760px)').matches || maxScroll <= 1) { scrollbar.hidden = true; return; }
+    scrollbar.hidden = false;
+    const trackHeight = scrollbar.clientHeight;
+    const thumbHeight = Math.min(trackHeight, Math.max(72, Math.round(trackHeight * panel.clientHeight / panel.scrollHeight)));
+    const travel = Math.max(0, trackHeight - thumbHeight);
+    thumb.style.height = `${thumbHeight}px`;
+    thumb.style.transform = `translateY(${Math.round(travel * panel.scrollTop / maxScroll)}px)`;
+  };
+  const queueSync = () => {
+    if (!syncFrame) syncFrame = requestAnimationFrame(sync);
+  };
+  const scrollFromTrack = clientY => {
+    const maxScroll = Math.max(0, panel.scrollHeight - panel.clientHeight);
+    const trackRect = scrollbar.getBoundingClientRect();
+    const travel = Math.max(1, trackRect.height - thumb.offsetHeight);
+    const offset = Math.max(0, Math.min(travel, clientY - trackRect.top - thumb.offsetHeight / 2));
+    panel.scrollTop = maxScroll * offset / travel;
+  };
+  scrollbar.addEventListener('pointerdown', event => {
+    event.preventDefault();
+    if (event.target === thumb) {
+      dragging = { pointerId: event.pointerId, startY: event.clientY, startScroll: panel.scrollTop };
+      thumb.setPointerCapture?.(event.pointerId);
+    } else scrollFromTrack(event.clientY);
+  });
+  scrollbar.addEventListener('pointermove', event => {
+    if (!dragging || dragging.pointerId !== event.pointerId) return;
+    const travel = Math.max(1, scrollbar.clientHeight - thumb.offsetHeight);
+    const maxScroll = Math.max(0, panel.scrollHeight - panel.clientHeight);
+    panel.scrollTop = dragging.startScroll + (event.clientY - dragging.startY) * maxScroll / travel;
+  });
+  const stopDragging = () => { dragging = null; };
+  scrollbar.addEventListener('pointerup', stopDragging);
+  scrollbar.addEventListener('pointercancel', stopDragging);
+  scrollbar.addEventListener('wheel', event => { event.preventDefault(); panel.scrollTop += event.deltaY; }, { passive: false });
+  panel.addEventListener('scroll', queueSync, { passive: true });
+  window.addEventListener('resize', queueSync);
+  new ResizeObserver(queueSync).observe(panel);
+  new MutationObserver(queueSync).observe(panel, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'src'] });
+  queueSync();
+}
 
 function updatePatternPreview() {
   patternPreview.update({ url: urls.map, sourceImage: material.map?.image, widthCm: physical.widthCm, heightCm: physical.heightCm, angle: physical.angle, color: '#' + material.color.getHexString() });
@@ -49,21 +103,13 @@ function refreshRoughnessPreview() {
   }
   $('preview-roughnessMap').src = cache.previews[key];
 }
-function updatePatternNote() {
-  if ($('materialType').value !== 'pattern') return;
-  const info = embeddedDensity.map;
-  if (!files.map) $('sizeNote').textContent = '上传基础颜色贴图后自动读取 DPI，按像素 ÷ DPI × 2.54 换算厘米尺寸。';
-  else if (!info) $('sizeNote').textContent = '基础颜色贴图未记录有效 DPI，保留当前尺寸，请手动填写实际宽高（cm）。';
-  else if (![info.widthCm, info.heightCm].every(v => v >= .01 && v <= 100000)) $('sizeNote').textContent = 'DPI 换算尺寸超出 0.01–100000 cm，请手动填写有效宽高。';
-  else $('sizeNote').textContent = `${info.pixelWidth} × ${info.pixelHeight} px · ${Number(info.dpiX.toFixed(2))} × ${Number(info.dpiY.toFixed(2))} DPI。${physical.sizeSource === 'dpi' ? '已自动换算实际厘米尺寸。' : '当前使用手动厘米尺寸。'}`;
-}
-function applyPatternDpi() {
+function applyBaseColorDpi() {
   const info = embeddedDensity.map;
   if (info && [info.widthCm, info.heightCm].every(v => v >= .01 && v <= 100000)) {
     physical = { ...physical, widthCm: info.widthCm, heightCm: info.heightCm, mode: 'physical', sizeSource: 'dpi', fallbackDpi: null };
     density.map = info;
-  } else physical = { ...physical, mode: 'physical', sizeSource: 'manual' };
-  syncPhysicalControls(); updatePatternNote();
+  } else physical = { ...physical, mode: $('materialType').value === 'pattern' ? 'physical' : physical.mode, sizeSource: 'manual' };
+  syncPhysicalControls();
 }
 
 function syncSurfaceControls() {
@@ -89,7 +135,7 @@ function syncPhysicalControls() {
   const pattern = $('materialType').value === 'pattern';
   $('physicalControls').hidden = !pattern && physical.mode !== 'physical';
   $('repeatControls').hidden = pattern || physical.mode !== 'legacy';
-  updatePatternNote(); updatePatternPreview();
+  updatePatternPreview();
 }
 function syncMaterialType() {
   const pattern = $('materialType').value === 'pattern';
@@ -97,17 +143,11 @@ function syncMaterialType() {
   $('fabricCategoryRow').hidden = pattern;
   $('sizing').closest('label').hidden = pattern; $('repeatControls').hidden = pattern || physical.mode !== 'legacy';
   $('physicalControls').hidden = !pattern && physical.mode !== 'physical';
-  $('spherePreview').disabled = pattern;
   $('materialCanvas').hidden = pattern; $('patternPreview').hidden = !pattern;
-  document.querySelector('.preview-controls').hidden = pattern;
-  for (const selector of ['.preview-copy', '#sizeNote', '#pbrHeading', '.pbr-help', '.pbr-columns']) document.querySelector(selector).hidden = pattern;
+  $('pbrHeading').hidden = pattern;
   document.body.classList.toggle('pattern-editing', pattern);
   controls.enabled = !pattern;
-  document.querySelector('.preview-copy h1').innerHTML = pattern ? '图案二维预览' : '从一束光，<br>看见材质的细节。';
-  document.querySelector('.preview-copy p').textContent = pattern ? '按实际宽高比例展示，上方为宽度，右侧为高度。' : '独立编辑 PBR 材质，保存后在设计台中使用。';
-  $('readDpi').hidden = pattern;
-  $('sizeNote').textContent = pattern ? '图案只贴一张，宽高为贴在模型上的实际厘米尺寸。' : '面料按厘米尺寸或原始 UV 重复平铺。';
-  updatePatternNote(); updatePatternPreview();
+  updatePatternPreview();
 }
 function configureMaps() {
   for (const [key, , , color] of MATERIAL_MAPS) {
@@ -124,6 +164,21 @@ function configureMaps() {
   material.needsUpdate = true;
   updatePatternPreview();
 }
+function fillFabricPreview() {
+  const distance = camera.position.distanceTo(controls.target);
+  const height = 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * 1.02;
+  const width = height * camera.aspect;
+  plane.position.set(controls.target.x, controls.target.y, 0);
+  plane.scale.set(width / 100, height / 100, 1);
+  for (let i = 0; i < previewPositions.count; i++) {
+    const x = plane.position.x + previewPositions.getX(i) * plane.scale.x + 50;
+    const y = plane.position.y + previewPositions.getY(i) * plane.scale.y + 50;
+    previewUv.setXY(i, x / 100, y / 100);
+    previewPhysicalUv.setXY(i, x, y);
+  }
+  previewUv.needsUpdate = true;
+  previewPhysicalUv.needsUpdate = true;
+}
 function removeMap(key) {
   tokens[key] = (tokens[key] || 0) + 1;
   material[key]?.dispose(); material[key] = null;
@@ -133,8 +188,8 @@ function removeMap(key) {
   $('upload-' + key).classList.remove('has-image'); $('remove-' + key).disabled = true;
   material.needsUpdate = true; dirty = true;
   if (key === 'roughnessMap') { applySurface(material, { roughnessInvert: false }); syncSurfaceControls(); }
-  if (key === 'map' && $('materialType').value === 'pattern') { physical.sizeSource = 'manual'; updatePatternNote(); }
-  updatePatternPreview();
+  if (key === 'map') { physical.sizeSource = 'manual'; configureMaps(); }
+  else updatePatternPreview();
 }
 async function uploadMap(key, file, restoring = false) {
   if (!/\.(png|jpe?g|webp|bmp)$/i.test(file.name) && !['image/png', 'image/jpeg', 'image/webp', 'image/bmp', 'image/x-ms-bmp'].includes(file.type)) throw new Error('请选择 PNG、JPG、WebP 或 BMP 图片');
@@ -153,12 +208,13 @@ async function uploadMap(key, file, restoring = false) {
     material[key]?.dispose();
     if (urls[key]) URL.revokeObjectURL(urls[key]);
     material[key] = texture; files[key] = file; urls[key] = url;
-    density[key] = physicalSizeFromDensity(meta, texture.image.width, texture.image.height, physical.fallbackDpi);
-    embeddedDensity[key] = physicalSizeFromDensity(meta, texture.image.width, texture.image.height);
+    const sourceWidth = originalFile.imageWidth || texture.image.width;
+    const sourceHeight = originalFile.imageHeight || texture.image.height;
+    density[key] = physicalSizeFromDensity(meta, sourceWidth, sourceHeight, physical.fallbackDpi);
+    embeddedDensity[key] = physicalSizeFromDensity(meta, sourceWidth, sourceHeight);
     if (!restoring) {
       delete legacyMaps[key];
-      if ($('materialType').value === 'pattern') { if (key === 'map') applyPatternDpi(); }
-      else if (!density[key] && physical.sizeSource === 'dpi') { physical.sizeSource = 'manual'; $('sizeNote').textContent = '新贴图没有 DPI，已改用当前手动厘米尺寸。'; }
+      if (key === 'map') applyBaseColorDpi();
       if (key === 'map') material.color.set('#ffffff');
       if (key === 'roughnessMap') { material.roughness = 1; applySurface(material, { roughnessGrayscale: true, roughnessInvert: false }); }
       if (key === 'metalnessMap') material.metalness = 1;
@@ -255,7 +311,11 @@ function buildPbrRows() {
     async function uploadFiles(list) {
       if (!list.length) return;
       if (list.length !== 1) return status('每个贴图通道请一次上传一张图片');
-      try { await uploadMap(key, list[0]); status($('materialType').value === 'pattern' && key === 'map' && !embeddedDensity.map ? '贴图未记录有效 DPI，请手动填写厘米尺寸' : '已载入 ' + list[0].name); } catch (error) { status(error.message); }
+      try {
+        await uploadMap(key, list[0]);
+        const validDpi = embeddedDensity.map && [embeddedDensity.map.widthCm, embeddedDensity.map.heightCm].every(v => v >= .01 && v <= 100000);
+        status(key === 'map' && !validDpi ? '图片未记录有效 DPI，已保留当前厘米尺寸' : '');
+      } catch (error) { status(error.message); }
     }
     input.onchange = () => { const list = [...input.files]; input.value = ''; uploadFiles(list); };
     let depth = 0;
@@ -272,22 +332,49 @@ function buildPbrRows() {
 async function init() {
   renderer = new THREE.WebGLRenderer({ canvas: $('materialCanvas'), antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
-  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = .75;
   scene = new THREE.Scene(); scene.background = new THREE.Color('#eef2f6');
   const pmrem = new THREE.PMREMGenerator(renderer), room = new RoomEnvironment();
   scene.environment = pmrem.fromScene(room, .04).texture; room.dispose(); pmrem.dispose();
-  camera = new THREE.PerspectiveCamera(35, 1, .1, 2000); camera.position.set(160, 75, 240);
-  controls = new OrbitControls(camera, $('materialCanvas')); controls.enableDamping = true; controls.minDistance = 100; controls.maxDistance = 600;
+  camera = new THREE.PerspectiveCamera(35, 1, .1, 2000); camera.position.set(0, 0, 120);
+  controls = new OrbitControls(camera, $('materialCanvas'));
+  // The material editor is a flat-surface inspection window. Keep the camera
+  // fixed toward the plane so dragging can only move the surface, never orbit
+  // around it. The wheel changes zoom within the bounds below.
+  controls.enableDamping = true;
+  controls.enableRotate = false;
+  controls.enablePan = true;
+  controls.screenSpacePanning = true;
+  controls.minDistance = 20; controls.maxDistance = 300;
+  controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+  controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
+  controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
+  controls.touches.ONE = THREE.TOUCH.PAN;
   scene.add(new THREE.HemisphereLight(0xffffff, 0x8798ad, 2));
   const key = new THREE.DirectionalLight(0xfff4e7, 3); key.position.set(80, 150, 150); scene.add(key);
-  sphere = new THREE.Mesh(new THREE.SphereGeometry(50, 80, 48), material);
-  plane = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), material); plane.visible = false;
-  preparePhysicalUV(sphere); preparePhysicalUV(plane); scene.add(sphere, plane);
-  new ResizeObserver(() => { const { width, height } = $('previewPane').getBoundingClientRect(); renderer.setSize(width, height, false); camera.aspect = width / Math.max(height, 1); camera.updateProjectionMatrix(); }).observe($('previewPane'));
-  renderer.setAnimationLoop(() => { if ($('materialType').value === 'pattern') return; controls.update(); renderer.render(scene, camera); });
+  plane = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), material); plane.visible = true;
+  preparePhysicalUV(plane); scene.add(plane);
+  previewPositions = plane.geometry.attributes.position;
+  previewUv = plane.geometry.attributes.uv;
+  previewPhysicalUv = plane.geometry.attributes.uv2;
+  new ResizeObserver(() => {
+    const { width, height } = $('previewPane').getBoundingClientRect();
+    renderer.setSize(width, height, false);
+    camera.aspect = width / Math.max(height, 1);
+    camera.updateProjectionMatrix();
+  }).observe($('previewPane'));
+  renderer.setAnimationLoop(() => {
+    if ($('materialType').value === 'pattern') return;
+    controls.update(); fillFabricPreview();
+    renderer.render(scene, camera);
+  });
   buildPbrRows();
+  initEditorScrollbar();
   for (const id of ['color', 'emissive', 'flip']) $(id).oninput = updateSurface;
-  $('materialType').onchange = () => { if ($('materialType').value === 'pattern') applyPatternDpi(); syncMaterialType(); configureMaps(); dirty = true; };
+  $('materialType').onchange = () => {
+    if ($('materialType').value === 'pattern') physical.mode = 'physical';
+    syncMaterialType(); syncPhysicalControls(); configureMaps(); dirty = true;
+  };
   document.querySelectorAll('[data-material-type]').forEach(button => { button.onclick = () => { if ($('materialType').value === button.dataset.materialType) return; $('materialType').value = button.dataset.materialType; $('materialType').dispatchEvent(new Event('change')); }; });
   for (const id of ['name', 'category']) $(id).oninput = () => { dirty = true; };
   for (const id of ['widthCm', 'heightCm', 'angle', 'sizing', 'repeatU', 'repeatV']) $(id).onchange = () => {
@@ -298,17 +385,6 @@ async function init() {
       physical = next; repeat = nextRepeat; legacyMaps = {}; configureMaps(); dirty = true;
     } catch (error) { status(error.message); }
     syncPhysicalControls();
-  };
-  $('readDpi').onclick = () => {
-    if (!density.map) return status('基础颜色贴图没有有效 DPI，请手动填写厘米尺寸');
-    if (MATERIAL_MAPS.some(([key]) => files[key] && !density[key])) return status('部分贴图没有有效 DPI，请使用手动厘米尺寸');
-    physical = { ...physical, widthCm: density.map.widthCm, heightCm: density.map.heightCm, mode: 'physical', sizeSource: 'dpi' };
-    configureMaps(); syncPhysicalControls(); dirty = true;
-    $('sizeNote').textContent = `${density.map.dpiX.toFixed(2)} × ${density.map.dpiY.toFixed(2)} DPI；各贴图按各自 DPI 铺贴。`;
-  };
-  for (const [id, isSphere] of [['spherePreview', true], ['planePreview', false]]) $(id).onclick = () => {
-    sphere.visible = isSphere; plane.visible = !isSphere; camera.position.set(isSphere ? 160 : 0, isSphere ? 75 : 0, 240); controls.target.set(0, 0, 0); controls.update();
-    $('spherePreview').setAttribute('aria-pressed', String(isSphere)); $('planePreview').setAttribute('aria-pressed', String(!isSphere));
   };
   $('saveMaterial').onclick = async () => {
     $('saveMaterial').disabled = true;

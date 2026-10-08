@@ -1,0 +1,27 @@
+/* Project library reuses the asset library chrome and card proportions. */
+.project-library-page .library-switcher a{min-width:92px}
+.project-library-page .project-main{padding-bottom:40px}
+.project-card{grid-template-rows:auto 44px!important;min-height:0;overflow:visible!important;background:#fff!important;box-shadow:0 7px 16px #45698524;cursor:pointer}
+.project-card:focus-visible{outline:2px solid #77a9f7;outline-offset:2px}
+.project-card .asset-art{position:relative;display:grid;place-items:center;aspect-ratio:4/3!important;background:linear-gradient(135deg,#e9f2fc,#dbe8f5)!important}
+.project-card .asset-art img{object-fit:cover!important}
+.project-preview-fallback{display:grid;place-items:center;width:76px;height:76px;border:1px solid #ffffffc7;border-radius:22px;background:#edf5ff;color:#4b82dd;box-shadow:inset 0 1px 0 #fff,0 10px 22px #4776a524}
+.project-preview-fallback svg{width:38px;height:38px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.project-card .asset-info{display:flex;align-items:center;gap:8px;padding:8px 14px 9px!important;background:transparent}
+.project-card .asset-info h2{flex:1;min-width:0;margin:0;color:#2b415b;font-size:14px;line-height:20px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.project-card .project-more{position:absolute;right:10px;bottom:10px;z-index:4;display:grid;place-items:center;align-self:end;width:28px;height:28px;margin:0;padding:0;border:0;border-radius:7px;background:transparent;color:#6f87a3;font-size:23px;font-weight:700;line-height:1;letter-spacing:0;cursor:pointer}
+.project-card .project-more:hover,.project-card .project-more:active,.project-card .project-more[aria-expanded=true]{color:#2f71ee;background:transparent;box-shadow:none}
+.project-menu{position:absolute;top:auto;right:10px;bottom:45px;z-index:8;width:144px;padding:5px;border:1px solid #d6e0eb;border-radius:10px;background:#fff;box-shadow:0 8px 28px #23394d25}
+.project-menu button{display:block;box-sizing:border-box;width:100%;padding:7px 10px;border:0;border-radius:6px;background:transparent;color:#2b415b;text-align:left;font-size:12px;line-height:20px;cursor:pointer}
+.project-menu button:hover,.project-menu button:focus-visible{background:#edf3ff;color:#2366cd;outline:none}
+.project-menu .project-delete{color:#cc4656;border-top:1px solid #eef1f5;border-radius:0 0 6px 6px}
+.project-library-page .project-view-switcher a[aria-selected=true]{color:#2465d2;background:#ffffff62;box-shadow:inset 0 0 0 1px #ffffffaa,0 2px 8px #3978ed1c}
+.project-empty{display:grid;place-items:center;gap:8px;min-height:300px;padding:30px;border:1px dashed #c9d9e9;border-radius:17px;background:#ffffff78;color:#6e829a;text-align:center}
+.project-empty strong{font-size:18px;color:#3c536d}.project-empty span{font-size:12px;color:#8b9caf}
+.project-library-page .project-main{scrollbar-width:none}.project-library-page .project-main::-webkit-scrollbar{display:none;width:0;height:0}
+.project-library-page #projectGrid{perspective:1200px;transform-style:preserve-3d}
+.project-library-page #projectGrid.page-turn-next{animation:project-page-turn-next .42s cubic-bezier(.2,.78,.28,1) both;transform-origin:left center}
+.project-library-page #projectGrid.page-turn-previous{animation:project-page-turn-previous .42s cubic-bezier(.2,.78,.28,1) both;transform-origin:right center}
+@keyframes project-page-turn-next{0%{opacity:.2;transform:translateX(48px) rotateY(-8deg) scale(.985)}55%{opacity:1;transform:translateX(-5px) rotateY(1deg) scale(1.002)}100%{opacity:1;transform:none}}
+@keyframes project-page-turn-previous{0%{opacity:.2;transform:translateX(-48px) rotateY(8deg) scale(.985)}55%{opacity:1;transform:translateX(5px) rotateY(-1deg) scale(1.002)}100%{opacity:1;transform:none}}
+@media(max-width:700px){.project-library-page .library-switcher a{min-width:0}.project-card{grid-template-rows:auto 36px!important}.project-card .asset-info{padding:6px 8px 7px!important}.project-card .asset-info h2{font-size:12px}.project-card .project-more{right:10px;bottom:10px;width:28px;height:28px}}

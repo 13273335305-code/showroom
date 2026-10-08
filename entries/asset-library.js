@@ -3,7 +3,9 @@ import { listAssets, getAsset, saveAsset, deleteAsset } from '../shared/asset-st
 import { materialType } from '../shared/material-placement.js';
 import { packMaterial, unpackMaterial } from '../shared/material-package.js';
 import { createAssetLoading } from '../shared/asset-loading.js';
+import { requireAuth } from '../shared/auth.js';
 const $ = id => document.getElementById(id);
+await requireAuth({ feature: 'assets' });
 const libraryNames = { fabric: '\u9762\u6599\u5e93', pattern: '\u56fe\u6848\u5e93', model: '\u6a21\u578b\u5e93' };
 const libraryType = asset => asset.kind === 'folder' ? asset.library || 'fabric' : asset.kind === 'model' ? 'model' : asset.kind === 'texture' ? 'pattern' : materialType(asset);
 let assets = [], renderVersion = 0, activeLibrary = 'fabric', activeFolderId = null, openMenu, searchQuery = '';
@@ -647,6 +649,10 @@ async function refresh() {
 }
 const tabs = [...document.querySelectorAll('[data-library]')];
 function selectLibrary(type, { updateUrl = true } = {}) {
+  const previousIndex = tabs.findIndex(tab => tab.dataset.library === activeLibrary);
+  const nextIndex = tabs.findIndex(tab => tab.dataset.library === type);
+  const pageDirection = nextIndex >= previousIndex ? 'next' : 'previous';
+  const changed = type !== activeLibrary;
   if (type !== activeLibrary) activeFolderId = null;
   activeLibrary = type;
   if (updateUrl) {
@@ -661,6 +667,14 @@ function selectLibrary(type, { updateUrl = true } = {}) {
     $('assetCategory').hidden = type === 'model';
   }
   render();
+  if (changed) animateCardPage($('assetGrid'), pageDirection);
+}
+function animateCardPage(host, direction) {
+  if (!host) return;
+  host.classList.remove('page-turn-next', 'page-turn-previous');
+  void host.offsetWidth;
+  host.classList.add(direction === 'previous' ? 'page-turn-previous' : 'page-turn-next');
+  window.setTimeout(() => host.classList.remove('page-turn-next', 'page-turn-previous'), 440);
 }
 for (const [index, tab] of tabs.entries()) {
   tab.onclick = event => { event.preventDefault(); selectLibrary(tab.dataset.library); };

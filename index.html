@@ -1,5 +1,5 @@
 ﻿<!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="home-page-root">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="workspace.css">
   <link rel="stylesheet" href="header.css">
   <link rel="stylesheet" href="home.css">
+  <link rel="stylesheet" href="login.css?v=20261008-circle-centered">
 </head>
 <body class="home-page">
   <header class="topbar">
@@ -17,11 +18,6 @@
       <span class="brand-divider"></span>
       <strong class="brand-title">工作空间</strong>
     </a>
-    <nav class="app-navigation" aria-label="工作空间入口">
-      <a href="./design.html">设计台</a>
-      <a href="./material-editor.html">材质编辑器</a>
-      <a href="./asset-library.html">资产库</a>
-    </nav>
     <div class="header-actions"><span class="local-badge"><i></i>本地工作空间</span></div>
   </header>
 
@@ -35,21 +31,28 @@
       <a class="workspace-card design-card" href="./design.html">
         <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M9 34 28 15l6 6-19 19H9v-6Z"/><path d="m29 14 3-3a4.2 4.2 0 0 1 6 6l-3 3M14 40h25"/></svg></span>
         <span class="card-copy"><strong>设计台</strong><span>进入三维设计台，预览模型并应用材质。</span></span>
-        <span class="card-arrow" aria-hidden="true">↗</span>
       </a>
       <a class="workspace-card material-card" href="./material-editor.html">
         <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 7 39 16v16L24 41 9 32V16L24 7Z"/><path d="m9 16 15 9 15-9M24 25v16"/></svg></span>
         <span class="card-copy"><strong>材质编辑器</strong><span>制作和调整 PBR 材质，保存到资产库。</span></span>
-        <span class="card-arrow" aria-hidden="true">↗</span>
       </a>
       <a class="workspace-card asset-card-home" href="./asset-library.html">
         <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M7 14a4 4 0 0 1 4-4h10l4 5h12a4 4 0 0 1 4 4v17a4 4 0 0 1-4 4H11a4 4 0 0 1-4-4V14Z"/><path d="M7 19h34"/></svg></span>
         <span class="card-copy"><strong>资产库</strong><span>集中管理材质、贴图和模型资产。</span></span>
-        <span class="card-arrow" aria-hidden="true">↗</span>
+      </a>
+      <a class="workspace-card project-card-home" href="./project-library.html">
+        <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M8 14a4 4 0 0 1 4-4h10l4 5h10a4 4 0 0 1 4 4v17a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V14Z"/><path d="M8 20h32M17 28h14M17 34h9"/></svg></span>
+        <span class="card-copy"><strong>项目库</strong><span>保存和继续设计台中的完整项目。</span></span>
       </a>
     </section>
   </main>
   <footer class="home-footer"><span>本地优先 · 数据保存在当前浏览器</span><span>Spenic showroom</span></footer>
+  <div class="home-scrollbar" aria-hidden="true"><span class="home-scrollbar-thumb"></span></div>
+  <script src="home-scrollbar.js" defer></script>
+  <script type="module">
+    import { requireAuth } from './shared/auth.js';
+    await requireAuth({ feature: 'workspace' });
+  </script>
   <script>
     if (new URLSearchParams(location.search).has('asset')) location.replace('./design.html' + location.search + location.hash);
   </script>
