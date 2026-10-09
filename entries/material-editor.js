@@ -283,7 +283,7 @@ async function saveMaterialWithPreview() {
     const values = previewGenerationValues(), dataUrl = previewCrop(material.map?.image, values.widthPx, values.heightPx, values.widthCm, values.heightCm);
     const preview = await previewBlobFromDataUrl(dataUrl);
     const current = assetId ? await getAsset(assetId) : null;
-    if (current) libraryMetadata = { description: current.description, designInfo: current.designInfo, supplier: current.supplier, favorite: current.favorite };
+    if (current) libraryMetadata = { ...libraryMetadata, description: current.description, designInfo: current.designInfo, supplier: current.supplier, parentId: current.parentId, revision: libraryMetadata.revision || current.revision };
     const asset = currentAsset({ preview, previewInfo: preview ? { widthCm: values.widthCm, heightCm: values.heightCm, widthPx: values.widthPx, heightPx: values.heightPx } : null });
     const saved = await saveAsset(asset);
     savedPreview = saved.preview || null; savedPreviewInfo = saved.previewInfo || null;
@@ -340,7 +340,7 @@ async function restoreAsset() {
   if (!id) return;
   const asset = await getAsset(id);
   if (!asset) throw new Error('资产不存在，可能已被删除');
-  libraryMetadata = { description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, favorite: asset.favorite };
+  libraryMetadata = { description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, parentId: asset.parentId, revision: asset.revision };
   savedPreview = asset.preview || null; savedPreviewInfo = asset.previewInfo || null;
   if (asset.kind === 'texture') { $('name').value = asset.name.replace(/\.[^.]+$/, ''); $('materialType').value = 'pattern'; await uploadMap('map', asset.file); syncMaterialType(); return; }
   if (asset.kind !== 'material') throw new Error('请从资产库选择材质或贴图');

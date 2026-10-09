@@ -17,7 +17,7 @@ const root = path.resolve(__dirname, '..');
   let packageRequests = 0;
   const server = http.createServer(async (req, res) => {
     const pathname = new URL(req.url, 'http://localhost').pathname;
-    if (pathname === '/shared/auth.js') { res.setHeader('Content-Type', 'text/javascript'); res.end('export async function requireAuth() {}\nexport const authState = () => null;'); return; }
+    if (pathname === '/shared/auth.js') { res.setHeader('Content-Type', 'text/javascript'); res.end('export async function requireAuth() {}\nexport const authState = () => ({id:"11111111-1111-1111-1111-111111111111"});'); return; }
     if (pathname === '/assets/builtin/manifest.json') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(manifest)); return; }
     if (pathname === '/assets/builtin/fixture.formmat') { packageRequests++; res.end(bytes); return; }
     if (pathname === '/assets/builtin/runtime/fixture/material.json') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ format: 'SPENIC-MATERIAL-RUNTIME', version: 1, sourceVersion: 'v1', surface: { color: '#ffffff', roughness: .65 }, physical: { mode: 'physical', sizeSource: 'manual', widthCm: 10, heightCm: 8 }, maps: { map: { url: 'map.png', type: 'image/png', prepared: true } } })); return; }
@@ -40,6 +40,7 @@ const root = path.resolve(__dirname, '..');
   try {
     browser = await chromium.launch({ headless: true, channel: process.env.BROWSER_CHANNEL || 'msedge' });
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } }), requests = [], errors = [];
+    await require('./project-test-server.cjs').installProjectFixture(context);
     context.on('request', req => requests.push(req.url()));
     await context.addInitScript(() => {
       window.holdDecodes = !sessionStorage.getItem('decoded-test'); window.pendingDecodes = [];
@@ -68,7 +69,7 @@ const root = path.resolve(__dirname, '..');
     await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.getElementById('fabricPreviewDialog').open);
     const indexCheck = await page.evaluate(async () => {
       const store = await import('./shared/asset-store.js'), items = await store.listAssets();
-      await store.updateAsset('legacy', { name: '旧面料改名', favorite: true });
+      await store.updateAsset('legacy', { favorite: true });
       return items.every(item => !('maps' in item) && !('runtimeMaps' in item) && !('file' in item));
     });
     assert.equal(indexCheck, true); assert.equal(packageRequests, 0, 'Metadata edits do not hydrate a material');
@@ -87,8 +88,8 @@ const root = path.resolve(__dirname, '..');
       const { saveAsset } = await import('./shared/asset-store.js');
       const preview = await (await fetch('./assets/builtin/previews/fixture.png')).blob();
       for (let i = 0; i < 65; i++) await saveAsset({ id: 'local-' + i, kind: 'material', name: '分页面料' + String(i).padStart(2, '0'), category: i % 2 ? '边布' : '面布', preview, maps: {} });
-      await saveAsset({ id: 'folder', kind: 'folder', name: '测试文件夹', library: 'fabric' });
-      await saveAsset({ id: 'child', kind: 'material', name: '文件夹面料', parentId: 'folder', preview, maps: {} });
+      const folder = await saveAsset({ kind: 'folder', name: '测试文件夹', library: 'fabric' }); window.folderFixtureId = folder.id;
+      await saveAsset({ kind: 'material', name: '文件夹面料', parentId: folder.id, preview, maps: {} });
     });
     await page.reload(); await page.waitForFunction(() => document.getElementById('assetPanel').getAttribute('aria-busy') === 'false');
     assert.equal(await page.locator('.asset-card').count(), 30); assert.equal(await page.locator('.pagination-count').count(), 0, 'Pagination does not show an item count');
@@ -102,7 +103,7 @@ const root = path.resolve(__dirname, '..');
     await page.waitForFunction(() => document.getElementById('assetPanel').getAttribute('aria-busy') === 'false');
     assert.equal(await page.locator('.asset-card').count(), 1); assert.equal(await page.locator('#assetPagination [aria-current=page]').textContent(), '1');
     await page.locator('#assetSearch').fill(''); await page.waitForFunction(() => document.querySelectorAll('.asset-card').length === 30 && document.getElementById('assetPanel').getAttribute('aria-busy') === 'false');
-    await page.locator('[data-asset-id=folder] .asset-art').click(); await page.waitForFunction(() => document.getElementById('assetPanel').getAttribute('aria-busy') === 'false');
+    await page.locator('.asset-folder .asset-art').click(); await page.waitForFunction(() => document.getElementById('assetPanel').getAttribute('aria-busy') === 'false');
     assert.equal(await page.locator('.asset-card').count(), 1); assert.equal(await page.locator('.asset-card h2').textContent(), '文件夹面料');
     await page.locator('#libraryBack').click(); await page.waitForFunction(() => document.getElementById('assetPanel').getAttribute('aria-busy') === 'false');
     const glass = await page.locator('#assetPagination').evaluate(el => ({ position: getComputedStyle(el).position, blur: getComputedStyle(el).backdropFilter, bottom: el.getBoundingClientRect().bottom, height: innerHeight }));
@@ -113,16 +114,18 @@ const root = path.resolve(__dirname, '..');
     assert.equal(packageRequests, 0, 'Paging, search and folders never download PBR packages');
     // Upgrade an existing version-1 database without losing original files.
     const migrationContext = await browser.newContext(); const migration = await migrationContext.newPage();
+    await require('./project-test-server.cjs').installProjectFixture(migrationContext);
     await migration.goto(base + '/setup.html');
     await migration.evaluate(async () => {
       const db = await new Promise((resolve, reject) => { const r = indexedDB.open('spenic-workspace-assets', 1); r.onupgradeneeded = () => r.result.createObjectStore('assets', { keyPath: 'id' }); r.onsuccess = () => resolve(r.result); r.onerror = reject; });
       await new Promise((resolve, reject) => { const tx = db.transaction('assets', 'readwrite'); tx.objectStore('assets').put({ id: 'migrated', kind: 'material', name: '升级前面料', maps: { map: new Blob(['original']) } }); tx.oncomplete = resolve; tx.onerror = reject; }); db.close();
     });
     await migration.goto(base + '/asset-library.html'); await migration.waitForFunction(() => document.getElementById('assetPanel').getAttribute('aria-busy') === 'false');
-    assert.equal(await migration.locator('.asset-card').count(), 3);
+    assert.equal(await migration.locator('.asset-card').count(), 2, 'Old local uploads are not published automatically');
     assert.equal(await migration.evaluate(async () => (await (await import('./shared/asset-store.js')).getAsset('migrated')).maps.map.text()), 'original');
     // The real design picker must hydrate the selected material before handing it to the scene.
     const pickerContext = await browser.newContext(), pickerPage = await pickerContext.newPage();
+    await require('./project-test-server.cjs').installProjectFixture(pickerContext);
     pickerPage.on('pageerror', e => errors.push(e.message));
     await pickerPage.goto(base + '/design-fixture.html');
     await pickerPage.evaluate(async () => {

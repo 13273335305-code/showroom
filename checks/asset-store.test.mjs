@@ -31,7 +31,7 @@ function storage(initial = []) {
     }); return request;
   } }; return stores;
 }
-const freshStore = () => import('../shared/asset-store.js?test=' + crypto.randomUUID());
+const freshStore = () => import('../shared/builtin-asset-store.js?test=' + crypto.randomUUID());
 const definition = (id, version = 'v1') => ({ id, version, name: id, category: '面布', physical: { widthCm: 10, heightCm: 8 }, url: './' + id + '.formmat', runtime: './runtime/' + id + '-' + version + '/material.json', preview: './previews/' + id + '.png' });
 const packageBytes = await (await packMaterial({ kind: 'material', name: '测试', surface: { color: '#ffffff' }, maps: {} })).arrayBuffer();
 

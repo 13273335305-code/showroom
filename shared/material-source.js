@@ -1,4 +1,5 @@
 export function materialSourceReference(asset, key) {
+  if (asset.sourcePackage?.cloud) return { ...asset.sourcePackage, key };
   if (asset.projectRefs?.[key]?.kind === 'runtime') return asset.projectRefs[key].reference;
   if (!asset.runtimeUrl) return null;
   const source = asset.sourcePackage || { id: asset.id, version: asset.builtinVersion, url: asset.packageUrl, name: asset.name };

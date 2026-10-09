@@ -1,4 +1,5 @@
 import { createProjectCloud } from '../shared/project-cloud.js';
+import { retainProjectSources } from '../shared/project-manifest.js';
 
 const userId = '11111111-1111-1111-1111-111111111111';
 async function request(route, options = {}) {
@@ -6,7 +7,7 @@ async function request(route, options = {}) {
   if (!response.ok) throw new Error('Fixture request failed');
   return response;
 }
-const client = {
+export const client = {
   from(table) {
     const filters = {}; let query = {}, operation = 'select';
     const builder = {
@@ -29,7 +30,7 @@ const client = {
 const cloud = createProjectCloud(async () => ({ client, userId }));
 export const listProjects = () => cloud.list();
 export const getProject = id => cloud.read(id);
-export const saveProject = project => cloud.save(project);
+export const saveProject = project => { if (project.manifest) retainProjectSources(project.manifest); return cloud.save(project); };
 export const deleteProject = id => cloud.remove(id);
 export const saveProjectFolder = folder => cloud.save({ ...folder, kind: 'folder' });
 export const renameProject = (id, name) => cloud.update(id, { name });
@@ -37,3 +38,4 @@ export const moveProject = (id, parentId) => cloud.update(id, { parentId });
 export const setProjectVisibility = (id, isPublic) => cloud.visibility(id, isPublic);
 export const uploadProjectResource = file => cloud.upload(file);
 export const downloadProjectResource = reference => cloud.download(reference);
+export const fixtureAccess = async () => ({ client, userId });

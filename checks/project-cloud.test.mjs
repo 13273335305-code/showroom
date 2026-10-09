@@ -68,6 +68,8 @@ test('local previews are published while remote previews keep their URL', async 
   assert.equal(local.file.size, 7); assert.equal(uploaded, 1);
   const remote = await createProjectPreview('https://cdn.test/preview.png', upload);
   assert.equal(remote.url, 'https://cdn.test/preview.png'); assert.equal(uploaded, 1);
+  const reference = { kind: 'cloud', path: owner + '/' + hash, hash, size: 7, name: 'preview.png' };
+  assert.deepEqual(await createProjectPreview(reference, upload), { file: reference }); assert.equal(uploaded, 1);
 });
 
 test('project saves retain revision checks and public projects fork into the current account', async () => {

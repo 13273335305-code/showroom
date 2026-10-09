@@ -24,6 +24,7 @@ const root = path.resolve(__dirname, '..');
       requests.push(pathname);
       if (pathname === '/shared/auth.js') { res.setHeader('Content-Type', 'text/javascript'); res.end('export async function requireAuth() {}\nexport const authState = () => ({id:"11111111-1111-1111-1111-111111111111"});'); return; }
       if (pathname === '/shared/project-store.js') { res.setHeader('Content-Type', 'text/javascript'); res.end(await fs.readFile(path.join(root, 'checks/project-cloud-fixture.js'))); return; }
+      if (pathname === '/shared/asset-cloud-store.js') { res.setHeader('Content-Type', 'text/javascript'); res.end('export const listCloudAssets = async () => []; export const listAssetFavorites = async () => new Set();'); return; }
       if (pathname.startsWith('/__cloud_test/')) {
         const route = pathname.slice('/__cloud_test/'.length), chunks = []; for await (const chunk of req) chunks.push(chunk);
         const body = Buffer.concat(chunks);

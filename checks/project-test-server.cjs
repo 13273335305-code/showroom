@@ -2,9 +2,10 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 
-exports.installProjectFixture = async context => {
-  const projects = new Map(), resources = new Map(), objects = new Map();
-  await context.route('**/shared/project-store.js', async route => route.fulfill({ status: 200, contentType: 'text/javascript', body: await fs.readFile(path.join(__dirname, 'project-cloud-fixture.js'), 'utf8') }));
+exports.installProjectFixture = async (context, { state, userId = '11111111-1111-1111-1111-111111111111' } = {}) => {
+  const { projects, resources, objects, assets, favorites } = state || { projects: new Map(), resources: new Map(), objects: new Map(), assets: new Map(), favorites: new Map() };
+  await context.route('**/shared/project-store.js', async route => route.fulfill({ status: 200, contentType: 'text/javascript', body: (await fs.readFile(path.join(__dirname, 'project-cloud-fixture.js'), 'utf8')).replace("const userId = '11111111-1111-1111-1111-111111111111';", 'const userId = ' + JSON.stringify(userId) + ';') }));
+  await context.route('**/shared/asset-cloud-store.js', async route => route.fulfill({ status: 200, contentType: 'text/javascript', body: await fs.readFile(path.join(__dirname, 'asset-cloud-fixture.js'), 'utf8') }));
   await context.route('**/__cloud_test/**', async route => {
     const request = route.request(), pathname = new URL(request.url()).pathname.slice('/__cloud_test/'.length);
     if (pathname.startsWith('objects/')) {
@@ -13,11 +14,12 @@ exports.installProjectFixture = async context => {
       else { const object = objects.get(key); if (!object) return route.fulfill({ status: 404 }); await route.fulfill({ body: object.body, contentType: object.type || 'application/octet-stream' }); }
       return;
     }
-    const payload = request.postDataJSON(), collection = payload.table === 'spenic_projects' ? projects : resources;
+    const payload = request.postDataJSON(), collection = payload.table === 'spenic_projects' ? projects : payload.table === 'spenic_assets' ? assets : payload.table === 'spenic_asset_favorites' ? favorites : resources;
     if (pathname === 'query') {
-      if (payload.operation === 'upsert') { collection.set(payload.query.row.hash, payload.query.row); return route.fulfill({ json: { data: null } }); }
+      const rowKey = row => row.id || (row.asset_id ? row.owner_id + ':' + row.asset_id : row.storage_path);
+      if (payload.operation === 'upsert') { collection.set(rowKey(payload.query.row), payload.query.row); return route.fulfill({ json: { data: null } }); }
       const rows = [...collection.values()].filter(row => Object.entries(payload.filters).every(([key, value]) => row[key] === value));
-      if (payload.operation === 'delete') rows.forEach(row => collection.delete(row.id));
+      if (payload.operation === 'delete') rows.forEach(row => collection.delete(rowKey(row)));
       const data = payload.query.single ? rows[0] || null : rows.slice(payload.query.start || 0, (payload.query.end ?? 199) + 1);
       return route.fulfill({ json: { data } });
     }
@@ -28,13 +30,15 @@ exports.installProjectFixture = async context => {
         row.visibility = payload.args.make_public ? 'public' : 'personal';
         return route.fulfill({ json: { data: null } });
       }
-      const row = payload.args.project_data, old = projects.get(row.id);
+      const target = payload.name === 'spenic_save_asset' ? assets : projects;
+      const row = payload.args.asset_data || payload.args.project_data, old = target.get(row.id);
+      if (old && old.owner_id !== userId) return route.fulfill({ json: { error: { code: '42501', message: 'Owner required' } } });
       if (old && payload.args.expected_revision !== old.updated_at) return route.fulfill({ json: { error: { code: '40001', message: 'Project changed' } } });
       const next = { ...row, owner_id: payload.userId, created_at: old?.created_at || new Date().toISOString(), updated_at: new Date(Date.now() + projects.size).toISOString() };
-      projects.set(row.id, next);
+      target.set(row.id, next);
       return route.fulfill({ json: { data: next } });
     }
     await route.fulfill({ status: 404 });
   });
-  return { projects, resources, objects };
+  return { projects, resources, objects, assets, favorites };
 };

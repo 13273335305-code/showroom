@@ -200,14 +200,19 @@ body:not(.standalone) .topbar{z-index:30}.header-actions .button{white-space:now
 .capture-panel{display:none;padding:24px 20px 20px;background:#ffffffb8;min-height:100%;color:#253246}
 .design-launch-loading{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;background:linear-gradient(145deg,#f8fbff,#e9f0f7);opacity:1;visibility:visible;transition:opacity .55s ease,visibility 0s linear 0s}
 .design-launch-loading.is-hidden{opacity:0;visibility:hidden;transition:opacity .55s ease,visibility 0s linear .55s}
-.design-launch-card{display:grid;justify-items:center;gap:24px;color:#26384d;text-align:center}
-.design-launch-card strong{font-size:15px;font-weight:650;letter-spacing:.08em;animation:design-launch-breathe 1.5s ease-in-out infinite}
-.design-launch-card span{font-size:11px;color:#8b9bad;letter-spacing:.08em}
-.loading-228{display:inline-flex;gap:5px;margin-bottom:35px;transform:scale(2.2);transform-origin:center}
-.loading-228:before,.loading-228:after{content:"";width:30px;height:20px;border-radius:6px;box-shadow:0 0 0 1.73px inset var(--blue);animation:loading-228 1.5s infinite}
-.loading-228:after{--s:-1}
-@keyframes loading-228{0%{transform:scaleX(var(--s,1)) translate(0) scale(1)}33%{transform:scaleX(var(--s,1)) translate(calc(50% + 2.5px)) scale(1)}66%{transform:scaleX(var(--s,1)) translate(calc(50% + 2.5px)) scale(2)}100%{transform:scaleX(var(--s,1)) translate(0) scale(1)}}
-@keyframes design-launch-breathe{0%,100%{opacity:.45}50%{opacity:1}}
+.design-launch-card{display:grid;justify-items:center;gap:24px;color:#26384d;text-align:center;padding:24px}
+.design-launch-card strong{display:block;max-width:100%;font-size:15px;line-height:22px;font-weight:550;letter-spacing:0}
+@supports ((background-clip:text) or (-webkit-background-clip:text)){
+ .design-launch-card strong{color:transparent;background:linear-gradient(100deg,#5b6878 35%,#b9c3ce 50%,#5b6878 65%);background-size:250% 100%;background-clip:text;-webkit-background-clip:text;animation:design-launch-thinking 2s linear infinite}
+}
+/* Paint at the displayed size to avoid Safari enlarging a cached animation layer. */
+.loading-228{position:relative;width:154px;height:88px}
+.loading-228:before,.loading-228:after{content:"";position:absolute;top:22px;left:5px;width:66px;height:44px;border:4px solid var(--blue);border-radius:13px;animation:loading-228 1.5s ease-in-out infinite}
+.loading-228:after{left:auto;right:5px;animation-name:loading-228-right}
+@keyframes loading-228{0%,100%{left:5px;top:22px;width:66px;height:44px;border-width:4px;border-radius:13px}33%{left:44px;top:22px;width:66px;height:44px;border-width:4px;border-radius:13px}66%{left:11px;top:0;width:132px;height:88px;border-width:8px;border-radius:26px}}
+@keyframes loading-228-right{0%,100%{right:5px;top:22px;width:66px;height:44px;border-width:4px;border-radius:13px}33%{right:44px;top:22px;width:66px;height:44px;border-width:4px;border-radius:13px}66%{right:11px;top:0;width:132px;height:88px;border-width:8px;border-radius:26px}}
+@keyframes design-launch-thinking{from{background-position:200% 0}to{background-position:-50% 0}}
+@media(prefers-reduced-motion:reduce){.loading-228:before,.loading-228:after,.design-launch-card strong{animation:none}.design-launch-card strong{color:#5b6878;background:none}}
 body.capture-mode #capturePanel{display:block}
 body.capture-mode #inspector>.inspector-title,body.capture-mode #inspector>.tabs,body.capture-mode #inspector>.panel-scroll{display:none}
 .capture-panel-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:18px;border-bottom:1px solid #dce6f0}

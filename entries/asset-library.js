@@ -3,7 +3,7 @@ import { listAssets, getAsset, saveAsset, updateAsset, deleteAsset } from '../sh
 import { materialType, assetPage } from '../shared/asset-metadata.js';
 import { unpackMaterialAsync } from '../shared/material-package-loader.js';
 import { createAssetLoading } from '../shared/asset-loading.js';
-import { requireAuth } from '../shared/auth.js';
+import { requireAuth, authState } from '../shared/auth.js';
 import { fitMaterialPreview, assetImageUrl } from '../shared/material-preview.js';
 const $ = id => document.getElementById(id);
 await requireAuth({ feature: 'assets' });
@@ -22,6 +22,7 @@ let fabricTextureRenderToken = 0;
 let fabricTextureState = null;
 const status = message => { $('status').textContent = message; };
 const previewOf = asset => asset?.kind === 'material' ? asset.preview || null : asset.preview || asset.thumbnail || (asset.kind === 'texture' ? asset.file : asset.maps?.map);
+const canEdit = asset => asset?.cloud && asset.ownerId === authState()?.id;
 function imageUrl(blob) { return assetImageUrl(blob); }
 function folderChildren(folderId) { return assets.filter(asset => (asset.parentId || null) === folderId && libraryType(asset) === activeLibrary); }
 function folderById(id) { return assets.find(asset => asset.id === id && asset.kind === 'folder'); }
@@ -69,10 +70,6 @@ function closeMoreMenu() {
   menu.hidden = true; button.setAttribute('aria-expanded', 'false');
 }
 async function removeFolderTree(folder) {
-  for (const child of folderChildren(folder.id)) {
-    if (child.kind === 'folder') await removeFolderTree(child);
-    await deleteAsset(child.id);
-  }
   await deleteAsset(folder.id);
 }
 function folderContains(folderId, ancestorId) {
@@ -92,7 +89,7 @@ function folderLabel(folder) {
 }
 function moveTargets(asset) {
   return assets.filter(candidate => candidate.kind === 'folder' && libraryType(candidate) === libraryType(asset)
-    && candidate.id !== asset.id && !folderContains(candidate.id, asset.id)).sort((a, b) => folderLabel(a).localeCompare(folderLabel(b), 'zh-CN'));
+    && canEdit(candidate) && candidate.id !== asset.id && !folderContains(candidate.id, asset.id)).sort((a, b) => folderLabel(a).localeCompare(folderLabel(b), 'zh-CN'));
 }
 function openMoveDialog(asset) {
   const select = $('moveAssetTarget'); select.replaceChildren();
@@ -163,16 +160,18 @@ function createMenu(asset, card) {
   panel.id = 'menu-' + asset.id; trigger.setAttribute('aria-controls', panel.id);
   const isMaterial = asset.kind === 'material';
   const isModel = asset.kind === 'model';
-  const actions = isModel
+  const actions = canEdit(asset) ? (isModel
     ? [menuLink('配置', './model-parts.html?asset=' + encodeURIComponent(asset.id)), action('移动', () => openMoveDialog(asset))]
-    : [action('编辑', () => editAsset(asset, isMaterial ? 'material' : 'name')), action('移动', () => openMoveDialog(asset))];
+    : [action('编辑', () => editAsset(asset, isMaterial ? 'material' : 'name')), action('移动', () => openMoveDialog(asset))])
+    : isModel ? [menuLink('另存副本', './model-parts.html?asset=' + encodeURIComponent(asset.id))]
+    : asset.kind !== 'folder' ? [menuLink('另存副本', './material-editor.html?asset=' + encodeURIComponent(asset.id))] : [];
   if (isMaterial) actions.push(action(asset.favorite ? '取消收藏' : '收藏', () => toggleFavorite(asset)));
   else if (!isModel && asset.kind !== 'folder') actions.push(action('导出', async () => {
     const full = await getAsset(asset.id);
     if (!full) throw new Error('资产已被删除');
     downloadFile(full.file, full.file.name); for (const file of full.resources || []) downloadFile(file, file.name);
   }));
-  if (!asset.builtin || isMaterial) {
+  if (canEdit(asset)) {
     const remove = action(asset.kind === 'folder' ? '删除文件夹' : '删除', async () => {
     if (!confirm((asset.kind === 'folder' ? '删除文件夹「' : '删除「') + asset.name + '」及其中内容？')) return;
     if (asset.kind === 'folder') await removeFolderTree(asset); else await deleteAsset(asset.id);
@@ -181,6 +180,7 @@ function createMenu(asset, card) {
     });
     remove.classList.add('danger'); actions.push(remove);
   }
+  if (!actions.length) return document.createDocumentFragment();
   panel.append(...actions);
   const items = [...panel.children];
   items.forEach(item => { item.setAttribute('role', 'menuitem'); item.tabIndex = -1; });
@@ -463,8 +463,7 @@ $('assetEditForm').onsubmit = async event => {
       supplier: $('materialEditSupplier').value.trim(),
     } : { [field]: value };
     if (field === 'preview') {
-      const current = await getAsset(id); if (!current) throw new Error('资产已被删除');
-      await saveAsset({ ...current, preview: value });
+      await updateAsset(id, { preview: value });
     } else await updateAsset(id, next);
     $('assetDialog').close(); await refresh(); status('已保存');
   } catch (error) { $('assetEditError').textContent = error.message; }
@@ -757,7 +756,7 @@ $('newFolderForm').onsubmit = async event => {
   const submit = $('newFolderForm').querySelector('button[type=submit]');
   submit.disabled = true; $('newFolderError').textContent = '';
   try {
-    await saveAsset({ kind: 'folder', name, parentId: activeFolderId, library: activeLibrary, children: [] });
+    await saveAsset({ kind: 'folder', name, parentId: canEdit(folderById(activeFolderId)) ? activeFolderId : null, library: activeLibrary, children: [] });
     $('newFolderDialog').close(); currentPage = 1; await refresh(); status('已创建文件夹');
   } catch (error) { $('newFolderError').textContent = error.message; }
   finally { submit.disabled = false; }
@@ -780,7 +779,7 @@ $('assetFiles').onchange = async () => {
         asset = { kind: 'texture', name: file.name, file };
       } else if (resources.includes(file)) continue;
       else throw new Error('不支持的文件类型');
-      asset.parentId = activeFolderId;
+      asset.parentId = canEdit(folderById(activeFolderId)) ? activeFolderId : null;
       const saved = await saveAsset(asset); firstLibrary ??= libraryType(saved); if (saved.kind === 'model' && !importedModelId) importedModelId = saved.id; count++;
     } catch (error) { errors.push(file.name + '：' + error.message); }
   }

@@ -42,6 +42,12 @@ export function validateProjectManifest(config) {
   }
   return config;
 }
+export function retainProjectSources(config) {
+  for (const ref of Object.values(config.files || {})) for (const source of Object.values(ref.reference?.cloud ? ref.reference.files || {} : {})) {
+    config.files['source-files/' + source.path] = source;
+  }
+  return config;
+}
 export async function createProjectResource(file, reference, upload) {
   if (reference?.runtimeUrl) {
     if (localResource(reference.runtimeUrl)) return { ...await upload(await compressImageFile(file, 2048)), prepared: true };
@@ -50,6 +56,7 @@ export async function createProjectResource(file, reference, upload) {
   return upload(file);
 }
 export async function createProjectPreview(preview, upload) {
+  if (preview?.kind === 'cloud') return { file: preview };
   if (typeof preview === 'string') {
     if (!preview.startsWith('blob:') && !localResource(preview)) return { url: webUrl(preview).href };
     preview = await fetchResource(preview, async response => {

@@ -128,7 +128,7 @@ $('saveParts').onclick=async()=>{
  const button=$('saveParts');button.disabled=true;
  try{
   const preview=await captureModelPreview(),next={...asset,name,category:$('modelCategoryInput').value.trim(),partAssignments:assignments,preview,thumbnail:preview};
-  asset=await saveAsset(next);$('partsStatus').textContent='已保存模型配置和预览图';
+  asset=await saveAsset(next);history.replaceState(null,'','?asset='+encodeURIComponent(asset.id));$('partsStatus').textContent='已保存模型配置和预览图';
  }catch(error){$('partsStatus').textContent='保存失败：'+error.message;}
  finally{button.disabled=false;}
 };

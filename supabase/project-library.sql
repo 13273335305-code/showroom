@@ -40,6 +40,13 @@ alter table public.spenic_resource_files enable row level security;
 alter table public.spenic_project_files enable row level security;
 
 -- Avoid recursive RLS evaluation when checking resource access.
+do $$ begin
+  if to_regprocedure('public.spenic_can_read_asset_resource(text)') is null then
+    execute 'create function public.spenic_can_read_asset_resource(text) returns boolean language sql stable security definer set search_path = public as $body$ select false $body$';
+  end if;
+end $$;
+revoke all on function public.spenic_can_read_asset_resource(text) from public, anon;
+grant execute on function public.spenic_can_read_asset_resource(text) to authenticated;
 create or replace function public.spenic_can_read_resource(resource_path text)
 returns boolean language sql stable security definer set search_path = public
 as $$
@@ -47,6 +54,7 @@ as $$
     exists(select 1 from public.spenic_resource_files f where f.storage_path = resource_path and f.owner_id = auth.uid())
     or exists(select 1 from public.spenic_project_files f join public.spenic_projects p on p.id = f.project_id
       where f.storage_path = resource_path and (p.owner_id = auth.uid() or p.visibility = 'public'))
+    or public.spenic_can_read_asset_resource(resource_path)
   );
 $$;
 revoke all on function public.spenic_can_read_resource(text) from public, anon;

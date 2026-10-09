@@ -66,3 +66,59 @@ test('cloud schema enforces project ownership, public resource access, immutable
     assert.equal((await db.query('select * from spenic_projects')).rows.length, 0);
   } finally { await db.close(); }
 });
+
+test('public assets share only published resources, protect authors and retain files used by projects', async () => {
+  const db = new PGlite();
+  const alice = '11111111-1111-1111-1111-111111111111', bob = '22222222-2222-2222-2222-222222222222';
+  const assetId = '33333333-3333-3333-3333-333333333333', folderId = '44444444-4444-4444-4444-444444444444';
+  const hash = 'a'.repeat(64), path = alice + '/' + hash;
+  try {
+    await db.exec(`create role anon; create role authenticated; create schema auth; create schema storage;
+      create table auth.users(id uuid primary key);
+      create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+      create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint);
+      create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text,name text);
+      create function storage.foldername(name text) returns text[] language sql immutable as $$select string_to_array(name,'/')$$;
+      alter table storage.objects enable row level security;
+      grant usage on schema auth,storage to authenticated;
+      grant select,insert,update,delete on storage.objects to authenticated;
+      insert into auth.users values ('${alice}'),('${bob}');`);
+    const projectSql = await readFile(new URL('../supabase/project-library.sql', import.meta.url), 'utf8');
+    const assetSql = await readFile(new URL('../supabase/asset-library.sql', import.meta.url), 'utf8');
+    await db.exec(projectSql); await db.exec(assetSql); await db.exec(assetSql); await db.exec(projectSql);
+    const login = async user => { await db.exec('reset role'); await db.query("select set_config('request.jwt.claim.sub',$1,false)", [user]); await db.exec('set role authenticated'); };
+    const save = async (data, revision = null) => (await db.query('select * from spenic_save_asset($1::jsonb,$2::timestamptz)', [JSON.stringify(data), revision])).rows[0];
+    await login(alice);
+    await db.query('insert into storage.objects(bucket_id,name) values($1,$2) returning *', ['spenic-project-resources', path]);
+    await db.query('insert into spenic_resource_files(owner_id,hash,storage_path,bytes,mime) values($1,$2,$3,3,$4) on conflict (owner_id,hash) do nothing returning *', [alice, hash, path, 'image/png']);
+    await login(bob);
+    assert.equal((await db.query('select * from storage.objects')).rows.length, 0, 'Unpublished resources are private');
+    const ref = { kind: 'cloud', path, hash, size: 3, name: 'map.png' };
+    const data = { id: assetId, kind: 'material', name: 'public fabric', library: 'fabric', metadata: { physical: { widthCm: 12, heightCm: 8 } }, manifest: { format: 'SPENIC-ASSET', version: 1, files: { map: ref }, maps: { map: 'map' }, runtimeMaps: { map: 'map' } }, thumbnail_path: path };
+    await assert.rejects(save({ ...data, id: crypto.randomUUID() }), /Invalid asset resource/);
+    await login(alice); const published = await save(data);
+    await assert.rejects(save({ ...data, name: 'stale' }), /Asset changed/);
+    await login(bob);
+    assert.equal((await db.query('select * from spenic_assets')).rows.length, 1);
+    assert.equal((await db.query('select * from storage.objects')).rows.length, 1);
+    await assert.rejects(save({ ...data, name: 'takeover' }, published.updated_at), /owner required/);
+    await assert.rejects(db.query('update spenic_assets set name=$1 where id=$2', ['overwrite', assetId]), /permission denied/);
+    assert.equal((await db.query('delete from spenic_assets where id=$1 returning *', [assetId])).rows.length, 0);
+    await db.query('insert into spenic_asset_favorites(owner_id,asset_id) values($1,$2) on conflict do nothing returning *', [bob, assetId]);
+    await assert.rejects(db.query('insert into spenic_asset_favorites(owner_id,asset_id) values($1,$2)', [alice, assetId]), /row-level security/);
+    await login(alice); assert.equal((await db.query('select * from spenic_asset_favorites')).rows.length, 0);
+    await save({ id: folderId, kind: 'folder', name: 'folder', library: 'fabric' });
+    await login(bob); await assert.rejects(save({ ...data, id: crypto.randomUUID(), parent_id: folderId }), /Invalid asset folder/);
+    const copyId = crypto.randomUUID(); await save({ ...data, id: copyId });
+    const projectId = crypto.randomUUID();
+    const projectData = { id: projectId, kind: 'project', name: 'using asset', visibility: 'personal', manifest: { format: 'SPENIC-PROJECT', version: 1, files: { map: ref } } };
+    await db.query('select * from spenic_save_project($1::jsonb)', [JSON.stringify(projectData)]);
+    await login(alice); await db.query('delete from spenic_assets where id=$1', [assetId]);
+    await login(bob); await db.query('delete from spenic_assets where id=$1', [copyId]);
+    assert.equal((await db.query('select * from storage.objects')).rows.length, 1, 'Project retains access after all asset records are removed');
+    await db.query('delete from spenic_projects where id=$1', [projectId]);
+    assert.equal((await db.query('select * from storage.objects')).rows.length, 0);
+    await db.exec('reset role; set role anon');
+    await assert.rejects(db.query('select * from spenic_assets'), /permission denied/);
+  } finally { await db.close(); }
+});
