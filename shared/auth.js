@@ -69,10 +69,10 @@ export async function clearAuth() {
 
 function mountAccountAction() {
   const host = document.querySelector('.topbar .header-actions, .asset-top-actions');
+  const placeholder = host?.querySelector('[data-auth-action]');
   accountCleanup?.();
   accountCleanup = null;
-  host?.querySelector('[data-auth-action]')?.remove();
-  if (!document.body.classList.contains('home-page') || !host || !currentIdentity) return;
+  if (!document.body.classList.contains('home-page') || !host || !currentIdentity) { placeholder?.remove(); return; }
   const account = document.createElement('div');
   account.className = 'auth-account'; account.dataset.authAction = 'true';
   const button = document.createElement('button');
@@ -119,13 +119,14 @@ function mountAccountAction() {
       setOpen(true);
     }
   });
-  account.append(button, panel); host.append(account);
+  account.append(button, panel);
+  if (placeholder) placeholder.replaceWith(account); else host.append(account);
 }
 
 const arrow = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13m-6-6 6 6-6 6"></path></svg>';
 function overlayMarkup() {
   const overlay = document.createElement('div');
-  overlay.id = 'authOverlay'; overlay.className = 'auth-overlay';
+  overlay.id = 'authOverlay'; overlay.className = 'auth-overlay auth-overlay-checking';
   overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-labelledby', 'authTitle');
   overlay.innerHTML = `
     <div class="auth-shell">
@@ -239,9 +240,11 @@ function wireOverlay(view, resolve) {
         else { setMode('forgot'); message('邮件链接已失效，请在发起请求的浏览器中重新申请。', true); }
       } else if (identity) { await finish(identity); return; }
       else setMode('login');
+      view.overlay.classList.remove('auth-overlay-checking');
       $('authFooter').textContent = authConfig.allowSignUp ? '新账号需通过邮件确认邮箱。' : '账号由管理员邀请开通。';
     } catch (error) {
       busy = false;
+      view.overlay.classList.remove('auth-overlay-checking');
       if (service) setMode(passwordCallback || callbackError ? 'forgot' : 'login');
       renderBusy(); message(authErrorMessage(error), true); $('authRetry').hidden = false; $('authRetry').disabled = false;
     }

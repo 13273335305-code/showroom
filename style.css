@@ -110,3 +110,5 @@ html,body{font-family:"PingFang SC",PingFangSC,"Microsoft YaHei","Segoe UI",sans
 @media(max-width:760px){.day-cycle{right:12px;top:210px;width:64px;height:58px;border-radius:18px}.day-cycle-art{width:54px;height:48px;border-radius:13px}}
 @media(prefers-reduced-motion:reduce){.day-cycle:hover{transform:none}}
 .viewer-heading h1,.viewer-heading p,.viewer-heading .eyebrow{transition:color .8s,text-shadow .8s}
+.material-preview-empty{position:absolute;inset:0;display:grid;place-items:center;color:#8394a7;background:#eef3f8;font-size:10px}
+.picker-preview-empty{display:grid;place-items:center;width:100%;height:100%;color:#8394a7;background:#eef3f8;font-size:11px}

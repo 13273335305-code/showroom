@@ -42,6 +42,22 @@ $items = @(
         $stream = [IO.File]::OpenRead($file.FullName)
         try { $version = [BitConverter]::ToString($hasher.ComputeHash($stream)).Replace('-', '').ToLowerInvariant() }
         finally { $stream.Dispose(); $hasher.Dispose() }
+        $previewUrl = $null
+        if ($meta.preview) {
+          $previewEntry = $archive.GetEntry($meta.preview.path)
+          $extensions = @{ 'image/png'='.png'; 'image/jpeg'='.jpg'; 'image/webp'='.webp'; 'image/bmp'='.bmp' }
+          if (-not $previewEntry -or $previewEntry.Length -gt 16MB -or -not $extensions.ContainsKey([string]$meta.preview.type)) { throw '预览图缺失、格式无效或过大' }
+          $previewDirectory = Join-Path $BuiltinDirectory 'previews'
+          [IO.Directory]::CreateDirectory($previewDirectory) | Out-Null
+          $previewName = $version + $extensions[[string]$meta.preview.type]
+          $previewPath = Join-Path $previewDirectory $previewName
+          if (-not [IO.File]::Exists($previewPath)) {
+            $inputStream = $previewEntry.Open()
+            $outputStream = [IO.File]::Create($previewPath)
+            try { $inputStream.CopyTo($outputStream) } finally { $outputStream.Dispose(); $inputStream.Dispose() }
+          }
+          $previewUrl = './previews/' + $previewName
+        }
         [ordered]@{
           id = $id
           name = $baseName
@@ -49,13 +65,20 @@ $items = @(
           materialType = $(if ($meta.materialType -eq 'pattern') { 'pattern' } else { 'fabric' })
           url = './' + [Uri]::EscapeDataString($file.Name)
           version = $version
+          preview = $previewUrl
+          previewInfo = $meta.previewInfo
+          physical = $meta.physical
+          surface = $meta.surface
+          description = $meta.description
+          designInfo = $meta.designInfo
+          supplier = $meta.supplier
         }
       } catch { throw ('无法读取“' + $file.Name + '”：' + $_.Exception.Message + '。原清单未改动。') }
       finally { if ($archive) { $archive.Dispose() } }
     }
 )
 # Validate every package before replacing the manifest.
-$json = ConvertTo-Json -InputObject @($items) -Depth 4
+$json = ConvertTo-Json -InputObject @($items) -Depth 8
 [IO.File]::WriteAllText($manifestPath, $json + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 Write-Host ('已更新内置素材清单，共 ' + $items.Count + ' 项。') -ForegroundColor Green
 $items | ForEach-Object { Write-Host ('  ' + $_.name + ' [' + $_.materialType + ' / ' + $_.category + ']') }

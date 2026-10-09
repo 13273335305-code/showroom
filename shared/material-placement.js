@@ -1,6 +1,6 @@
 import { Matrix3 } from '../vendor/three/build/three.module.js';
 
-export const materialType = asset => asset?.materialType === 'pattern' ? 'pattern' : 'fabric';
+export { materialType } from './asset-metadata.js';
 
 export function readPlacement(value = {}) {
   const offset = value.offset || [0, 0], angle = value.angle ?? 0;

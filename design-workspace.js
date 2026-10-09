@@ -1,6 +1,7 @@
-import { listAssets } from './shared/asset-store.js';
+import { listAssets, getAsset } from './shared/asset-store.js';
 import { materialType } from './shared/material-placement.js';
 import { createAssetLoading } from './shared/asset-loading.js';
+import { fitMaterialPreview, assetImageUrl } from './shared/material-preview.js';
 
 const $ = id => document.getElementById(id);
 export function createDesignWorkspace(api) {
@@ -274,8 +275,8 @@ export function createDesignWorkspace(api) {
       if (isFolder) {
         const icon = document.createElement('span'); icon.className = 'picker-folder-icon'; icon.setAttribute('aria-hidden', 'true'); art.append(icon);
       }
-      else if (asset.thumbnail || asset.maps?.map) { const img = document.createElement('img'); img.alt = ''; img.src = URL.createObjectURL(asset.thumbnail || asset.maps.map); urls.push(img.src); art.append(img); }
-      else if (/^#[\da-f]{6}$/i.test(asset.surface?.color)) art.style.background = asset.surface.color;
+      else if (asset.preview) { const img = document.createElement('img'); img.alt = ''; img.src = assetImageUrl(asset.preview); fitMaterialPreview(img, asset.previewInfo); art.style.position = 'relative'; urls.push(img.src); art.append(img); }
+      else { const empty = document.createElement('span'); empty.className = 'picker-preview-empty'; empty.textContent = '无预览图'; art.append(empty); }
       const info = document.createElement('div'); info.className = 'picker-card-info';
       const name = document.createElement('span'); name.className = 'picker-card-name'; name.textContent = asset.name; name.title = asset.name;
       info.append(name); card.append(art, info); grid.append(card);
@@ -345,7 +346,8 @@ export function createDesignWorkspace(api) {
     closePickerCategory(); pickerAdding = true; syncPickerSelection();
     try {
       for (const [id, asset] of [...pickerSelected]) {
-        await api.add(asset);
+        const full = await getAsset(id, { runtime: true }); if (!full) throw new Error('资产已被删除');
+        await api.add(full);
         pickerSelected.delete(id);
       }
       dialog.close();

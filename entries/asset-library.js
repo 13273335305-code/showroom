@@ -1,9 +1,10 @@
 import { downloadFile } from '../shared/navigation.js';
-import { listAssets, getAsset, saveAsset, deleteAsset } from '../shared/asset-store.js';
-import { materialType } from '../shared/material-placement.js';
-import { packMaterial, unpackMaterial } from '../shared/material-package.js';
+import { listAssets, getAsset, saveAsset, updateAsset, deleteAsset } from '../shared/asset-store.js';
+import { materialType, assetPage } from '../shared/asset-metadata.js';
+import { unpackMaterialAsync } from '../shared/material-package-loader.js';
 import { createAssetLoading } from '../shared/asset-loading.js';
 import { requireAuth } from '../shared/auth.js';
+import { fitMaterialPreview, assetImageUrl } from '../shared/material-preview.js';
 const $ = id => document.getElementById(id);
 await requireAuth({ feature: 'assets' });
 const libraryNames = { fabric: '\u9762\u6599\u5e93', pattern: '\u56fe\u6848\u5e93', model: '\u6a21\u578b\u5e93' };
@@ -13,17 +14,15 @@ const selectedAssetIds = new Set();
 const renderedCards = new Map();
 const cardUrls = new Map();
 let editing, editPreview, editPreviewUrl, editVersion = 0, movingAssetId = null;
-const modelPreviews = new Map();
-let previewQueue = Promise.resolve();
-const modelPreviewJobs = new Map(), cardPreviewJobs = new WeakMap();
+let currentPage = 1, pageContext = '', currentPageItems = [];
 let assetsLoading = true;
 const assetLoading = createAssetLoading({ host: $('assetPanel'), grid: $('assetGrid'), indicator: $('assetLoading') });
 let fabricPreviewClosingTimer = null;
 let fabricTextureRenderToken = 0;
 let fabricTextureState = null;
 const status = message => { $('status').textContent = message; };
-const previewOf = asset => asset.preview || asset.thumbnail || (asset.kind === 'texture' ? asset.file : asset.maps?.map);
-function imageUrl(blob) { return URL.createObjectURL(blob); }
+const previewOf = asset => asset?.kind === 'material' ? asset.preview || null : asset.preview || asset.thumbnail || (asset.kind === 'texture' ? asset.file : asset.maps?.map);
+function imageUrl(blob) { return assetImageUrl(blob); }
 function folderChildren(folderId) { return assets.filter(asset => (asset.parentId || null) === folderId && libraryType(asset) === activeLibrary); }
 function folderById(id) { return assets.find(asset => asset.id === id && asset.kind === 'folder'); }
 function folderPreviewChildren(folder) {
@@ -111,9 +110,8 @@ function action(label, handler) {
   return button;
 }
 async function toggleFavorite(asset) {
-  const current = await getAsset(asset.id); if (!current) throw new Error('资产已被删除');
-  await saveAsset({ ...current, favorite: !current.favorite });
-  await refresh(); status(current.favorite ? '已取消收藏' : '已收藏');
+  await updateAsset(asset.id, { favorite: !asset.favorite });
+  await refresh(); status(asset.favorite ? '已取消收藏' : '已收藏');
 }
 function link(label, href) {
   const element = document.createElement('a'); element.className = 'button primary'; element.textContent = label; element.href = href; return element;
@@ -170,8 +168,9 @@ function createMenu(asset, card) {
     : [action('编辑', () => editAsset(asset, isMaterial ? 'material' : 'name')), action('移动', () => openMoveDialog(asset))];
   if (isMaterial) actions.push(action(asset.favorite ? '取消收藏' : '收藏', () => toggleFavorite(asset)));
   else if (!isModel && asset.kind !== 'folder') actions.push(action('导出', async () => {
-    if (asset.kind === 'material') downloadFile(await packMaterial(asset), asset.name + '.formmat');
-    else { downloadFile(asset.file, asset.file.name); for (const file of asset.resources || []) downloadFile(file, file.name); }
+    const full = await getAsset(asset.id);
+    if (!full) throw new Error('资产已被删除');
+    downloadFile(full.file, full.file.name); for (const file of full.resources || []) downloadFile(file, file.name);
   }));
   if (!asset.builtin || isMaterial) {
     const remove = action(asset.kind === 'folder' ? '删除文件夹' : '删除', async () => {
@@ -214,9 +213,7 @@ function previewNumber(value, digits = 2) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(digits).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1') : '';
 }
 function fabricPreviewSource(asset) {
-  // The preview is always calculated from the material's base-color texture.
-  // Package previews and thumbnails are presentation-only images.
-  return asset.maps?.map || null;
+  return asset?.maps?.map || null;
 }
 const FABRIC_TEXTURE_SURFACE = { width: 3600, height: 2700 };
 const FABRIC_BOARD_CM = {
@@ -325,19 +322,17 @@ function closeFabricPreview() {
     if (dialog.open) dialog.close();
   }, duration);
 }
-function showFabricPreview(asset) {
+async function showFabricPreview(asset) {
   const dialog = $('fabricPreviewDialog');
   if (!dialog || asset?.kind !== 'material') return;
   if (fabricPreviewClosingTimer) { clearTimeout(fabricPreviewClosingTimer); fabricPreviewClosingTimer = null; }
   dialog.classList.remove('is-closing');
-  fabricTextureRenderToken++;
+  const token = ++fabricTextureRenderToken;
   if (fabricTextureState?.bitmap) fabricTextureState.bitmap.close();
   fabricTextureState = null;
-  const source = fabricPreviewSource(asset);
   const canvas = $('fabricPreviewTexture'), fallback = $('fabricPreviewTextureFallback');
   $('fabricPreviewZoom').hidden = true;
-  canvas.hidden = !source; fallback.hidden = !!source;
-  if (source) loadFabricTexture(asset, source);
+  canvas.hidden = true; fallback.hidden = false; fallback.textContent = '正在加载纹理…';
   $('fabricPreviewTitle').textContent = asset.name || '面料详情';
   $('fabricPreviewCategory').textContent = asset.category || '面料';
   const fields = [
@@ -353,6 +348,16 @@ function showFabricPreview(asset) {
   });
   dialog.showModal();
   $('closeFabricPreview').focus();
+  try {
+    const full = await getAsset(asset.id);
+    if (token !== fabricTextureRenderToken || !dialog.open || dialog.classList.contains('is-closing')) return;
+    const source = fabricPreviewSource(full);
+    fallback.textContent = '无纹理图';
+    if (source) await loadFabricTexture(full, source);
+  } catch (error) {
+    if (token === fabricTextureRenderToken && dialog.open) fallback.textContent = '纹理加载失败，请关闭后重试';
+    status(error.message);
+  }
 }
 $('closeFabricPreview').onclick = closeFabricPreview;
 $('fabricPreviewDialog').addEventListener('click', event => {
@@ -387,7 +392,7 @@ $('fabricPreviewTexture').addEventListener('wheel', event => {
 
 function showEditPreview(blob) {
   if (editPreviewUrl) URL.revokeObjectURL(editPreviewUrl);
-  editPreviewUrl = blob ? URL.createObjectURL(blob) : null;
+  editPreviewUrl = blob ? imageUrl(blob) : null;
   $('assetPreviewImage').hidden = !blob;
   if (blob) $('assetPreviewImage').src = editPreviewUrl; else $('assetPreviewImage').removeAttribute('src');
 }
@@ -409,7 +414,7 @@ function editAsset(asset, field) {
   $('assetText').rows = field === 'name' ? 1 : 4;
   $('assetPreviewEditor').hidden = !isPreview; $('assetPreviewFile').value = '';
   $('assetEditError').textContent = ''; $('saveAssetEdit').disabled = false;
-  showEditPreview(isPreview ? previewOf(asset) || modelPreviews.get(asset.id) : null);
+  showEditPreview(isPreview ? previewOf(asset) : null);
   $('assetDialog').showModal();
   (isPreview ? $('assetPreviewFile') : isMaterial ? $('materialEditName') : $('assetText')).focus();
 }
@@ -438,8 +443,7 @@ $('moveAssetForm').onsubmit = async event => {
   }
   $('saveMove').disabled = true; $('moveAssetError').textContent = '';
   try {
-    const current = await getAsset(asset.id); if (!current) throw new Error('资产已被删除');
-    await saveAsset({ ...current, parentId: targetId });
+    await updateAsset(asset.id, { parentId: targetId });
     $('moveDialog').close(); await refresh(); status('已移动资产');
   } catch (error) { $('moveAssetError').textContent = error.message; }
   finally { $('saveMove').disabled = false; }
@@ -452,41 +456,46 @@ $('assetEditForm').onsubmit = async event => {
     const value = field === 'preview' ? editPreview : field === 'material' ? $('materialEditName').value.trim() : $('assetText').value.trim();
     if (field === 'preview' && !value) throw new Error('请先选择有效的预览图');
     if ((field === 'name' || field === 'material') && !value) throw new Error('名称不能为空');
-    const current = await getAsset(id); if (!current) throw new Error('资产已被删除');
     const next = field === 'material' ? {
-      ...current,
       name: value,
       category: $('materialEditCategory').value,
       designInfo: $('materialEditDesignInfo').value.trim(),
       supplier: $('materialEditSupplier').value.trim(),
-    } : { ...current, [field]: value };
-    await saveAsset(next);
+    } : { [field]: value };
+    if (field === 'preview') {
+      const current = await getAsset(id); if (!current) throw new Error('资产已被删除');
+      await saveAsset({ ...current, preview: value });
+    } else await updateAsset(id, next);
     $('assetDialog').close(); await refresh(); status('已保存');
   } catch (error) { $('assetEditError').textContent = error.message; }
   finally { $('saveAssetEdit').disabled = false; }
 };
 
-function renderModelPreview(asset, art) {
-  if (!modelPreviews.has(asset.id)) {
-    modelPreviews.set(asset.id, null);
-    previewQueue = previewQueue.then(async () => {
-      try {
-        const { createModelPreview } = await import('../shared/model-preview.js');
-        modelPreviews.set(asset.id, await createModelPreview(asset));
-      } catch { /* A custom preview remains available if this model cannot be rendered. */ }
-    });
-    modelPreviewJobs.set(asset.id, previewQueue);
-  }
-  const display = () => {
-    if (!art.isConnected) return;
-    const blob = modelPreviews.get(asset.id);
-    if (blob) { const img = document.createElement('img'); const url = imageUrl(blob); cardUrls.set(asset.id, [...(cardUrls.get(asset.id) || []), url]); img.src = url; img.alt = asset.name + ' 预览图'; art.replaceChildren(img); }
-    else art.textContent = '可通过「···」设置预览图';
+function renderPagination(page) {
+  const host = $('assetPagination'); host.replaceChildren(); host.hidden = !page.total;
+  const change = next => {
+    if (next === currentPage || next < 1 || next > page.totalPages) return;
+    const direction = next > currentPage ? 'next' : 'previous';
+    currentPage = next; render(); document.querySelector('.library-main').scrollTop = 0;
+    animateCardPage($('assetGrid'), direction);
   };
-  return (modelPreviewJobs.get(asset.id) || Promise.resolve()).then(display);
+  const button = (label, number, ariaLabel = label) => {
+    const element = document.createElement('button'); element.type = 'button'; element.textContent = label; element.setAttribute('aria-label', ariaLabel);
+    element.onclick = () => change(number); return element;
+  };
+  const previous = button('‹', page.page - 1, '上一页'); previous.disabled = page.page === 1; host.append(previous);
+  const numbers = new Set([1, page.totalPages, page.page - 1, page.page, page.page + 1]);
+  if (page.totalPages <= 7) for (let i = 1; i <= page.totalPages; i++) numbers.add(i);
+  let last = 0;
+  for (const number of [...numbers].filter(n => n >= 1 && n <= page.totalPages).sort((a, b) => a - b)) {
+    if (last && number > last + 1) { const dots = document.createElement('span'); dots.className = 'pagination-dots'; dots.textContent = '…'; host.append(dots); }
+    const element = button(String(number), number, `第 ${number} 页`);
+    if (number === page.page) element.setAttribute('aria-current', 'page'); host.append(element); last = number;
+  }
+  const next = button('›', page.page + 1, '下一页'); next.disabled = page.page === page.totalPages; host.append(next);
 }
 function render() {
-  const loadingToken = assetLoading.begin(), previews = [];
+  const loadingToken = assetLoading.begin();
   closeMenu();
   updateBreadcrumb();
   const host = $('assetGrid'); host.replaceChildren();
@@ -501,6 +510,14 @@ function render() {
     if (sortMode === 'oldest') return a.updatedAt - b.updatedAt;
     return b.updatedAt - a.updatedAt;
   });
+  const context = JSON.stringify([activeLibrary, activeFolderId, searchQuery, $('assetCategory')?.value, sortMode]);
+  if (context !== pageContext) { currentPage = 1; pageContext = context; }
+  const page = assetPage(shown, currentPage); currentPage = page.page; shown = currentPageItems = page.items;
+  renderPagination(page);
+  const visibleIds = new Set(shown.map(asset => asset.id));
+  for (const id of renderedCards.keys()) if (!visibleIds.has(id)) {
+    cardUrls.get(id)?.forEach(url => URL.revokeObjectURL(url)); cardUrls.delete(id); renderedCards.delete(id);
+  }
   if (!shown.length) {
     const empty = document.createElement('div'); empty.className = 'asset-empty';
     const title = document.createElement('h2'); title.textContent = collection.length ? '没有匹配的资产' : libraryNames[activeLibrary] + '暂无资产';
@@ -508,15 +525,11 @@ function render() {
     empty.append(title, text); host.append(empty);
   }
   for (const asset of shown) {
-    const signature = [asset.updatedAt, asset.kind, asset.preview?.size, asset.thumbnail?.size, asset.name, asset.description, asset.designInfo, asset.supplier, asset.category, asset.favorite, asset.children?.join(',')].join('|');
+    const signature = [asset.updatedAt, asset.builtinVersion, asset.kind, typeof asset.preview === 'string' ? asset.preview : asset.preview?.size, asset.name, asset.description, asset.designInfo, asset.supplier, asset.category, asset.favorite, asset.children?.join(',')].join('|');
     const cached = asset.kind === 'folder' ? null : renderedCards.get(asset.id);
     if (cached?.signature === signature) {
       syncCardSelection(cached.card, cached.selectControl, selectedAssetIds.has(asset.id));
       host.append(cached.card);
-      if (asset.kind === 'model' && !previewOf(asset) && !cached.card.querySelector('.asset-art img')) {
-        cardPreviewJobs.set(cached.card, renderModelPreview(asset, cached.card.querySelector('.asset-art')));
-      }
-      if (cardPreviewJobs.has(cached.card)) previews.push(cardPreviewJobs.get(cached.card));
       continue;
     }
     cardUrls.get(asset.id)?.forEach(url => URL.revokeObjectURL(url));
@@ -597,13 +610,9 @@ function render() {
       const cover = document.createElement('div'); cover.className = 'folder-cover'; cover.setAttribute('aria-hidden', 'true');
       art.append(cover);
     } else {
-      const preview = asset.kind === 'model' ? previewOf(asset) : asset.thumbnail || previewOf(asset);
-      if (preview) { const img = document.createElement('img'); const url = imageUrl(preview); urls.push(url); img.src = url; img.alt = asset.name + ' 预览图'; art.append(img); }
-      else if (asset.kind === 'model') {
-        art.textContent = '正在生成预览图…';
-        const job = renderModelPreview(asset, art); cardPreviewJobs.set(card, job); previews.push(job);
-      }
-      else { const shape = document.createElement('div'); shape.className = 'sphere'; if (/^#[\da-f]{6}$/i.test(asset.surface?.color)) shape.style.setProperty('--swatch', asset.surface.color); art.append(shape); }
+      const preview = asset.kind === 'model' ? previewOf(asset) : previewOf(asset);
+      if (preview) { const img = document.createElement('img'); const url = imageUrl(preview); urls.push(url); img.src = url; img.alt = asset.name + ' 预览图'; if (asset.kind === 'material') fitMaterialPreview(img, asset.previewInfo); art.append(img); }
+      else { const shape = document.createElement('div'); shape.className = 'sphere preview-missing'; shape.textContent = '无预览图'; art.append(shape); }
     }
     if (urls.length) cardUrls.set(asset.id, urls);
     const info = document.createElement('div'); info.className = 'asset-info';
@@ -618,9 +627,9 @@ function render() {
     renderedCards.set(asset.id, { signature, card, selectControl }); host.append(card);
   }
   requestAnimationFrame(() => syncAssetScrollbar());
-  if (!assetsLoading) void assetLoading.finish(loadingToken, previews);
+  if (!assetsLoading) void assetLoading.finish(loadingToken);
 }
-async function refresh() {
+async function refresh({ refreshCatalog = false } = {}) {
   const version = ++renderVersion;
   assetsLoading = true; assetLoading.begin();
   const show = result => {
@@ -634,7 +643,7 @@ async function refresh() {
     assets = result.sort((a, b) => b.updatedAt - a.updatedAt); render();
   };
   try {
-    const result = await listAssets({ onProgress: (items, progress) => {
+    const result = await listAssets({ refreshCatalog, onProgress: (items, progress) => {
       if (version !== renderVersion) return;
       status(progress.message);
     } });
@@ -717,12 +726,11 @@ $('moreOptions').onclick = () => {
   menu.hidden = !menu.hidden; button.setAttribute('aria-expanded', String(!menu.hidden));
 };
 $('selectAllAssets').onclick = () => {
-  const collection = assets.filter(asset => libraryType(asset) === activeLibrary && (asset.parentId || null) === activeFolderId);
-  const shown = filterVisibleAssets(collection).filter(asset => asset.kind !== 'folder');
+  const shown = currentPageItems.filter(asset => asset.kind !== 'folder');
   shown.forEach(asset => selectedAssetIds.add(asset.id));
   closeMoreMenu(); render(); status(shown.length ? `已选择 ${shown.length} 项资产` : '当前没有可选择的资产');
 };
-$('refreshAssets').onclick = () => { closeMoreMenu(); refresh(); };
+$('refreshAssets').onclick = () => { closeMoreMenu(); refresh({ refreshCatalog: true }); };
 $('clearSearch').onclick = () => {
   searchInput.value = ''; searchQuery = ''; $('assetCategory').value = 'all'; closeMoreMenu(); render();
 };
@@ -750,7 +758,7 @@ $('newFolderForm').onsubmit = async event => {
   submit.disabled = true; $('newFolderError').textContent = '';
   try {
     await saveAsset({ kind: 'folder', name, parentId: activeFolderId, library: activeLibrary, children: [] });
-    $('newFolderDialog').close(); await refresh(); status('已创建文件夹');
+    $('newFolderDialog').close(); currentPage = 1; await refresh(); status('已创建文件夹');
   } catch (error) { $('newFolderError').textContent = error.message; }
   finally { submit.disabled = false; }
 };
@@ -762,7 +770,7 @@ $('assetFiles').onchange = async () => {
   for (const file of files) {
     try {
       let asset;
-      if (/\.formmat$/i.test(file.name)) asset = await unpackMaterial(file);
+      if (/\.formmat$/i.test(file.name)) asset = await unpackMaterialAsync(file);
       else if (/\.(fbx|glb)$/i.test(file.name)) {
         if (file.size > 512 * 1024 * 1024) throw new Error('模型不能超过 512 MB');
         if (resources.some(resource => resource.size > 64 * 1024 * 1024)) throw new Error('配套资源不能超过 64 MB');
@@ -776,6 +784,7 @@ $('assetFiles').onchange = async () => {
       const saved = await saveAsset(asset); firstLibrary ??= libraryType(saved); if (saved.kind === 'model' && !importedModelId) importedModelId = saved.id; count++;
     } catch (error) { errors.push(file.name + '：' + error.message); }
   }
+  currentPage = 1;
   if (firstLibrary) selectLibrary(firstLibrary);
   await refresh(); $('importAssets').disabled = false;
   status(`已导入 ${count} 项资产` + (errors.length ? '；' + errors.join('；') : ''));
@@ -836,7 +845,9 @@ libraryScroll?.addEventListener('scroll', () => { syncAssetSubbar(); syncAssetSc
 window.addEventListener('resize', syncAssetScrollbar);
 new ResizeObserver(syncAssetScrollbar).observe(libraryScroll);
 syncAssetScrollbar();
-window.addEventListener('focus', () => { if (!$('assetDialog').open) refresh(); });
+let assetsStale = false;
+window.addEventListener('storage', event => { if (event.key === 'spenic-assets-revision') assetsStale = true; });
+window.addEventListener('focus', () => { if (assetsStale && !$('assetDialog').open && !$('fabricPreviewDialog').open) { assetsStale = false; refresh(); } });
 const initialLibrary = new URLSearchParams(location.search).get('library');
 selectLibrary(Object.hasOwn(libraryNames, initialLibrary) ? initialLibrary : 'fabric', { updateUrl: !!initialLibrary });
 refresh();

@@ -44,7 +44,7 @@ export async function compressImageFile(file, maxSize = 2048) {
 
 export async function createAssetThumbnail(asset, maxSize = 320) {
   if (asset?.thumbnail) return asset.thumbnail;
-  const source = asset?.maps?.map || (asset?.kind === 'texture' ? asset.file : null);
+  const source = asset?.preview || asset?.maps?.map || (asset?.kind === 'texture' ? asset.file : null);
   if (!source) return null;
   return compressImageFile(source, maxSize);
 }

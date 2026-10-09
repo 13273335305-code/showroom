@@ -14,6 +14,7 @@ import { configureTextureSampling } from '../shared/texture-sampling.js';
 import { installRoughnessShader } from '../shared/roughness-map.js';
 import { compressImageFile } from '../shared/asset-thumbnail.js';
 import { requireAuth } from '../shared/auth.js';
+import { fitMaterialPreview } from '../shared/material-preview.js';
 
 const $ = id => document.getElementById(id);
 await requireAuth({ feature: 'material' });
@@ -24,8 +25,8 @@ let physical = { ...defaultPhysical(), sizeSource: 'manual', initialized: true }
 let legacyMaps = {}, savedPlacement, libraryMetadata = {};
 const files = {}, urls = {}, tokens = {}, density = {}, embeddedDensity = {};
 const patternPreview = createPatternPreview($('patternPreview'));
-let roughnessPreviewCache = null;
-const material = new THREE.MeshStandardMaterial({ color: '#c2aa8b', roughness: .65, metalness: 0, bumpScale: .02 });
+let roughnessPreviewCache = null, savedPreview = null, savedPreviewInfo = null, previewGenerationCanvas = null;
+const material = new THREE.MeshStandardMaterial({ color: '#d6dbe0', roughness: .65, metalness: 0, bumpScale: .02 });
 installRoughnessShader(material);
 const status = message => { $('status').textContent = message; };
 const sliders = [['roughness', '粗糙度', 1, .01], ['metalness', '金属度', 1, .01], ['normalStrength', '法线强度', 3, .05], ['aoStrength', 'AO 强度', 3, .05], ['emissiveStrength', '自发光强度', 3, .05], ['bumpStrength', '凹凸强度', .2, .005]];
@@ -131,6 +132,7 @@ function updateSurface() {
 function syncPhysicalControls() {
   $('sizing').value = physical.mode;
   for (const key of ['widthCm', 'heightCm', 'angle']) $(key).value = Number(physical[key].toFixed(4));
+  $('lockSizing').checked = physical.locked !== false;
   $('repeatU').value = repeat[0]; $('repeatV').value = repeat[1];
   const pattern = $('materialType').value === 'pattern';
   $('physicalControls').hidden = !pattern && physical.mode !== 'physical';
@@ -144,10 +146,20 @@ function syncMaterialType() {
   $('sizing').closest('label').hidden = pattern; $('repeatControls').hidden = pattern || physical.mode !== 'legacy';
   $('physicalControls').hidden = !pattern && physical.mode !== 'physical';
   $('materialCanvas').hidden = pattern; $('patternPreview').hidden = !pattern;
+  $('materialPreviewZoom').hidden = pattern;
   $('pbrHeading').hidden = pattern;
   document.body.classList.toggle('pattern-editing', pattern);
   controls.enabled = !pattern;
   updatePatternPreview();
+}
+function setSizingPageOpen(open) {
+  $('sizingPage').hidden = !open;
+  $('openSizingPage').setAttribute('aria-expanded', String(open));
+  if (open) {
+    document.querySelector('.editor-panel').scrollTop = 0;
+    $('sizingPage').scrollTop = 0;
+  }
+  (open ? $('closeSizingPage') : $('openSizingPage')).focus({ preventScroll: true });
 }
 function configureMaps() {
   for (const [key, , , color] of MATERIAL_MAPS) {
@@ -166,8 +178,10 @@ function configureMaps() {
 }
 function fillFabricPreview() {
   const distance = camera.position.distanceTo(controls.target);
-  const height = 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * 1.02;
-  const width = height * camera.aspect;
+  const visibleHeight = 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) / Math.max(camera.zoom, .0001);
+  const visibleWidth = visibleHeight * camera.aspect;
+  const height = visibleHeight * 1.02;
+  const width = visibleWidth * 1.02;
   plane.position.set(controls.target.x, controls.target.y, 0);
   plane.scale.set(width / 100, height / 100, 1);
   for (let i = 0; i < previewPositions.count; i++) {
@@ -178,6 +192,14 @@ function fillFabricPreview() {
   }
   previewUv.needsUpdate = true;
   previewPhysicalUv.needsUpdate = true;
+  const zoom = $('materialPreviewZoom');
+  if (zoom) {
+    const format = value => Number.isFinite(value) ? value.toFixed(1) : '';
+    const label = `${format(visibleWidth)} × ${format(visibleHeight)} cm`;
+    zoom.hidden = $('materialType').value === 'pattern';
+    zoom.textContent = label;
+    zoom.setAttribute('aria-label', `当前预览尺寸 ${label}`);
+  }
 }
 function removeMap(key) {
   tokens[key] = (tokens[key] || 0) + 1;
@@ -190,6 +212,85 @@ function removeMap(key) {
   if (key === 'roughnessMap') { applySurface(material, { roughnessInvert: false }); syncSurfaceControls(); }
   if (key === 'map') { physical.sizeSource = 'manual'; configureMaps(); }
   else updatePatternPreview();
+}
+function previewNumber(value, digits = 2) {
+  return Number.isFinite(Number(value)) ? Number(value).toFixed(digits).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1') : '';
+}
+function previewCrop(source, width, height, physicalWidth, physicalHeight) {
+  if (!source?.width || !source?.height || !Number.isInteger(width) || !Number.isInteger(height)) return null;
+  const canvas = previewGenerationCanvas ||= document.createElement('canvas');
+  canvas.width = width; canvas.height = height;
+  const context = canvas.getContext('2d', { alpha: false });
+  // Sample a centered physical window. Output pixels only resample that window.
+  const sw = source.width * physicalWidth / physical.widthCm;
+  const sh = source.height * physicalHeight / physical.heightCm;
+  const sx = (source.width - sw) / 2, sy = (source.height - sh) / 2;
+  const pattern = context.createPattern(source, 'repeat');
+  if (!pattern) return null;
+  context.imageSmoothingEnabled = true; context.imageSmoothingQuality = 'high';
+  context.save();
+  context.scale(width / sw, height / sh);
+  context.translate(-sx, -sy);
+  context.fillStyle = pattern;
+  context.fillRect(sx, sy, sw, sh);
+  context.restore();
+  return canvas.toDataURL('image/png');
+}
+function previewBlobFromDataUrl(dataUrl) {
+  if (!dataUrl) return Promise.resolve(null);
+  const [header, payload] = dataUrl.split(',');
+  const bytes = Uint8Array.from(atob(payload), char => char.charCodeAt(0));
+  return Promise.resolve(new Blob([bytes], { type: header.match(/data:([^;]+)/)?.[1] || 'image/png' }));
+}
+function previewGenerationValues() {
+  const values = {
+    widthCm: Number($('previewPhysicalWidth').value), heightCm: Number($('previewPhysicalHeight').value),
+    widthPx: Number($('previewPixelWidth').value), heightPx: Number($('previewPixelHeight').value),
+  };
+  if (![values.widthCm, values.heightCm].every(value => Number.isFinite(value) && value >= .01 && value <= 100000)) throw new Error('物理尺寸范围为 0.01–100000 cm');
+  if (![values.widthPx, values.heightPx].every(value => Number.isInteger(value) && value >= 64 && value <= 2048)) throw new Error('像素范围为 64–2048 px');
+  return values;
+}
+function syncPreviewGeneration() {
+  const cardImage = $('previewCardImage'), ballImage = $('previewBallImage');
+  const emptyCard = $('previewCardEmpty'), emptyBall = $('previewBallEmpty');
+  $('previewCardName').textContent = $('name').value.trim() || '新材质';
+  $('previewBallName').textContent = $('name').value.trim() || '新材质';
+  try {
+    const values = previewGenerationValues(), dataUrl = previewCrop(material.map?.image, values.widthPx, values.heightPx, values.widthCm, values.heightCm);
+    fitMaterialPreview(cardImage, values);
+    fitMaterialPreview(ballImage, values, 1);
+    if (dataUrl) { cardImage.src = ballImage.src = dataUrl; cardImage.hidden = ballImage.hidden = false; emptyCard.hidden = emptyBall.hidden = true; $('previewGenerationHint').textContent = `${previewNumber(values.widthCm)} × ${previewNumber(values.heightCm)} cm · ${values.widthPx} × ${values.heightPx} px`; }
+    else { cardImage.removeAttribute('src'); ballImage.removeAttribute('src'); cardImage.hidden = ballImage.hidden = true; emptyCard.hidden = emptyBall.hidden = false; $('previewGenerationHint').textContent = '未上传基础颜色纹理，保存后显示“无预览图”'; }
+    $('confirmPreviewGeneration').disabled = false;
+  } catch (error) { $('previewGenerationHint').textContent = error.message; $('confirmPreviewGeneration').disabled = true; }
+}
+function openPreviewGeneration() {
+  if (pending) { status('请等待贴图载入完成'); return; }
+  const dialog = $('previewGenerationDialog');
+  $('previewPhysicalWidth').value = Number((savedPreviewInfo?.widthCm || physical.widthCm || 10).toFixed(2));
+  $('previewPhysicalHeight').value = Number((savedPreviewInfo?.heightCm || physical.heightCm || 10).toFixed(2));
+  $('previewPixelWidth').value = savedPreviewInfo?.widthPx || 400;
+  $('previewPixelHeight').value = savedPreviewInfo?.heightPx || 300;
+  syncPreviewGeneration();
+  if (!dialog.open) dialog.showModal();
+  $('previewPhysicalWidth').focus();
+}
+async function saveMaterialWithPreview() {
+  const saveButton = $('confirmPreviewGeneration');
+  saveButton.disabled = true; $('saveMaterial').disabled = true;
+  try {
+    const values = previewGenerationValues(), dataUrl = previewCrop(material.map?.image, values.widthPx, values.heightPx, values.widthCm, values.heightCm);
+    const preview = await previewBlobFromDataUrl(dataUrl);
+    const current = assetId ? await getAsset(assetId) : null;
+    if (current) libraryMetadata = { description: current.description, designInfo: current.designInfo, supplier: current.supplier, favorite: current.favorite };
+    const asset = currentAsset({ preview, previewInfo: preview ? { widthCm: values.widthCm, heightCm: values.heightCm, widthPx: values.widthPx, heightPx: values.heightPx } : null });
+    const saved = await saveAsset(asset);
+    savedPreview = saved.preview || null; savedPreviewInfo = saved.previewInfo || null;
+    assetId = saved.id; dirty = false; history.replaceState(null, '', '?asset=' + encodeURIComponent(saved.id));
+    $('previewGenerationDialog').close(); status('已生成预览图并保存到资产库');
+  } catch (error) { status('保存失败：' + error.message); }
+  finally { saveButton.disabled = false; $('saveMaterial').disabled = pending > 0; }
 }
 async function uploadMap(key, file, restoring = false) {
   if (!/\.(png|jpe?g|webp|bmp)$/i.test(file.name) && !['image/png', 'image/jpeg', 'image/webp', 'image/bmp', 'image/x-ms-bmp'].includes(file.type)) throw new Error('请选择 PNG、JPG、WebP 或 BMP 图片');
@@ -228,18 +329,19 @@ async function uploadMap(key, file, restoring = false) {
   } catch (error) { texture?.dispose(); if (url) URL.revokeObjectURL(url); throw error; }
   finally { pending--; $('saveMaterial').disabled = pending > 0; $('exportMaterial').disabled = pending > 0; }
 }
-function currentAsset() {
+function currentAsset(overrides = {}) {
   if (pending) throw new Error('请等待贴图载入完成');
   if ($('materialType').value === 'pattern' && !files.map) throw new Error('图案需要基础颜色图片');
   if (!$('name').value.trim()) throw new Error('请输入材质名称');
-  return { ...libraryMetadata, id: assetId, kind: 'material', placement: savedPlacement, materialType: $('materialType').value, name: $('name').value.trim(), category: $('category').value, surface: readSurface(material), physical: { ...physical }, repeat: [...repeat], maps: { ...files }, density: { ...density }, legacyMaps: { ...legacyMaps } };
+  return { ...libraryMetadata, preview: savedPreview, previewInfo: savedPreviewInfo, ...overrides, id: assetId, kind: 'material', placement: savedPlacement, materialType: $('materialType').value, name: $('name').value.trim(), category: $('category').value, surface: readSurface(material), physical: { ...physical }, repeat: [...repeat], maps: { ...files }, density: { ...density }, legacyMaps: { ...legacyMaps } };
 }
 async function restoreAsset() {
   const id = new URLSearchParams(location.search).get('asset');
   if (!id) return;
   const asset = await getAsset(id);
   if (!asset) throw new Error('资产不存在，可能已被删除');
-  libraryMetadata = { description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, favorite: asset.favorite, preview: asset.preview };
+  libraryMetadata = { description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, favorite: asset.favorite };
+  savedPreview = asset.preview || null; savedPreviewInfo = asset.previewInfo || null;
   if (asset.kind === 'texture') { $('name').value = asset.name.replace(/\.[^.]+$/, ''); $('materialType').value = 'pattern'; await uploadMap('map', asset.file); syncMaterialType(); return; }
   if (asset.kind !== 'material') throw new Error('请从资产库选择材质或贴图');
   $('materialType').value = materialType(asset);
@@ -285,17 +387,15 @@ function buildPbrRows() {
   for (const [key, title] of MATERIAL_MAPS) {
     const row = document.createElement('div'); row.className = 'map-row pbr-row'; row.dataset.map = key;
     const left = document.createElement('div'); left.className = 'pbr-texture';
-    const heading = document.createElement('div'); heading.className = 'pbr-texture-heading';
-    const name = document.createElement('strong'); name.textContent = title;
-    const remove = document.createElement('button'); Object.assign(remove, { id: 'remove-' + key, type: 'button', textContent: '×', disabled: true }); remove.setAttribute('aria-label', '移除' + title); remove.onclick = () => removeMap(key); heading.append(name, remove);
+    const remove = document.createElement('button'); Object.assign(remove, { id: 'remove-' + key, type: 'button', textContent: '×', disabled: true }); remove.className = 'pbr-remove'; remove.setAttribute('aria-label', '移除' + title); remove.onclick = event => { event.stopPropagation(); removeMap(key); };
     const input = document.createElement('input'); Object.assign(input, { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/bmp', id: 'map-' + key, hidden: true });
-    const upload = document.createElement('button'); Object.assign(upload, { type: 'button', id: 'upload-' + key, className: 'pbr-dropzone' }); upload.setAttribute('aria-label', '上传' + title + '贴图'); upload.onclick = () => input.click();
+    const upload = document.createElement('div'); Object.assign(upload, { id: 'upload-' + key, className: 'pbr-dropzone' }); upload.setAttribute('role', 'button'); upload.tabIndex = 0; upload.setAttribute('aria-label', '上传' + title + '贴图'); upload.onclick = () => input.click(); upload.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); input.click(); } };
     const preview = document.createElement('img'); preview.id = 'preview-' + key; preview.alt = title + '贴图预览'; preview.draggable = false;
     const plus = document.createElement('span'); plus.className = 'upload-plus'; plus.textContent = '＋';
     const filename = document.createElement('small'); filename.id = 'file-' + key; filename.textContent = '拖入或点击上传';
-    upload.append(preview, plus); left.append(heading, upload, filename, input);
+    upload.append(preview, plus, remove); left.append(upload, filename, input);
     const right = document.createElement('div'); right.className = 'pbr-values';
-    if (key === 'map') addColor(right, 'color', '基础颜色', '#c2aa8b');
+    if (key === 'map') addColor(right, 'color', '基础颜色', '#d6dbe0');
     if (channelControls[key]) addSlider(right, channelControls[key]);
     if (key === 'normalMap') {
       const label = document.createElement('label'); label.className = 'pbr-flip';
@@ -332,10 +432,13 @@ function buildPbrRows() {
 async function init() {
   renderer = new THREE.WebGLRenderer({ canvas: $('materialCanvas'), antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
-  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = .75;
+  // Match the texture's sRGB colors without a filmic contrast curve.
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.NoToneMapping; renderer.toneMappingExposure = 1;
   scene = new THREE.Scene(); scene.background = new THREE.Color('#eef2f6');
   const pmrem = new THREE.PMREMGenerator(renderer), room = new RoomEnvironment();
   scene.environment = pmrem.fromScene(room, .04).texture; room.dispose(); pmrem.dispose();
+  scene.environmentIntensity = .05;
   camera = new THREE.PerspectiveCamera(35, 1, .1, 2000); camera.position.set(0, 0, 120);
   controls = new OrbitControls(camera, $('materialCanvas'));
   // The material editor is a flat-surface inspection window. Keep the camera
@@ -350,8 +453,12 @@ async function init() {
   controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
   controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
   controls.touches.ONE = THREE.TOUCH.PAN;
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x8798ad, 2));
-  const key = new THREE.DirectionalLight(0xfff4e7, 3); key.position.set(80, 150, 150); scene.add(key);
+  // Neutral fill and key retain PBR detail without the old warm/blue cast.
+  // Calibrate their combined irradiance on the front-facing preview plane.
+  const irradiance = 2.8;
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xffffff, irradiance * .65));
+  const key = new THREE.DirectionalLight(0xffffff); key.position.set(80, 150, 150);
+  key.intensity = irradiance * .35 / key.position.clone().normalize().z; scene.add(key);
   plane = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), material); plane.visible = true;
   preparePhysicalUV(plane); scene.add(plane);
   previewPositions = plane.geometry.attributes.position;
@@ -370,32 +477,40 @@ async function init() {
   });
   buildPbrRows();
   initEditorScrollbar();
+  $('openSizingPage').onclick = () => setSizingPageOpen(true);
+  $('closeSizingPage').onclick = () => setSizingPageOpen(false);
   for (const id of ['color', 'emissive', 'flip']) $(id).oninput = updateSurface;
   $('materialType').onchange = () => {
     if ($('materialType').value === 'pattern') physical.mode = 'physical';
     syncMaterialType(); syncPhysicalControls(); configureMaps(); dirty = true;
   };
   document.querySelectorAll('[data-material-type]').forEach(button => { button.onclick = () => { if ($('materialType').value === button.dataset.materialType) return; $('materialType').value = button.dataset.materialType; $('materialType').dispatchEvent(new Event('change')); }; });
-  for (const id of ['name', 'category']) $(id).oninput = () => { dirty = true; };
+  for (const id of ['name', 'category']) $(id).oninput = () => { dirty = true; if (id === 'name' && $('previewGenerationDialog').open) syncPreviewGeneration(); };
   for (const id of ['widthCm', 'heightCm', 'angle', 'sizing', 'repeatU', 'repeatV']) $(id).onchange = () => {
     try {
-      const next = readPhysical({ ...physical, mode: $('sizing').value, widthCm: Number($('widthCm').value), heightCm: Number($('heightCm').value), angle: Number($('angle').value), sizeSource: ['widthCm', 'heightCm'].includes(id) ? 'manual' : physical.sizeSource });
+      let widthCm = Number($('widthCm').value), heightCm = Number($('heightCm').value);
+      if (['widthCm', 'heightCm'].includes(id) && $('lockSizing').checked) {
+        const previous = id === 'widthCm' ? physical.widthCm : physical.heightCm;
+        const value = id === 'widthCm' ? widthCm : heightCm;
+        if (Number.isFinite(value) && value >= .01 && Number.isFinite(previous) && previous >= .01) {
+          if (id === 'widthCm') heightCm = physical.heightCm * value / physical.widthCm;
+          else widthCm = physical.widthCm * value / physical.heightCm;
+        }
+      }
+      const next = readPhysical({ ...physical, mode: $('sizing').value, widthCm, heightCm, angle: Number($('angle').value), locked: $('lockSizing').checked, sizeSource: ['widthCm', 'heightCm'].includes(id) ? 'manual' : physical.sizeSource });
       const nextRepeat = [Number($('repeatU').value), Number($('repeatV').value)];
       if (!nextRepeat.every(value => Number.isFinite(value) && value >= .01 && value <= 100)) throw new Error('重复范围为 0.01–100');
       physical = next; repeat = nextRepeat; legacyMaps = {}; configureMaps(); dirty = true;
     } catch (error) { status(error.message); }
     syncPhysicalControls();
   };
-  $('saveMaterial').onclick = async () => {
-    $('saveMaterial').disabled = true;
-    try {
-      const current = assetId ? await getAsset(assetId) : null;
-      if (current) libraryMetadata = { description: current.description, designInfo: current.designInfo, supplier: current.supplier, favorite: current.favorite, preview: current.preview };
-      const asset = await saveAsset(currentAsset()); assetId = asset.id; dirty = false; history.replaceState(null, '', '?asset=' + encodeURIComponent(asset.id)); status('已保存到资产库');
-    }
-    catch (error) { status('保存失败：' + error.message); }
-    finally { $('saveMaterial').disabled = pending > 0; }
-  };
+  $('lockSizing').onchange = () => { physical = { ...physical, locked: $('lockSizing').checked }; dirty = true; syncPhysicalControls(); };
+  $('saveMaterial').onclick = openPreviewGeneration;
+  for (const id of ['previewPhysicalWidth', 'previewPhysicalHeight', 'previewPixelWidth', 'previewPixelHeight']) $(id).oninput = syncPreviewGeneration;
+  $('closePreviewGeneration').onclick = () => $('previewGenerationDialog').close();
+  $('cancelPreviewGeneration').onclick = () => $('previewGenerationDialog').close();
+  $('previewGenerationDialog').addEventListener('cancel', event => { event.preventDefault(); $('previewGenerationDialog').close(); });
+  $('confirmPreviewGeneration').onclick = saveMaterialWithPreview;
   $('exportMaterial').onclick = async () => { try { const asset = currentAsset(); downloadFile(await packMaterial(asset), asset.name + '.formmat'); status('已导出材质包，包含 PBR 贴图'); } catch (error) { status(error.message); } };
   $('newMaterial').onclick = () => { if (!dirty || confirm('当前材质尚未保存，确定新建？')) { dirty = false; location.href = './material-editor.html'; } };
   window.addEventListener('beforeunload', event => { if (dirty || pending) { event.preventDefault(); event.returnValue = ''; } });

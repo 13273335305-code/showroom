@@ -17,9 +17,11 @@
     <section id="previewPane" class="preview-pane" aria-label="材质预览">
       <canvas id="materialCanvas" aria-label="无限平铺面料预览，左键或中键拖动平移，滚轮缩放，不可旋转"></canvas>
       <div id="patternPreview" class="pattern-preview" hidden></div>
+      <span id="materialPreviewZoom" class="fabric-preview-zoom material-preview-zoom" aria-live="polite" hidden></span>
     </section>
     <div class="editor-panel-shell">
       <aside class="editor-panel" aria-label="材质参数">
+        <div id="editorMainPage" class="editor-main-page">
         <div class="material-type-tabs" role="group" aria-label="材质大类">
           <button type="button" data-material-type="fabric" aria-pressed="true" class="active">面料</button>
           <button type="button" data-material-type="pattern" aria-pressed="false">图案</button>
@@ -28,24 +30,75 @@
         <h2>材质信息</h2>
         <label>名称<input id="name" value="新材质" maxlength="100"></label>
         <label id="fabricCategoryRow">面料分类<select id="category"><option>面布</option><option>边布</option><option>包边条</option><option>其他</option></select></label>
-        <h2 id="sizingHeading">铺贴尺寸</h2>
+        <div class="pbr-heading-row">
+          <h2 id="pbrHeading">PBR 贴图</h2>
+          <button id="openSizingPage" class="editor-secondary-button" type="button" aria-controls="sizingPage" aria-expanded="false">铺贴尺寸</button>
+        </div>
+        <div id="materialMaps"></div>
+        </div>
+      <section id="sizingPage" class="editor-subpage" aria-label="铺贴尺寸" hidden>
+        <div class="editor-subpage-header">
+          <h2 id="sizingHeading">铺贴尺寸</h2>
+          <button id="closeSizingPage" class="editor-close-button" type="button" aria-label="关闭铺贴尺寸">×</button>
+        </div>
         <label>铺贴方式<select id="sizing"><option value="physical">真实物理尺寸</option><option value="legacy">原始 UV</option></select></label>
         <div id="physicalControls">
           <label>宽度（cm）<input id="widthCm" type="number" min="0.01" max="100000" step="0.1" value="10"></label>
           <label>高度（cm）<input id="heightCm" type="number" min="0.01" max="100000" step="0.1" value="10"></label>
+          <label class="editor-switch-row">等比缩放<input id="lockSizing" type="checkbox" checked></label>
           <label>纹理角度<input id="angle" type="number" min="-180" max="180" value="0"></label>
         </div>
         <div id="repeatControls" hidden>
           <label>重复 U<input id="repeatU" type="number" min="0.01" max="100" step="0.1" value="1"></label>
           <label>重复 V<input id="repeatV" type="number" min="0.01" max="100" step="0.1" value="1"></label>
         </div>
-        <h2 id="pbrHeading">PBR 贴图</h2>
-        <div id="materialMaps"></div>
+      </section>
       </aside>
       <div id="editorScrollbar" class="editor-scrollbar" aria-hidden="true" hidden><span class="editor-scrollbar-thumb"></span></div>
     </div>
   </main>
   <div id="status" class="status-bar" role="status"></div>
+  <dialog id="previewGenerationDialog" class="preview-generation-dialog" aria-labelledby="previewGenerationTitle">
+    <div class="preview-generation-window">
+      <header class="preview-generation-header">
+        <div><p class="preview-generation-eyebrow">MATERIAL PREVIEW</p><h2 id="previewGenerationTitle">生成预览图</h2></div>
+        <button id="closePreviewGeneration" class="editor-close-button" type="button" aria-label="关闭预览图生成窗口">×</button>
+      </header>
+      <div class="preview-generation-layout">
+        <section class="preview-generation-examples" aria-labelledby="previewExamplesTitle">
+          <h3 id="previewExamplesTitle">实际效果预览</h3>
+          <div class="preview-example-grid">
+            <article class="preview-example-library-card">
+              <div class="preview-example-card-art"><img id="previewCardImage" alt="资产库卡片预览"><span id="previewCardEmpty" class="preview-example-empty" hidden>无预览图</span></div>
+              <div class="preview-example-card-info"><strong id="previewCardName">新材质</strong><span aria-hidden="true">···</span></div>
+            </article>
+            <article class="preview-example-ball-card">
+              <div class="preview-example-ball"><img id="previewBallImage" alt="设计台材质球预览"><span id="previewBallEmpty" class="preview-example-empty" hidden>无预览图</span></div>
+              <strong id="previewBallName">新材质</strong>
+            </article>
+          </div>
+        </section>
+        <section class="preview-generation-settings" aria-labelledby="previewSettingsTitle">
+          <h3 id="previewSettingsTitle">预览图设置</h3>
+          <fieldset>
+            <legend>物理尺寸</legend>
+            <label>宽度（cm）<input id="previewPhysicalWidth" type="number" min="0.01" max="100000" step="0.01"></label>
+            <label>高度（cm）<input id="previewPhysicalHeight" type="number" min="0.01" max="100000" step="0.01"></label>
+          </fieldset>
+          <fieldset>
+            <legend>输出像素</legend>
+            <label>宽度（px）<input id="previewPixelWidth" type="number" min="64" max="2048" step="1" value="400"></label>
+            <label>高度（px）<input id="previewPixelHeight" type="number" min="64" max="2048" step="1" value="300"></label>
+          </fieldset>
+          <p id="previewGenerationHint" class="preview-generation-hint" role="status"></p>
+        </section>
+      </div>
+      <footer class="preview-generation-actions">
+        <button id="cancelPreviewGeneration" type="button">取消</button>
+        <button id="confirmPreviewGeneration" class="primary" type="button">生成并保存</button>
+      </footer>
+    </div>
+  </dialog>
   <script type="module" src="entries/material-editor.js"></script>
 </body>
 </html>

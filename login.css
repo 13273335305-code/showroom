@@ -34,6 +34,14 @@
   animation: auth-overlay-in .45s ease both;
 }
 
+/* Keep protected pages covered while the existing session is verified, but do
+   not flash the login form for users who already have a valid session. */
+.auth-overlay.auth-overlay-checking {
+  visibility: hidden;
+  opacity: 0;
+  animation: none;
+}
+
 .auth-overlay::before,
 .auth-overlay::after {
   content: '';

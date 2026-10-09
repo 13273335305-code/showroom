@@ -12,7 +12,8 @@ import { readImageDensity, physicalSizeFromDensity } from './image-density.js';
 import { uvPatternGeometry } from './uv-pattern.js';
 import { surfacePatternGeometry } from './surface-pattern.js';
 import { revealMaterial, fadeMaterial, revealPattern, REVEAL_DURATION } from './material-reveal.js';
-import { getAsset, listAssets, saveAsset } from './shared/asset-store.js';
+import { getAsset as readAsset, listAssets, saveAsset } from './shared/asset-store.js';
+const getAsset = id => readAsset(id, { runtime: true });
 import { MATERIAL_MAPS, readSurface, applySurface, readLegacyUV, applyLegacyUV } from './shared/material-data.js';
 import { createDesignWorkspace } from './design-workspace.js';
 import { materialType, readPlacement, applyPlacement } from './shared/material-placement.js';
@@ -27,6 +28,7 @@ import { createShowroom } from './shared/showroom.js';
 import { saveDesignSession, loadDesignSession } from './shared/design-session.js';
 import { getProject as getStoredProject, saveProject as saveStoredProject } from './shared/project-store.js';
 import { compressImageFile } from './shared/asset-thumbnail.js';
+import { fitMaterialPreview, assetImageUrl } from './shared/material-preview.js';
 import { createDeveloperPanel } from './shared/developer-panel.js';
 import { loadDeveloperSettings, defaultDeveloperSettings, readDefaultView } from './shared/developer-settings.js';
 let developerPanel = null, developerSettings = defaultDeveloperSettings();
@@ -562,7 +564,7 @@ function convertMaterials(object){
  });o.material=Array.isArray(o.material)?next:next[0];});
  if(!meshCount)throw new Error('模型不包含可显示的网格');return {entries:result,meshCount,triangles:Math.round(triangles),uvMissing:[...geometries].filter(g=>!g.attributes.uv).length};
 }
-function disposeObject(object,list=[]){if(!object)return;const gs=new Set(),ms=new Set(),ts=new Set();object.traverse(o=>{if(o.geometry)gs.add(o.geometry);for(const m of(Array.isArray(o.material)?o.material:[o.material]))if(m)ms.add(m);});for(const e of list){ms.add(e.material);ms.add(e.baseline);Object.values(e.uploads).forEach(u=>{if(u.preview)URL.revokeObjectURL(u.preview);});}ms.forEach(m=>{for(const v of Object.values(m))if(v?.isTexture)ts.add(v);m.dispose();});gs.forEach(g=>g.dispose());ts.forEach(t=>t.dispose());}
+ function disposeObject(object,list=[]){if(!object)return;const gs=new Set(),ms=new Set(),ts=new Set();object.traverse(o=>{if(o.geometry)gs.add(o.geometry);for(const m of(Array.isArray(o.material)?o.material:[o.material]))if(m)ms.add(m);});for(const e of list){ms.add(e.material);ms.add(e.baseline);if(e.previewUrl)URL.revokeObjectURL(e.previewUrl);Object.values(e.uploads).forEach(u=>{if(u.preview)URL.revokeObjectURL(u.preview);});}ms.forEach(m=>{for(const v of Object.values(m))if(v?.isTexture)ts.add(v);m.dispose();});gs.forEach(g=>g.dispose());ts.forEach(t=>t.dispose());}
 async function loadModel(buffer,name,files=[],{restore=null,parts=null}={}){
   showroom?.exit();cameraTween?.cancel();$('showroomMode').disabled=true;setAnnotationMode(false);if(rulerMode)$('rulerLayer').setAttribute('hidden','');designUI?.exitRemoval();const request=++currentLoad;loadingModel=true;setOpeningDockHidden(true);setOpeningDayHidden(true);busy('正在加载展厅');await yieldFrame();let parsed;
  try{parsed=/\.glb$/i.test(name)?await parseGLB(buffer,files):await parseFBX(buffer,files);if(request!==currentLoad){disposeObject(parsed.object);return;}
@@ -600,7 +602,7 @@ async function loadExample(){
 function createLibraryEntry(id,name='库中材质'){
  const material=new THREE.MeshStandardMaterial({name,color:0xffffff,roughness:.65,bumpScale:.02});
  installRoughnessShader(material);
- return {id,name,material,meshes:new Set(),uploads:{},mapTokens:{},repeat:[1,1],physical:defaultPhysical(),pendingDpi:{},densityInfo:null,flip:false,baseline:material.clone(),thumbnails:{},previews:{}};
+ return {id,name,material,meshes:new Set(),uploads:{},previewUrl:null,mapTokens:{},repeat:[1,1],physical:defaultPhysical(),pendingDpi:{},densityInfo:null,flip:false,baseline:material.clone(),thumbnails:{},previews:{}};
 }
 async function refreshLibrary(){
  const select=$('libraryMaterial');
@@ -613,6 +615,7 @@ async function addMaterialAsset(asset){
  if(!model||loadingModel)return notify('请先完成模型载入');
  if(asset?.kind!=='material')throw new Error('请选择有效的材质资产');
  const generation=modelGeneration,entry=createLibraryEntry(entries.length,asset.name),started=performance.now();
+ entry.previewUrl=asset.preview?assetImageUrl(asset.preview):null;entry.previewInfo=asset.previewInfo;entry.assetPreviewChecked=true;
  entry.category=asset.category||'面布';const savedPhysical=readPhysical(asset.physical,true);entry.physical={...savedPhysical,sizeSource:'manual'};entry.repeat=asset.repeat||[1,1];entry.legacyMaps=asset.legacyMaps||{};
  try{
   for(const[key]of MAPS){if(!asset.maps?.[key])continue;await yieldFrame();const runtime=asset.runtimeMaps?.[key]||await compressImageFile(asset.maps[key],2048);await uploadTexture(entry,key,runtime,true,asset.maps[key]);if(generation!==modelGeneration)throw new Error('模型已经切换，请重新添加材质');if(!entry.material[key])throw new Error('贴图未能载入：'+key);if(asset.density?.[key]){entry.material[key].userData.density=asset.density[key];configureTexture(entry,entry.material[key],key);}}
@@ -622,7 +625,7 @@ async function addMaterialAsset(asset){
   $('materialCount').textContent=String(entries.length).padStart(2,'0');selectEntry(entry);showPanel('material');
   notify('已添加「'+entry.name+'」，拖动底部材质球到模型表面即可应用');
   recordPerformanceOperation('新增面料完成：'+entry.name,{durationMs:performance.now()-started});
- }catch(error){for(const[key]of MAPS)entry.material[key]?.dispose();Object.values(entry.uploads).forEach(u=>URL.revokeObjectURL(u.preview));entry.material.dispose();entry.baseline.dispose();throw error;}
+ }catch(error){for(const[key]of MAPS)entry.material[key]?.dispose();if(entry.previewUrl)URL.revokeObjectURL(entry.previewUrl);Object.values(entry.uploads).forEach(u=>URL.revokeObjectURL(u.preview));entry.material.dispose();entry.baseline.dispose();throw error;}
 }
 async function saveSelectedToLibrary(){
  const entry=selected;if(!entry||loadingModel)return notify('请先完成模型载入并选择材质');
@@ -654,7 +657,7 @@ function pulseMaterialUsage(entry){
  pulse.frame=requestAnimationFrame(tick);
  notify('正在高亮显示「'+entry.name+'」应用的模型部件',2200);
 }
-function decorateSwatch(el,entry){el.replaceChildren();const color='#'+entry.material.color.getHexString();el.style.background=`radial-gradient(circle at 30% 25%,#ffffff85,transparent 48%),linear-gradient(145deg,${color},${color})`;const src=entry.material.map&&(entry.uploads.map?.preview||entry.thumbnails.map);if(src){const img=new Image();img.src=src;img.alt='';img.draggable=false;el.append(img);}}
+function decorateSwatch(el,entry){el.replaceChildren();const color='#'+entry.material.color.getHexString();el.style.background=`radial-gradient(circle at 30% 25%,#ffffff85,transparent 48%),linear-gradient(145deg,${color},${color})`;const src=entry.previewUrl||(entry.assetPreviewChecked?null:entry.material.map&&(entry.uploads.map?.preview||entry.thumbnails.map));if(src){const img=new Image();img.src=src;img.alt='';img.draggable=false;if(entry.previewUrl){el.style.position='relative';fitMaterialPreview(img,entry.previewInfo,el.clientHeight?el.clientWidth/el.clientHeight:1);}el.append(img);}else if(entry.assetPreviewChecked){const empty=document.createElement('span');empty.className='material-preview-empty';empty.textContent='无预览图';el.append(empty);}}
 function selectEntry(entry){if(!entry||entry.removed)return;selected=entry;activeFabric=fabricCategory(entry);$('fabricCategory').value=activeFabric;$('materialName').value=entry.name;$('materialUsage').textContent=`材质 ${String(entry.id+1).padStart(2,'0')} · 应用于 ${entry.meshes.size} 个网格`;decorateSwatch($('selectedSwatch'),entry);$('baseColor').value='#'+entry.material.color.getHexString();const vals={roughness:entry.material.roughness,metalness:entry.material.metalness,normalStrength:Math.abs(entry.material.normalScale.x),aoStrength:entry.material.aoMapIntensity,emissiveStrength:entry.material.emissiveIntensity,bumpStrength:entry.material.bumpScale};for(const[id,v]of Object.entries(vals)){$(id).value=v;$(id+'Value').textContent=Number(v).toFixed(id==='bumpStrength'?3:2);}$('repeatU').value=entry.repeat[0];$('repeatV').value=entry.repeat[1];updatePhysicalPanel(entry);$('flipNormal').checked=entry.flip;updateSlots();renderMaterials();applyIsolation();designUI?.select({kind:'fabric',entry});}
 function buildSlots(){for(const[key,label,english]of MAPS){const wrap=document.createElement('div');wrap.className='texture-slot';wrap.id='slot-'+key;const upload=document.createElement('button');upload.className='texture-upload';upload.setAttribute('aria-label','上传'+label+'贴图');const span=document.createElement('span');const plus=document.createElement('strong');plus.textContent='＋';span.append(plus,document.createTextNode(label));upload.append(span);const input=document.createElement('input');input.type='file';input.accept='image/png,image/jpeg,image/webp,image/bmp';input.id='texture-'+key;input.onchange=async()=>{const entry=selected,file=input.files[0];input.value='';if(entry&&file){try{await uploadTexture(entry,key,file);}catch{}}};upload.onclick=()=>{if(!selected)return notify('请先导入模型');input.click();};const remove=document.createElement('button');remove.className='remove-texture';remove.textContent='×';remove.title='移除'+label+'贴图';remove.setAttribute('aria-label','移除'+label+'贴图');remove.onclick=()=>removeTexture(selected,key);wrap.append(upload,input,remove);wrap.title=label+' / '+english;$('textureSlots').append(wrap);}}
 function updateSlots(){for(const[key,label]of MAPS){const wrap=$('slot-'+key);const has=!!selected?.material[key];wrap.classList.toggle('has-image',has);wrap.querySelectorAll('img').forEach(i=>i.remove());const src=selected?.uploads[key]?.preview||selected?.thumbnails[key];if(has&&src){const img=new Image();img.src=src;img.alt=label+'预览';wrap.prepend(img);}wrap.querySelector('strong').textContent=has?'✓':'＋';wrap.querySelector('.remove-texture').hidden=!has;wrap.title=selected?.uploads[key]?.file.name||label+(has?' · 模型内置贴图':' · 点击上传');}}
@@ -760,7 +763,7 @@ function startMaterialDrag(event,entry,patternTarget=null){
  element.setPointerCapture(event.pointerId);
  const preview=$('materialPreview'),image=preview.querySelector('.material-preview-image'),label=preview.querySelector('.material-preview-label');
  document.body.append(preview);previewAnimation?.cancel();preview.className='material-preview active';
- const source=entry.uploads.map?.preview||entry.previews.map||entry.thumbnails.map||imageData(entry.material.map,2048,.92);
+ const source=entry.previewUrl||(entry.assetPreviewChecked?null:entry.uploads.map?.preview||entry.previews.map||entry.thumbnails.map||imageData(entry.material.map,2048,.92));
  image.style.backgroundImage=source?`url("${source}")`:'none';
  image.style.backgroundColor=patternTarget?'transparent':'#'+entry.material.color.getHexString();
  const density=entry.material.map?.userData.density,p=entry.physical;
@@ -1261,7 +1264,7 @@ function removeUnusedDockItems(items){
 function bindDesignWorkspace(){
  designUI=createDesignWorkspace({notify,canRemove:canRemoveDockItem,prepareRemoval,removeUnused:removeUnusedDockItems,undo:undoMaterialAssignment,cancelPlacement:()=>setPatternMode(false),showScene:()=>{setPatternMode(false);showPanel('scene');},add:addDesignAsset,
   read:t=>({name:(t.entry||t.source||t.pattern).name,color:'#'+designMaterial(t).color.getHexString(),...designPlacement(t)}),
-  preview:(el,t)=>{const m=designMaterial(t);decorateSwatch(el,{material:m,uploads:{},thumbnails:{map:designPreview(m.map)}});},
+  preview:(el,t)=>{if(t.entry){decorateSwatch(el,t.entry);return;}const m=designMaterial(t);decorateSwatch(el,{material:m,uploads:{},thumbnails:{map:designPreview(m.map)}});},
   color:(t,color)=>{finishPatternReveals();designMaterial(t).color.set(color);if(t.kind==='fabric')renderMaterials();else renderDesignPatterns();},
   transform:(t,value)=>{finishPatternReveals();const placement=readPlacement(value);if(t.kind==='fabric'){const entry=t.entry;entry.placement=placement;for(const[key]of MAPS){let texture=entry.material[key];if(!texture)continue;if(texture===entry.baseline[key]){entry.material[key]=texture=texture.clone();if(!entry.uploads[key]){entry.legacyMaps||={};entry.legacyMaps[key]||=readLegacyUV(entry.baseline[key]);}}configureTexture(entry,texture,key);}}else if(t.source)t.source.placement=placement;else moveDesignPattern(t.pattern,placement);},
  });

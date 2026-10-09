@@ -89,7 +89,7 @@
       </div>
       <section class="fabric-preview-texture" aria-label="面料纹理图">
         <canvas id="fabricPreviewTexture" width="3600" height="2700" aria-label="面料纹理图"></canvas>
-        <div id="fabricPreviewTextureFallback" class="fabric-preview-texture-fallback" hidden>暂无纹理图</div>
+        <div id="fabricPreviewTextureFallback" class="fabric-preview-texture-fallback" hidden>无预览图</div>
         <span id="fabricPreviewZoom" class="fabric-preview-zoom" aria-live="polite" hidden></span>
       </section>
       <section class="fabric-preview-details" aria-labelledby="fabricPreviewDetailsTitle">
@@ -102,6 +102,7 @@
     </div>
   </dialog>
   <div id="status" class="status-bar" role="status"></div>
+  <nav id="assetPagination" class="asset-pagination" aria-label="资产库翻页" hidden></nav>
   <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
   <script type="module" src="entries/asset-library.js"></script>
 </body>

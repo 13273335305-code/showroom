@@ -63,7 +63,7 @@ try{
    $request=$reader.ReadLine();if(-not $request){continue};$parts=$request.Split(' ')
    $headers=@{};$headerSize=0
    while($line=$reader.ReadLine()){$headerSize+=$line.Length;if($headerSize -gt 16384){throw 'Request headers too large'};$colon=$line.IndexOf(':');if($colon -gt 0){$headers[$line.Substring(0,$colon).Trim()]=$line.Substring($colon+1).Trim()}}
-   $method=$parts[0];$path=[Uri]::UnescapeDataString(($parts[1] -split '\?')[0]);$status='200 OK';$type='text/plain; charset=utf-8';$bytes=$null
+   $method=$parts[0];$path=[Uri]::UnescapeDataString(($parts[1] -split '\?')[0]);$status='200 OK';$type='text/plain; charset=utf-8';$bytes=$null;$cacheControl='no-store';$cacheHeaders=''
    if($path -eq '/__form_parts_view'){
     $type='application/json; charset=utf-8'
     if($method -in @('GET','HEAD')){
@@ -137,10 +137,19 @@ try{
     $extension=[IO.Path]::GetExtension($full).ToLowerInvariant()
     if(-not $full.StartsWith($root+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -or -not $mime.ContainsKey($extension)){$status='403 Forbidden';$bytes=[Text.Encoding]::UTF8.GetBytes('Forbidden')}
     elseif(-not [IO.File]::Exists($full)){$status='404 Not Found';$bytes=[Text.Encoding]::UTF8.GetBytes('Not found')}
-    else{$type=$mime[$extension];$fileStream=[IO.File]::OpenRead($full)}
+    else{
+     $type=$mime[$extension]
+     $fileInfo=[IO.FileInfo]::new($full)
+     $etag='"'+$fileInfo.Length.ToString('x')+'-'+$fileInfo.LastWriteTimeUtc.Ticks.ToString('x')+'"'
+     $cacheControl='public, max-age=0, must-revalidate'
+     if($path -match '^/assets/builtin/previews/[a-f0-9]{64}\.(png|jpg|webp|bmp)$'){$cacheControl='public, max-age=31536000, immutable'}
+     $cacheHeaders="ETag: $etag`r`nLast-Modified: $($fileInfo.LastWriteTimeUtc.ToString('R'))`r`n"
+     if($headers['If-None-Match'] -eq $etag){$status='304 Not Modified';$bytes=[byte[]]@()}else{$fileStream=[IO.File]::OpenRead($full)}
+    }
    }
    if($fileStream){$length=$fileStream.Length}else{$length=$bytes.Length}
-   $header="HTTP/1.1 $status`r`nContent-Type: $type`r`nContent-Length: $length`r`nCache-Control: no-store`r`nConnection: close`r`nX-Content-Type-Options: nosniff`r`n`r`n"
+   $lengthHeader="Content-Length: $length`r`n";if($status -eq '304 Not Modified'){$lengthHeader=''}
+   $header="HTTP/1.1 $status`r`nContent-Type: $type`r`n${lengthHeader}Cache-Control: $cacheControl`r`n${cacheHeaders}Connection: close`r`nX-Content-Type-Options: nosniff`r`n`r`n"
    $h=[Text.Encoding]::ASCII.GetBytes($header);$stream.Write($h,0,$h.Length)
    if($method -ne 'HEAD'){if($fileStream){$fileStream.CopyTo($stream)}else{$stream.Write($bytes,0,$bytes.Length)}}
    $stream.Flush()

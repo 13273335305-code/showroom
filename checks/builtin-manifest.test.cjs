@@ -41,3 +41,19 @@ test('generator handles empty and single lists, Chinese filenames, stable IDs, u
     assert.equal(fs.readFileSync(manifest, 'utf8'), beforeInvalid);
   } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 });
+
+test('generator publishes the embedded preview separately with physical metadata', async () => {
+  const { packMaterial } = await import('../shared/material-package.js');
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'spenic-preview-manifest-'));
+  try {
+    const preview = fs.readFileSync(path.join(root, 'checks/fabric-no-dpi.png'));
+    const blob = await packMaterial({ kind: 'material', name: '带预览材质', surface: { color: '#ffffff' }, maps: {}, physical: { mode: 'physical', widthCm: 20, heightCm: 15 }, preview: new Blob([preview], { type: 'image/png' }), previewInfo: { widthCm: 20, heightCm: 15, widthPx: 400, heightPx: 300 } });
+    fs.writeFileSync(path.join(temp, '带预览材质.formmat'), Buffer.from(await blob.arrayBuffer()));
+    const result = run(temp); assert.equal(result.status, 0, result.stderr);
+    const [item] = JSON.parse(fs.readFileSync(path.join(temp, 'manifest.json'), 'utf8'));
+    assert.match(item.preview, /^\.\/previews\/[a-f0-9]{64}\.png$/);
+    assert.deepEqual(fs.readFileSync(path.join(temp, item.preview)), preview);
+    assert.equal(item.previewInfo.widthPx, 400); assert.equal(item.physical.widthCm, 20);
+    assert.equal(run(temp).status, 0);
+  } finally { fs.rmSync(temp, { recursive: true, force: true }); }
+});
