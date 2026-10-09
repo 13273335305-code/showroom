@@ -25,6 +25,18 @@ test('generator handles empty and single lists, Chinese filenames, stable IDs, u
     assert.equal(entry.category, '边布');
     assert.equal(decodeURIComponent(entry.url), './测试边布.formmat');
     assert.match(entry.version, /^[a-f0-9]{64}$/);
+    const runtimePath = path.join(temp, entry.runtime);
+    const runtime = JSON.parse(fs.readFileSync(runtimePath));
+    assert.equal(runtime.format, 'SPENIC-MATERIAL-RUNTIME');
+    assert.equal(runtime.sourceVersion, entry.version);
+    assert.equal(runtime.physical.widthCm, 5.7);
+    assert.ok(Object.keys(runtime.maps).length > 0);
+    for (const map of Object.values(runtime.maps)) {
+      assert.equal(map.prepared, true);
+      assert.ok(map.width > 1 && map.width <= 2048);
+      assert.ok(map.height > 1 && map.height <= 2048);
+      assert.equal(fs.statSync(path.join(path.dirname(runtimePath), map.url)).size, map.bytes);
+    }
     assert.equal(run(temp).status, 0);
     assert.equal(fs.readFileSync(manifest, 'utf8'), first);
     fs.copyFileSync(path.join(root, 'assets/builtin/测试面布.formmat'), file);
@@ -55,5 +67,26 @@ test('generator publishes the embedded preview separately with physical metadata
     assert.deepEqual(fs.readFileSync(path.join(temp, item.preview)), preview);
     assert.equal(item.previewInfo.widthPx, 400); assert.equal(item.physical.widthCm, 20);
     assert.equal(run(temp).status, 0);
+  } finally { fs.rmSync(temp, { recursive: true, force: true }); }
+});
+
+test('generator indexes models with stable IDs and invalidates them when companion resources change', () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'spenic-model-manifest-'));
+  try {
+    fs.writeFileSync(path.join(temp, '展厅.glb'), 'model');
+    fs.mkdirSync(path.join(temp, '展厅.glb.resources'));
+    const resource = path.join(temp, '展厅.glb.resources', 'normal.png');
+    fs.copyFileSync(path.join(root, 'checks/fabric-no-dpi.png'), resource);
+    const first = run(temp); assert.equal(first.status, 0, first.stderr);
+    const [item] = JSON.parse(fs.readFileSync(path.join(temp, 'manifest.json')));
+    assert.equal(item.kind, 'model'); assert.equal(item.id, 'builtin-model-展厅.glb');
+    assert.equal(item.resources.length, 1); assert.equal(item.resources[0].name, 'normal.png');
+    const oldVersion = item.version;
+    fs.appendFileSync(resource, 'changed'); assert.equal(run(temp).status, 0);
+    const [next] = JSON.parse(fs.readFileSync(path.join(temp, 'manifest.json')));
+    assert.equal(next.id, item.id); assert.notEqual(next.version, oldVersion);
+    fs.writeFileSync(path.join(temp, '展厅.fbx'), 'another model'); assert.equal(run(temp).status, 0);
+    const models = JSON.parse(fs.readFileSync(path.join(temp, 'manifest.json')));
+    assert.equal(models.length, 2); assert.equal(new Set(models.map(model => model.id)).size, 2);
   } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 });

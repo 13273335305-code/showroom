@@ -213,7 +213,7 @@ function previewNumber(value, digits = 2) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(digits).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1') : '';
 }
 function fabricPreviewSource(asset) {
-  return asset?.maps?.map || null;
+  return asset?.runtimeMaps?.map || asset?.maps?.map || null;
 }
 const FABRIC_TEXTURE_SURFACE = { width: 3600, height: 2700 };
 const FABRIC_BOARD_CM = {
@@ -349,7 +349,7 @@ async function showFabricPreview(asset) {
   dialog.showModal();
   $('closeFabricPreview').focus();
   try {
-    const full = await getAsset(asset.id);
+    const full = await getAsset(asset.id, { runtime: true });
     if (token !== fabricTextureRenderToken || !dialog.open || dialog.classList.contains('is-closing')) return;
     const source = fabricPreviewSource(full);
     fallback.textContent = '无纹理图';

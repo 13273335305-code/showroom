@@ -1,6 +1,5 @@
-import { downloadFile } from '../shared/navigation.js';
-import { deleteProject, listProjects, moveProject, renameProject, saveProject, saveProjectFolder, setProjectVisibility } from '../shared/project-store.js';
-import { requireAuth } from '../shared/auth.js';
+import { deleteProject, listProjects, moveProject, renameProject, saveProjectFolder, setProjectVisibility } from '../shared/project-store.js';
+import { requireAuth, authState } from '../shared/auth.js';
 
 const $ = id => document.getElementById(id);
 await requireAuth({ feature: 'projects' });
@@ -11,14 +10,12 @@ const selectedProjectIds = new Set();
 const cardUrls = new Map();
 const status = message => { $('status').textContent = message; };
 const isFolder = item => item?.kind === 'folder';
-const baseName = name => String(name || '未命名项目').replace(/\.(form|zip)$/i, '').trim() || '未命名项目';
-const safeFileName = name => baseName(name).replace(/[\\/:*?"<>|]/g, '_') + '.form';
+const ownsProject = item => item.ownerId === authState()?.id;
 
 function revokeCards() {
   for (const value of cardUrls.values()) for (const url of Array.isArray(value) ? value : [value]) URL.revokeObjectURL(url);
   cardUrls.clear();
 }
-function trackUrl(id, url) { const urls = cardUrls.get(id) || []; urls.push(url); cardUrls.set(id, urls); }
 function projectIcon() {
   const wrapper = document.createElement('span'); wrapper.className = 'project-preview-fallback'; wrapper.setAttribute('aria-hidden', 'true');
   wrapper.innerHTML = '<svg viewBox="0 0 48 48"><path d="M8 14a4 4 0 0 1 4-4h10l4 5h10a4 4 0 0 1 4 4v17a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V14Z"/><path d="M8 20h32M17 28h14M17 34h9"/></svg>';
@@ -69,7 +66,7 @@ function createSelectionControl(item, card) {
 }
 
 async function removeProjectTree(item) { for (const child of projects.filter(candidate => (candidate.parentId || null) === item.id)) await removeProjectTree(child); await deleteProject(item.id); }
-function moveTargets(item) { return projects.filter(candidate => isFolder(candidate) && (candidate.visibility || 'personal') === (item.visibility || 'personal') && candidate.id !== item.id && !folderContains(candidate.id, item.id)).sort((a, b) => folderLabel(a).localeCompare(folderLabel(b), 'zh-CN')); }
+function moveTargets(item) { return projects.filter(candidate => ownsProject(candidate) && isFolder(candidate) && (candidate.visibility || 'personal') === (item.visibility || 'personal') && candidate.id !== item.id && !folderContains(candidate.id, item.id)).sort((a, b) => folderLabel(a).localeCompare(folderLabel(b), 'zh-CN')); }
 function openMoveDialog(item) {
   const select = $('projectMoveTarget'); select.replaceChildren(); const root = document.createElement('option'); root.value = ''; root.textContent = '项目库根目录'; select.append(root);
   for (const folder of moveTargets(item)) { const option = document.createElement('option'); option.value = folder.id; option.textContent = folderLabel(folder); select.append(option); }
@@ -92,8 +89,8 @@ function createProjectMenu(item, card) {
   const trigger = document.createElement('button'); trigger.type = 'button'; trigger.className = isFolder(item) ? 'asset-menu-trigger' : 'project-more'; trigger.setAttribute('aria-label', item.name + '：更多操作'); trigger.setAttribute('aria-haspopup', 'menu'); trigger.setAttribute('aria-expanded', 'false'); trigger.title = '更多操作'; trigger.textContent = '⋯';
   const panel = document.createElement('div'); panel.className = 'project-menu'; panel.hidden = true; panel.setAttribute('role', 'menu'); panel.id = 'project-menu-' + item.id; trigger.setAttribute('aria-controls', panel.id);
   const action = (label, handler, className = '') => { const button = document.createElement('button'); button.type = 'button'; button.textContent = label; if (className) button.className = className; button.onclick = async () => { closeMenus(); button.disabled = true; try { await handler(); } catch (error) { status(error.message); } finally { button.disabled = false; } }; return button; };
-  const actions = [action('编辑', () => beginRename(item)), action('移动', () => openMoveDialog(item))];
-  if (!isFolder(item)) actions.push(action('下载', () => downloadFile(item.blob, safeFileName(item.name))));
+  if (!ownsProject(item)) return [];
+  const actions = [action('重命名', () => beginRename(item)), action('移动', () => openMoveDialog(item))];
   actions.push(action(item.visibility === 'public' ? '取消公开' : '公开', async () => { await setProjectVisibility(item.id, item.visibility !== 'public'); await refresh(); status(item.visibility === 'public' ? '已取消公开' : '已公开'); }));
   actions.push(action(isFolder(item) ? '删除文件夹' : '删除', async () => { if (!window.confirm(isFolder(item) ? `删除文件夹“${item.name}”及其中项目？` : `删除项目“${item.name}”？`)) return; await removeProjectTree(item); await refresh(); status(isFolder(item) ? '文件夹已删除' : '项目已删除'); }, 'project-delete'));
   panel.append(...actions); const items = [...panel.children]; items.forEach(element => { element.setAttribute('role', 'menuitem'); element.tabIndex = -1; });
@@ -105,7 +102,7 @@ function closeMenus(restoreFocus = false) { if (!openProjectMenu) return; const 
 
 function appendFolderArt(folder, art) {
   art.classList.add('folder-art'); const previews = folderPreviewChildren(folder); art.classList.add(`folder-preview-count-${previews.length}`);
-  for (const [index, child] of previews.entries()) { const element = child.thumbnail ? document.createElement('img') : document.createElement('div'); element.className = 'folder-preview-card'; element.setAttribute('aria-hidden', 'true'); element.style.setProperty('--folder-preview-x', `${index * -10}px`); element.style.setProperty('--folder-preview-y', `${index * 10}px`); element.style.setProperty('--folder-preview-z', String(3 - index)); if (child.thumbnail) { const url = URL.createObjectURL(child.thumbnail); trackUrl(folder.id, url); element.src = url; element.alt = ''; } else element.classList.add('folder-preview-swatch'); art.append(element); }
+  for (const [index, child] of previews.entries()) { const element = child.thumbnailUrl ? document.createElement('img') : document.createElement('div'); element.className = 'folder-preview-card'; element.setAttribute('aria-hidden', 'true'); element.style.setProperty('--folder-preview-x', `${index * -10}px`); element.style.setProperty('--folder-preview-y', `${index * 10}px`); element.style.setProperty('--folder-preview-z', String(3 - index)); if (child.thumbnailUrl) { element.src = child.thumbnailUrl; element.alt = ''; } else element.classList.add('folder-preview-swatch'); art.append(element); }
   const cover = document.createElement('div'); cover.className = 'folder-cover'; cover.setAttribute('aria-hidden', 'true'); art.append(cover);
 }
 
@@ -114,9 +111,9 @@ function render() {
   if (!collection.length) { $('projectEmpty').querySelector('strong').textContent = query ? '没有匹配的项目' : (activeFolderId ? '文件夹暂无项目' : (projects.length ? '暂无当前范围的项目' : '暂无保存的项目')); $('projectEmpty').querySelector('span').textContent = activeFolderId ? '可以从项目卡片的更多菜单移动项目到这里。' : '在设计台点击保存，即可在这里继续工作。'; return; }
   for (const item of collection) {
     const folder = isFolder(item), card = document.createElement('article'); card.className = 'asset-card ' + (folder ? 'asset-folder project-folder' : 'project-card'); card.dataset.projectId = item.id; card.tabIndex = 0; card.setAttribute('role', 'link'); card.setAttribute('aria-label', folder ? '打开文件夹 ' + item.name : '打开项目 ' + item.name); if (!folder) card.style.setProperty('--card-accent', '#3978ed'); setupCardInteraction(card, item);
-    const art = document.createElement('div'); art.className = 'asset-art'; if (folder) appendFolderArt(item, art); else if (item.thumbnail) { const image = document.createElement('img'); const url = URL.createObjectURL(item.thumbnail); trackUrl(item.id, url); image.src = url; image.alt = item.name; art.append(image); } else art.append(projectIcon());
+    const art = document.createElement('div'); art.className = 'asset-art'; if (folder) appendFolderArt(item, art); else if (item.thumbnailUrl) { const image = document.createElement('img'); image.src = item.thumbnailUrl; image.alt = item.name; art.append(image); } else art.append(projectIcon());
     const info = document.createElement('div'); info.className = 'asset-info'; const title = document.createElement('h2'); title.textContent = item.name; title.title = item.name; info.append(title);
-    const selectControl = folder ? null : createSelectionControl(item, card); if (selectControl) syncCardSelection(card, selectControl, selectedProjectIds.has(item.id)); const [trigger, menu] = createProjectMenu(item, card); card.append(art, info, ...(selectControl ? [selectControl] : []), trigger, menu); grid.append(card);
+    const selectControl = folder ? null : createSelectionControl(item, card); if (selectControl) syncCardSelection(card, selectControl, selectedProjectIds.has(item.id)); card.append(art, info, ...(selectControl ? [selectControl] : []), ...createProjectMenu(item, card)); grid.append(card);
   }
 }
 
@@ -131,9 +128,8 @@ $('projectSearchForm').onsubmit = event => { event.preventDefault(); };
 $('projectSort').onchange = event => { sort = event.target.value; render(); };
 document.querySelectorAll('[data-project-view]').forEach(tab => tab.onclick = event => { event.preventDefault(); const previous = view; view = tab.dataset.projectView; activeFolderId = null; selectedProjectIds.clear(); history.replaceState(null, '', '?view=' + encodeURIComponent(view)); document.querySelectorAll('[data-project-view]').forEach(item => item.setAttribute('aria-selected', String(item === tab))); closeMenus(); render(); if (previous !== view) animateCardPage($('projectGrid'), view === 'public' ? 'next' : 'previous'); });
 $('importProject').onclick = () => { const menu = $('projectAddMenu'); menu.hidden = !menu.hidden; $('importProject').setAttribute('aria-expanded', String(!menu.hidden)); };
-$('importProjectMenu').onclick = () => { closeProjectAddMenu(); $('projectFiles').click(); };
+$('newProjectMenu').onclick = () => { location.href = './design.html?new=1'; };
 $('createProjectFolder').onclick = () => { closeProjectAddMenu(); $('newProjectFolderName').value = ''; $('newProjectFolderError').textContent = ''; $('newProjectFolderDialog').showModal(); $('newProjectFolderName').focus(); };
-$('projectFiles').onchange = async () => { const files = [...$('projectFiles').files]; $('projectFiles').value = ''; let count = 0; for (const file of files) { try { await saveProject({ name: baseName(file.name), modelName: '', blob: file, parentId: activeFolderId, visibility: view }); count++; } catch (error) { status(error.message); } } await refresh(); if (count) status(`已导入 ${count} 个项目`); };
 $('cancelRenameProject').onclick = () => $('renameProjectDialog').close();
 $('renameProjectForm').onsubmit = async event => { event.preventDefault(); const name = $('renameProjectName').value.trim(); if (!name) { $('renameProjectError').textContent = '请输入名称'; return; } try { await renameProject(openRenameId, name); $('renameProjectDialog').close(); await refresh(); status('名称已更新'); } catch (error) { $('renameProjectError').textContent = error.message; } };
 $('cancelProjectMove').onclick = () => $('projectMoveDialog').close();

@@ -1,10 +1,6 @@
 import { installRoughnessShader } from './roughness-map.js';
 
-export const MATERIAL_MAPS = [
-  ['map', '基础颜色', 'BASE COLOR', true], ['normalMap', '法线', 'NORMAL', false],
-  ['roughnessMap', '粗糙度', 'ROUGHNESS', false], ['metalnessMap', '金属度', 'METALLIC', false],
-  ['aoMap', '环境遮蔽', 'AO', false], ['bumpMap', '凹凸高度', 'BUMP', false], ['emissiveMap', '自发光', 'EMISSIVE', true]
-];
+export { MATERIAL_MAPS } from './material-map-definitions.js';
 export const CATEGORIES = ['面布', '边布', '包边条'];
 export function readLegacyUV(texture) {
   return { repeat: texture.repeat.toArray(), offset: texture.offset.toArray(), center: texture.center.toArray(), rotation: texture.rotation, flipY: texture.flipY };

@@ -4,6 +4,7 @@ const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:pa
 (async()=>{
  const browser=await chromium.launch({headless:true,channel:'msedge'}),context=await browser.newContext({viewport:{width:1440,height:1000}}),temp=await fs.mkdtemp(path.join(os.tmpdir(),'spenic-types-'));
  const errors=[];context.on('page',p=>{p.on('pageerror',e=>errors.push(e.message));p.on('console',m=>{if(m.type()==='error')errors.push(m.text());});});
+ await require('./project-test-server.cjs').installProjectFixture(context);
  try{
   const p=await context.newPage();await p.goto('http://127.0.0.1:4186/');await p.waitForFunction(()=>document.querySelectorAll('.material-item').length===9&&document.getElementById('loading').hidden);
   assert.equal(await p.locator('#inspector').isVisible(),false);await p.locator('#restoreInspector').click();assert.equal(await p.locator('#scenePanel').isVisible(),true);assert.equal(await p.locator('#textureSlots').isVisible(),false);
@@ -37,10 +38,9 @@ const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:pa
   assert.equal(await p.locator('[data-pattern-kind=placed]').count(),1,'Single surface decal created');
   await p.locator('#compactOffsetU').fill('0.1');await p.locator('#compactOffsetU').press('Tab');await p.locator('#compactAngle').fill('25');await p.locator('#compactColor').fill('#55ccff');
   await p.screenshot({path:'checks/design-single-pattern.png'});
-  const [download]=await Promise.all([p.waitForEvent('download'),p.locator('#saveProject').click()]);const project=path.join(temp,'types.form');await download.saveAs(project);
-  const {unzipSync,strFromU8}=await import('../vendor/three/addons/libs/fflate.module.js');const config=JSON.parse(strFromU8(unzipSync(new Uint8Array(await fs.readFile(project)))['project.json']));
+  const {saveOnlineProject,openOnlineProject}=require('./project-roundtrip.cjs');const project=await saveOnlineProject(p),config=project.manifest;
   assert.equal(config.patterns.length,1);assert.equal(config.patterns[0].singlePlacement,true);assert.equal(config.patterns[0].angle,25);assert.equal(config.patterns[0].surface.color,'#55ccff');assert.deepEqual(config.materials[9].placement,{offset:[.15,0],angle:35});assert.equal(config.patternSources.length,1);
-  await p.locator('#projectFile').setInputFiles(project);await p.waitForFunction(()=>document.getElementById('loading').hidden&&document.querySelectorAll('[data-pattern-kind=placed]').length===1);
+  await openOnlineProject(p,project);await p.waitForFunction(()=>document.getElementById('loading').hidden&&document.querySelectorAll('[data-pattern-kind=placed]').length===1);
   await p.locator('#patternDockTab').click();await p.locator('[data-pattern-kind=placed]').click();assert.equal(await p.locator('#compactAngle').inputValue(),'25');assert.equal(await p.locator('#compactColor').inputValue(),'#55ccff');assert.equal(await p.locator('#compactOffsetU').inputValue(),'0.1');
   await p.locator('#dockPatternDelete').click();assert.equal(await p.locator('[data-pattern-kind=placed]').count(),0);
   await p.setViewportSize({width:390,height:844});await p.locator('#addDockAsset').click();await p.locator('.picker-card').waitFor();await p.screenshot({path:'checks/design-picker-mobile.png'});assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await p.keyboard.press('Escape');assert.equal(await p.locator('#assetPicker').isVisible(),false);

@@ -104,6 +104,7 @@ export function createAuthService(config, createClient, { storage, appRoot, dete
     return { user, session };
   }
   return {
+    client,
     get recovery() { return recovery; },
     verifiedSession,
     async signIn(email, password, remember) {

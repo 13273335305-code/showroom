@@ -1,0 +1,87 @@
+{
+    "format":  "SPENIC-MATERIAL-RUNTIME",
+    "version":  1,
+    "sourceVersion":  "dd02b668171d363d98b677073556adfd63728f9e6b8df37a7e796deafa380118",
+    "maps":  {
+                 "map":  {
+                             "url":  "map.png",
+                             "name":  "2131_Diffuse.png",
+                             "type":  "image/png",
+                             "prepared":  true,
+                             "width":  2048,
+                             "height":  1534,
+                             "bytes":  501356
+                         },
+                 "normalMap":  {
+                                   "url":  "normalMap.png",
+                                   "name":  "2131_Normal.png",
+                                   "type":  "image/png",
+                                   "prepared":  true,
+                                   "width":  2048,
+                                   "height":  1534,
+                                   "bytes":  1686115
+                               }
+             },
+    "name":  "123",
+    "description":  "",
+    "designInfo":  null,
+    "supplier":  null,
+    "previewInfo":  null,
+    "materialType":  "pattern",
+    "category":  "面布",
+    "surface":  {
+                    "color":  "#ffffff",
+                    "roughness":  0.65,
+                    "metalness":  0,
+                    "normalStrength":  1,
+                    "flip":  false,
+                    "aoStrength":  1,
+                    "emissive":  "#000000",
+                    "emissiveStrength":  1,
+                    "bumpStrength":  0.02,
+                    "opacity":  1,
+                    "transparent":  false,
+                    "alphaTest":  0,
+                    "side":  0
+                },
+    "physical":  {
+                     "mode":  "physical",
+                     "widthCm":  30,
+                     "heightCm":  20,
+                     "angle":  0,
+                     "locked":  true,
+                     "initialized":  true,
+                     "sizeSource":  "manual",
+                     "fallbackDpi":  null
+                 },
+    "repeat":  [
+                   1,
+                   1
+               ],
+    "placement":  null,
+    "density":  {
+                    "map":  {
+                                "widthCm":  87.64223339507807,
+                                "heightCm":  65.62582693834348,
+                                "pixelWidth":  3312,
+                                "pixelHeight":  2480,
+                                "dpiX":  95.9866,
+                                "dpiY":  95.9866,
+                                "source":  "PNG pHYs",
+                                "conflict":  false
+                            },
+                    "normalMap":  {
+                                      "widthCm":  87.63,
+                                      "heightCm":  65.61666666666666,
+                                      "pixelWidth":  3312,
+                                      "pixelHeight":  2480,
+                                      "dpiX":  96,
+                                      "dpiY":  96,
+                                      "source":  "JPEG JFIF / inch",
+                                      "conflict":  false
+                                  }
+                },
+    "legacyMaps":  {
+
+                   }
+}

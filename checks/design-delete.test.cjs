@@ -6,6 +6,7 @@ const fs = require('node:fs/promises'), os = require('node:os'), path = require(
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'spenic-delete-'));
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' }), errors = [];
+    await require('./project-test-server.cjs').installProjectFixture(page.context());
     page.on('pageerror', e => errors.push(e.message));
     await page.goto(process.env.FORM_BASE_URL || 'http://127.0.0.1:4186');
     await page.waitForFunction(() => document.getElementById('loading').hidden && document.querySelectorAll('#materialList .material-item').length === 9);
@@ -76,15 +77,13 @@ const fs = require('node:fs/promises'), os = require('node:os'), path = require(
     await page.locator('[data-pattern-kind="source"]').nth(1).click();
     await page.locator('#dockDeleteSelected').click();
     assert.equal(await page.locator('[data-pattern-kind="source"]').count(), 1);
-    const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#saveProject').click()]);
-    const project = path.join(temp, 'deletion.form'); await download.saveAs(project);
-    const { unzipSync, strFromU8 } = await import('../vendor/three/addons/libs/fflate.module.js');
-    const config = JSON.parse(strFromU8(unzipSync(new Uint8Array(await fs.readFile(project)))['project.json']));
+    const { saveOnlineProject, openOnlineProject } = require('./project-roundtrip.cjs');
+    const project = await saveOnlineProject(page), config = project.manifest;
     assert.equal(config.materials[10].removed, true); assert.equal(config.materials[11].removed, true);
     assert.equal(config.materials[originalId].removed, true);
     assert.ok(config.assignments.flat().includes(9));
     assert.equal(config.patternSources[0].key, config.patterns[0].sourceKey);
-    await page.locator('#projectFile').setInputFiles(project);
+    await openOnlineProject(page, project);
     await page.waitForFunction(() => document.getElementById('loading').hidden && document.querySelectorAll('[data-pattern-kind="placed"]').length === 1);
     assert.equal(await page.locator('[data-entry-id="10"]').count(), 0); assert.equal(await page.locator('[data-entry-id="11"]').count(), 0);
     assert.equal(await page.locator(`[data-entry-id="${originalId}"]`).count(), 0, 'Unused FBX material stays removed after reload');

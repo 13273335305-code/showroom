@@ -143,6 +143,7 @@ try{
      $etag='"'+$fileInfo.Length.ToString('x')+'-'+$fileInfo.LastWriteTimeUtc.Ticks.ToString('x')+'"'
      $cacheControl='public, max-age=0, must-revalidate'
      if($path -match '^/assets/builtin/previews/[a-f0-9]{64}\.(png|jpg|webp|bmp)$'){$cacheControl='public, max-age=31536000, immutable'}
+     if($path -match '^/assets/builtin/runtime/[a-f0-9]{64}-2048-v\d+/'){$cacheControl='public, max-age=31536000, immutable'}
      $cacheHeaders="ETag: $etag`r`nLast-Modified: $($fileInfo.LastWriteTimeUtc.ToString('R'))`r`n"
      if($headers['If-None-Match'] -eq $etag){$status='304 Not Modified';$bytes=[byte[]]@()}else{$fileStream=[IO.File]::OpenRead($full)}
     }

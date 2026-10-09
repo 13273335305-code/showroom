@@ -18,6 +18,13 @@ for (const key of ['spenic-auth-role-v1', 'spenic-auth-session-v2', 'spenic-auth
 
 export function authState() { return currentIdentity ? { id: currentIdentity.user.id, email: currentIdentity.user.email || '' } : null; }
 export function isAuthenticated() { return Boolean(currentIdentity); }
+export async function workspaceClient() {
+  const service = await getService();
+  const identity = await service.verifiedSession();
+  if (!identity) throw new Error('请先登录工作空间');
+  currentIdentity = identity;
+  return { client: service.client, userId: identity.user.id };
+}
 
 function returnToLogin() {
   const url = new URL(loginUrl);
@@ -161,7 +168,7 @@ function overlayMarkup() {
           </form>
           <button id="authRetry" class="auth-link auth-retry" type="button" hidden>重新连接</button>
           <button id="authBack" class="auth-link auth-back" type="button" hidden>返回登录</button>
-          <div class="auth-card-footer"><p id="authFooter">账号由管理员邀请开通。</p><p>项目和资产目前仍保存在此浏览器。</p></div>
+          <div class="auth-card-footer"><p id="authFooter">账号由管理员邀请开通。</p></div>
         </div>
       </section>
     </div>`;

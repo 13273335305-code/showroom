@@ -1,0 +1,70 @@
+{
+    "format":  "SPENIC-MATERIAL-RUNTIME",
+    "version":  1,
+    "sourceVersion":  "141d3035ab5ce0b4f528e43e1befb673035116ce4437ca4c387a11f3ad080760",
+    "maps":  {
+                 "map":  {
+                             "url":  "map.jpg",
+                             "name":  "蓝黑点点 20 22_Diffuse.jpg",
+                             "type":  "image/jpeg",
+                             "prepared":  true,
+                             "width":  935,
+                             "height":  1057,
+                             "bytes":  815863
+                         }
+             },
+    "name":  "蓝色包边条",
+    "description":  null,
+    "designInfo":  null,
+    "supplier":  null,
+    "previewInfo":  null,
+    "materialType":  "fabric",
+    "category":  "包边条",
+    "surface":  {
+                    "color":  "#ffffff",
+                    "roughness":  0.65,
+                    "metalness":  0,
+                    "roughnessGrayscale":  false,
+                    "roughnessInvert":  false,
+                    "normalStrength":  1,
+                    "flip":  false,
+                    "aoStrength":  1,
+                    "emissive":  "#000000",
+                    "emissiveStrength":  1,
+                    "bumpStrength":  0.02,
+                    "opacity":  1,
+                    "transparent":  false,
+                    "alphaTest":  0,
+                    "side":  0
+                },
+    "physical":  {
+                     "mode":  "physical",
+                     "widthCm":  1.9790833333333333,
+                     "heightCm":  2.2373166666666666,
+                     "angle":  0,
+                     "locked":  true,
+                     "initialized":  true,
+                     "sizeSource":  "dpi",
+                     "fallbackDpi":  null
+                 },
+    "repeat":  [
+                   1,
+                   1
+               ],
+    "placement":  null,
+    "density":  {
+                    "map":  {
+                                "widthCm":  1.9790833333333333,
+                                "heightCm":  2.2373166666666666,
+                                "pixelWidth":  935,
+                                "pixelHeight":  1057,
+                                "dpiX":  1200,
+                                "dpiY":  1200,
+                                "source":  "JPEG JFIF / inch",
+                                "conflict":  false
+                            }
+                },
+    "legacyMaps":  {
+
+                   }
+}

@@ -1,0 +1,421 @@
+{
+  "observedAt": "2026-10-09",
+  "source": "https://cloud.style3d.com/sl/r/1ra2pc304ed84?",
+  "finalPage": "https://cloud.style3d.com/cd/style/5442506?share_state_id=648029&func=wswpmyproduct&is_share_page=1&label_id=20261009130429_y07jgM",
+  "requestCount": 85,
+  "pageErrors": [],
+  "model": {
+    "entryFilename": "szQJZYusDkjyelJ3YN0kSole.json",
+    "coSourceFile": "sco.co",
+    "coVersion": 1240,
+    "geometryCount": 25,
+    "materialCount": 7,
+    "faceCount": 804698,
+    "vertexCount": 412307,
+    "unitScale": 0.1,
+    "unitStr": "mm",
+    "coBytes": 3328796,
+    "coResponses": [
+      {
+        "status": 206,
+        "bytes": 2104951
+      },
+      {
+        "status": 206,
+        "bytes": 421363
+      },
+      {
+        "status": 206,
+        "bytes": 802482
+      }
+    ]
+  },
+  "fabrics": [
+    {
+      "id": 7281222,
+      "name": "TY-6842-GL | 侧边面料",
+      "declaredFormat": "sfab"
+    },
+    {
+      "id": 7571899,
+      "name": "防滑布 | 侧边面料",
+      "declaredFormat": "sfab"
+    },
+    {
+      "id": 8009699,
+      "name": "1",
+      "declaredFormat": "sfab"
+    }
+  ],
+  "fabricRelations": [
+    {
+      "clothId": "5442506",
+      "fabricId": 7281222,
+      "materialId": "EAC8A55BF6378C3F4B694B47041804B0",
+      "containerDesignId": "clothing_5442506"
+    },
+    {
+      "clothId": "5442506",
+      "fabricId": 7281222,
+      "materialId": "ED0F5BEE626CF708E3E8D5B24E63E36E",
+      "containerDesignId": "clothing_5442506"
+    },
+    {
+      "clothId": "5442506",
+      "fabricId": 7571899,
+      "materialId": "FE11B1CE80BEC329AF4C1B7ACEA5A57A",
+      "containerDesignId": "clothing_5442506"
+    },
+    {
+      "clothId": "5442506",
+      "fabricId": 7281222,
+      "materialId": "DE6E13A06549D24EBACB6FE0B2368E2A",
+      "containerDesignId": "clothing_5442506"
+    },
+    {
+      "clothId": "5442506",
+      "fabricId": 8009699,
+      "materialId": "04C128B7E838A1556B4BA095649DB59E",
+      "containerDesignId": "clothing_5442506"
+    }
+  ],
+  "materialBindings": [
+    {
+      "id": "04C128B7E838A1556B4BA095649DB59E",
+      "name": "织物 7",
+      "geometryIds": [
+        "e623077d-20e5-405c-9212-624ba373d78e_front_-1"
+      ]
+    },
+    {
+      "id": "6435C21E53CA17ADEB75C266A4F1A747",
+      "name": "织物 4",
+      "geometryIds": [
+        "6d2f6ac9-60cf-44c5-a1c3-8e74fdf35f39_front_-1",
+        "a759fdad-6be1-47b9-8fae-b6625093c1f4_front_-1",
+        "a9ffe594-0621-42c6-abc0-b366d1f981d7_front_-1"
+      ]
+    },
+    {
+      "id": "A9D38BBF7C02D2523B269BC72BBE507A",
+      "name": "织物 3",
+      "geometryIds": [
+        "0b742c1d-5516-4190-b872-82925338d6cc_front_-1",
+        "1e33ac73-1e86-4eba-ac4a-575d16da2de1_front_-1",
+        "34e75a65-d22e-42c4-9926-c11f79af96b1_front_-1",
+        "577a8b8a-5769-4df1-9683-4d3597f10ad7_front_-1",
+        "60eee687-8e9e-47ea-992b-bfde2e44b625_front_-1",
+        "6ce3d02b-0212-4df4-8dd3-a7baf42a801c_front_-1",
+        "8d441a38-88f0-4c5b-8778-d7dba55f87d5_front_-1",
+        "b62ba570-a02c-462b-92ae-2a43ae5b77bb_front_-1",
+        "b90d92b8-36df-45b0-8bcb-a2b9c3f8c1f6_front_-1",
+        "f160cb52-d3a2-448e-b8f8-6b54c3cbea6a_front_-1",
+        "f8615704-3adc-45d7-890f-e85726e5955c_front_-1",
+        "fd42536b-fecf-4ced-831e-79911c00d207_front_-1"
+      ]
+    },
+    {
+      "id": "DE6E13A06549D24EBACB6FE0B2368E2A",
+      "name": "织物 6",
+      "geometryIds": [
+        "e31d45be-6f7a-446c-8989-fcd925f63655_front_-1"
+      ]
+    },
+    {
+      "id": "EAC8A55BF6378C3F4B694B47041804B0",
+      "name": "织物 2",
+      "geometryIds": [
+        "5b2dbad6-ca0e-4eec-bad5-b5b398d25104_front_-1",
+        "6737e468-c517-4c02-aed3-d9cdf568dd47_front_-1",
+        "9876868a-38b3-4665-bb11-e7a53e9d96aa_front_-1",
+        "b5fda868-0c5f-4d16-961e-a406fd35534d_front_-1",
+        "db4981d9-bcca-42d7-9a61-fa22d5e04b46_front_-1",
+        "f1166046-7a9c-4748-9ab7-a3c9bc05fdc4_front_-1"
+      ]
+    },
+    {
+      "id": "ED0F5BEE626CF708E3E8D5B24E63E36E",
+      "name": "织物 5",
+      "geometryIds": [
+        "a64580f8-772d-4b98-981c-bf397c732d9d_front_-1"
+      ]
+    },
+    {
+      "id": "FE11B1CE80BEC329AF4C1B7ACEA5A57A",
+      "name": "织物 8",
+      "geometryIds": [
+        "b96e374e-fc91-4266-ad1d-db0efa762bc3_front_-1"
+      ]
+    }
+  ],
+  "geometryExample": {
+    "id": "0b742c1d-5516-4190-b872-82925338d6cc_front_-1",
+    "coDataRange": [
+      3280961,
+      3287057
+    ],
+    "renderConfig": {
+      "backAttenuation": 0.5,
+      "bakingLight": {
+        "path": "",
+        "uvOffsetMatrix": [
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1
+        ],
+        "value": 0.5
+      },
+      "bakingLightBack": {
+        "path": "",
+        "uvOffsetMatrix": [
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1
+        ],
+        "value": 0.5
+      },
+      "bakingNormal": {
+        "path": "textures/lti1-h_35s-w_35s-s_2ywb-t_3-src_png-bakingNormal.png",
+        "uvOffsetMatrix": [
+          0.0001358,
+          0,
+          0,
+          0,
+          0.0001358,
+          0,
+          0.23196988,
+          0.73198038,
+          1
+        ],
+        "value": 1
+      },
+      "fabricMatrix": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        -3766.77246094,
+        3731.19799805,
+        1
+      ],
+      "repeat": [
+        true,
+        true
+      ],
+      "uvSize": [
+        1,
+        1
+      ]
+    }
+  },
+  "requests": [
+    {
+      "url": "https://file.style3d.com/cdstatic/header_config.json",
+      "status": 200,
+      "type": "application/json",
+      "bytes": 1090
+    },
+    {
+      "url": "https://cloud.style3d.com/api_v3/design/sk_single/v3/aggregation",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "url": "https://file.style3d.com/website/Company/42274ab7-17a4-4bcb-ba2b-60c289d3fd2b/recreate/20260831/232526374735/QARA5nvJMO/szQJZYusDkjyelJ3YN0kSole.json",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "url": "https://cloud.style3d.com/api_v3/account/permission/detail",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "url": "https://file.style3d.com/website/Company/42274ab7-17a4-4bcb-ba2b-60c289d3fd2b/recreate/20260831/164734395228/6aawvUIjR4/d36712b7cfa385ecd50a52fdca19f8cd.json",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "url": "https://file.style3d.com/website/Company/42274ab7-17a4-4bcb-ba2b-60c289d3fd2b/recreate/20260608/113119528793/EZHgFhPMGr/img20260608_11072101.json",
+      "status": 200,
+      "type": "application/json",
+      "bytes": 1041
+    },
+    {
+      "url": "https://file.style3d.com/website/Company/42274ab7-17a4-4bcb-ba2b-60c289d3fd2b/recreate/20260304/114445646076/aMzIAUhhK6/fabric.json",
+      "status": 200,
+      "type": "application/json",
+      "bytes": 1744
+    },
+    {
+      "url": "https://file.style3d.com/website/Company/42274ab7-17a4-4bcb-ba2b-60c289d3fd2b/recreate/20260608/113119528793/EZHgFhPMGr/textures/lti1-h_1kw-w_1kw-src_jpg-img20260608_11072101_Front_Gloss.webp",
+      "status": 200,
+      "type": "image/webp",
+      "bytes": 82172,
+      "imageProcessing": "image/resize,m_fixed,h_2048,w_2048,limit_0"
+    },
+    {
+      "url": "https://file.style3d.com/website/Company/42274ab7-17a4-4bcb-ba2b-60c289d3fd2b/recreate/20260304/114445646076/aMzIAUhhK6/textures/lti1-h_xo-w_172-src_jpg-fabric_Front_Diffuse.webp",
+      "status": 200,
+      "type": "image/webp",
+      "bytes": 420412,
+      "imageProcessing": "image/resize,m_fixed,h_2048,w_2048,limit_0"
+    },
+    {
+      "url": "https://file.style3d.com/website/Company/42274ab7-17a4-4bcb-ba2b-60c289d3fd2b/recreate/20260608/113119528793/EZHgFhPMGr/textures/lti1-h_sg-w_sg-src_jpg-img20260608_11072101_Front_Normal.webp",
+      "status": 200,
+      "type": "image/webp",
+      "bytes": 261060,
+      "imageProcessing": "image/resize,m_fixed,h_1024,w_1024,limit_0"
+    },
+    {
+      "url": "https://cloud.style3d.com/api_v3/design/sk_single/v3/info",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "url": "https://file.style3d.com/website/Company/42274ab7-17a4-4bcb-ba2b-60c289d3fd2b/recreate/20260304/114445646076/aMzIAUhhK6/textures/lti1-h_xo-w_172-src_jpg-fabric_Front_Normal.webp",
+      "status": 200,
+      "type": "image/webp",
+      "bytes": 1233038,
+      "imageProcessing": "image/resize,m_fixed,h_2048,w_2048,limit_0"
+    },
+    {
+      "url": "https://file.style3d.com/website/Company/42274ab7-17a4-4bcb-ba2b-60c289d3fd2b/recreate/20260608/113119528793/EZHgFhPMGr/textures/lti1-h_rg-w_r3-src_jpg-img20260608_11072101_Front_Diffuse.webp",
+      "status": 200,
+      "type": "image/webp",
+      "bytes": 236860,
+      "imageProcessing": "image/resize,m_fixed,h_1024,w_1024,limit_0"
+    },
+    {
+      "url": "https://file.style3d.com/website/Company/42274ab7-17a4-4bcb-ba2b-60c289d3fd2b/company/logo_20260302105520_8332_998/998.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 153535
+    },
+    {
+      "url": "https://file.style3d.com/website/Company/42274ab7-17a4-4bcb-ba2b-60c289d3fd2b/recreate/20260831/232526374735/QARA5nvJMO/textures/lti1-h_35s-w_35s-s_2ywb-t_3-src_png-bakingNormal.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 136296,
+      "imageProcessing": "image/resize,m_fixed,h_4096,w_4096,limit_0,type_6"
+    },
+    {
+      "url": "https://cloud.style3d.com/api_v3/design/sk_single/v3/show",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "url": "https://file.style3d.com/static/draco/draco_decoder.wasm",
+      "status": 200,
+      "type": "application/wasm",
+      "bytes": 379291
+    },
+    {
+      "url": "https://file.style3d.com/static/draco/draco_wasm_wrapper.js",
+      "status": 200,
+      "type": "application/javascript",
+      "bytes": 12075
+    },
+    {
+      "url": "https://cloud.style3d.com/api_v3/design/sk_single/sk_product_spec",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "url": "https://file.style3d.com/website/Company/42274ab7-17a4-4bcb-ba2b-60c289d3fd2b/recreate/20260831/232526374735/QARA5nvJMO/sco.co",
+      "status": 206,
+      "type": "application/octet-stream",
+      "bytes": 2104951
+    },
+    {
+      "url": "https://cloud.style3d.com/api_v3/design/sk_single/menu",
+      "status": 200,
+      "type": "application/json"
+    },
+    {
+      "url": "https://file.style3d.com/website/Company/42274ab7-17a4-4bcb-ba2b-60c289d3fd2b/tools/screeShot/20260831234206_5877/1788190926425.png",
+      "status": 200,
+      "type": "application/json",
+      "bytes": 180,
+      "imageProcessing": "image/info"
+    },
+    {
+      "url": "https://file.style3d.com/website/Company/42274ab7-17a4-4bcb-ba2b-60c289d3fd2b/recreate/20260831/232526374735/QARA5nvJMO/sco.co",
+      "status": 206,
+      "type": "application/octet-stream",
+      "bytes": 421363
+    },
+    {
+      "url": "https://file.style3d.com/website/Company/42274ab7-17a4-4bcb-ba2b-60c289d3fd2b/recreate/20260831/232526374735/QARA5nvJMO/sco.co",
+      "status": 206,
+      "type": "application/octet-stream",
+      "bytes": 802482
+    },
+    {
+      "url": "https://file.style3d.com/static/lib/img/webgl/default_white_bg_pc.jpg",
+      "status": 200,
+      "type": "image/jpeg",
+      "bytes": 29311,
+      "imageProcessing": "image/resize,m_fixed,h_1024,w_2048,limit_0"
+    },
+    {
+      "url": "https://file.style3d.com/website/Company/42274ab7-17a4-4bcb-ba2b-60c289d3fd2b/tools/screeShot/20260831234206_5877/1788190926425.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 27910,
+      "imageProcessing": "image/resize,h_128,w_256,limit_0,type_6"
+    },
+    {
+      "url": "https://file.style3d.com/static/hdr/defaultlightv8/d.bin",
+      "status": 200,
+      "type": "application/octet-stream",
+      "bytes": 640
+    },
+    {
+      "url": "https://file.style3d.com/static/hdr/envmapv8/lut_16.bin",
+      "status": 200,
+      "type": "application/octet-stream",
+      "bytes": 1048640
+    },
+    {
+      "url": "https://file.style3d.com/static/hdr/defaultlightv8/s.zip",
+      "status": 200,
+      "type": "application/zip",
+      "bytes": 1325640
+    },
+    {
+      "url": "https://file.style3d.com/website/Company/42274ab7-17a4-4bcb-ba2b-60c289d3fd2b/recreate/20260831/232526374735/QARA5nvJMO/light.json",
+      "status": 200,
+      "type": "application/json",
+      "bytes": 754
+    },
+    {
+      "url": "https://file.style3d.com/website/Company/42274ab7-17a4-4bcb-ba2b-60c289d3fd2b/recreate/20260831/164734395228/6aawvUIjR4/textures/lti1-h_70u-w_73h-src_jpg-d36712b7cfa385ecd50a52fdca19f8cd_Front_Diffuse.webp",
+      "status": 200,
+      "type": "image/webp",
+      "bytes": 1516544,
+      "imageProcessing": "image/resize,m_fixed,h_4096,w_4096,limit_0"
+    },
+    {
+      "url": "https://oss.style3d.com/Fashion/Scenes/2b8J1mXNXcTOIRSNhykPpItB.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 6730
+    }
+  ]
+}

@@ -11,15 +11,17 @@ const root = path.resolve(__dirname, '..');
   const pack = await packMaterial({ kind: 'material', name: '云端面料', surface: { color: '#ffffff', roughness: .65 }, physical: { mode: 'physical', widthCm: 10, heightCm: 8 }, maps: { map: new File([png], 'original.png', { type: 'image/png' }) }, preview: new Blob([png], { type: 'image/png' }) });
   const bytes = Buffer.from(await pack.arrayBuffer());
   const manifest = [
-    { id: 'remote', name: '云端面料', category: '面布', materialType: 'fabric', version: 'v1', url: './fixture.formmat', preview: './previews/fixture.png', physical: { widthCm: 10, heightCm: 8 } },
-    { id: 'legacy', name: '旧面料', category: '面布', materialType: 'fabric', version: 'v1', url: './fixture.formmat' },
+    { id: 'remote', name: '云端面料', category: '面布', materialType: 'fabric', version: 'v1', url: './fixture.formmat', runtime: './runtime/fixture/material.json', preview: './previews/fixture.png', physical: { widthCm: 10, heightCm: 8 } },
+    { id: 'legacy', name: '无预览面料', category: '面布', materialType: 'fabric', version: 'v1', url: './fixture.formmat', runtime: './runtime/fixture/material.json' },
   ];
   let packageRequests = 0;
   const server = http.createServer(async (req, res) => {
     const pathname = new URL(req.url, 'http://localhost').pathname;
-    if (pathname === '/shared/auth.js') { res.setHeader('Content-Type', 'text/javascript'); res.end('export async function requireAuth() {}'); return; }
+    if (pathname === '/shared/auth.js') { res.setHeader('Content-Type', 'text/javascript'); res.end('export async function requireAuth() {}\nexport const authState = () => null;'); return; }
     if (pathname === '/assets/builtin/manifest.json') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(manifest)); return; }
     if (pathname === '/assets/builtin/fixture.formmat') { packageRequests++; res.end(bytes); return; }
+    if (pathname === '/assets/builtin/runtime/fixture/material.json') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ format: 'SPENIC-MATERIAL-RUNTIME', version: 1, sourceVersion: 'v1', surface: { color: '#ffffff', roughness: .65 }, physical: { mode: 'physical', sizeSource: 'manual', widthCm: 10, heightCm: 8 }, maps: { map: { url: 'map.png', type: 'image/png', prepared: true } } })); return; }
+    if (pathname === '/assets/builtin/runtime/fixture/map.png') { res.setHeader('Content-Type', 'image/png'); res.end(png); return; }
     if (pathname === '/assets/builtin/previews/fixture.png') { res.setHeader('Content-Type', 'image/png'); res.end(png); return; }
     if (pathname === '/setup.html') { res.setHeader('Content-Type', 'text/html'); res.end('<title>Fixture</title>'); return; }
     if (pathname === '/design-fixture.html') {
@@ -57,19 +59,19 @@ const root = path.resolve(__dirname, '..');
     assert.equal(await page.locator('[data-asset-id=legacy] .asset-art').innerText(), '无预览图');
     await page.locator('[data-asset-id=remote] .asset-art').click();
     await page.waitForFunction(() => !document.getElementById('fabricPreviewTexture').hidden);
-    assert.equal(packageRequests, 1, 'Opening a detail downloads just that package');
+    assert.equal(packageRequests, 0, 'Opening a detail downloads only runtime channels');
     const detail = await page.locator('#fabricPreviewTexture').evaluate(canvas => ({ w: canvas.width, h: canvas.height }));
     assert.ok(detail.w <= 3600 && detail.h <= 2700);
     await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.getElementById('fabricPreviewDialog').open);
     await page.locator('[data-asset-id=remote] .asset-art').click(); await page.waitForFunction(() => !document.getElementById('fabricPreviewTexture').hidden);
-    assert.equal(packageRequests, 1, 'Reopening uses the stored original');
+    assert.equal(packageRequests, 0, 'Reopening uses the stored runtime files');
     await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.getElementById('fabricPreviewDialog').open);
     const indexCheck = await page.evaluate(async () => {
       const store = await import('./shared/asset-store.js'), items = await store.listAssets();
       await store.updateAsset('legacy', { name: '旧面料改名', favorite: true });
       return items.every(item => !('maps' in item) && !('runtimeMaps' in item) && !('file' in item));
     });
-    assert.equal(indexCheck, true); assert.equal(packageRequests, 1, 'Metadata edits do not hydrate a material');
+    assert.equal(indexCheck, true); assert.equal(packageRequests, 0, 'Metadata edits do not hydrate a material');
     const runtimeCache = await page.evaluate(async () => {
       const { getAsset } = await import('./shared/asset-store.js');
       const decode = window.createImageBitmap; let decoded = 0;
@@ -80,7 +82,7 @@ const root = path.resolve(__dirname, '..');
         return { firstDecoded, secondDecoded: decoded, maps: !!first.runtimeMaps.map && !!second.runtimeMaps.map };
       } finally { window.createImageBitmap = decode; }
     });
-    assert.equal(runtimeCache.maps, true); assert.ok(runtimeCache.firstDecoded > 0); assert.equal(runtimeCache.firstDecoded, runtimeCache.secondDecoded, 'Runtime maps are prepared once and persist');
+    assert.equal(runtimeCache.maps, true); assert.equal(runtimeCache.firstDecoded, 0); assert.equal(runtimeCache.secondDecoded, 0, 'Preprocessed runtime files do not need browser resizing');
     await page.evaluate(async () => {
       const { saveAsset } = await import('./shared/asset-store.js');
       const preview = await (await fetch('./assets/builtin/previews/fixture.png')).blob();
@@ -105,10 +107,10 @@ const root = path.resolve(__dirname, '..');
     await page.locator('#libraryBack').click(); await page.waitForFunction(() => document.getElementById('assetPanel').getAttribute('aria-busy') === 'false');
     const glass = await page.locator('#assetPagination').evaluate(el => ({ position: getComputedStyle(el).position, blur: getComputedStyle(el).backdropFilter, bottom: el.getBoundingClientRect().bottom, height: innerHeight }));
     assert.equal(glass.position, 'fixed'); assert.match(glass.blur, /blur/); assert.ok(glass.bottom < glass.height);
-    await page.screenshot({ path: path.join(root, 'checks/asset-library-pagination.png') });
+    await page.screenshot({ path: path.join(root, 'checks/material-runtime-pagination.png') });
     await page.setViewportSize({ width: 390, height: 844 });
     const mobile = await page.locator('#assetPagination').boundingBox(); assert.ok(mobile.x >= 0 && mobile.x + mobile.width <= 391);
-    assert.equal(packageRequests, 1, 'Paging, search and folders never download PBR packages');
+    assert.equal(packageRequests, 0, 'Paging, search and folders never download PBR packages');
     // Upgrade an existing version-1 database without losing original files.
     const migrationContext = await browser.newContext(); const migration = await migrationContext.newPage();
     await migration.goto(base + '/setup.html');
@@ -130,16 +132,16 @@ const root = path.resolve(__dirname, '..');
     });
     await pickerPage.locator('#addDockAsset').evaluate(button => button.click());
     await pickerPage.waitForFunction(() => document.getElementById('assetPicker').getAttribute('aria-busy') === 'false');
-    assert.equal(packageRequests, 1, 'Design picker browsing does not download packages');
+    assert.equal(packageRequests, 0, 'Design picker browsing does not download packages');
     await pickerPage.locator('.picker-card[data-asset-id=remote]').click();
     await pickerPage.locator('#confirmAssetPicker').click();
     await pickerPage.waitForFunction(() => !document.getElementById('assetPicker').open);
-    assert.equal(packageRequests, 2, 'Confirming downloads only the selected material');
+    assert.equal(packageRequests, 0, 'Confirming downloads only runtime channels of the selected material');
     assert.equal(await pickerPage.evaluate(() => addedMaterials.length === 1 && addedMaterials[0].maps.map instanceof Blob && addedMaterials[0].runtimeMaps.map instanceof Blob), true, 'Scene receives original and prepared runtime maps');
     assert.deepEqual(await pickerPage.evaluate(() => pickerErrors), []);
     await pickerContext.close();
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ coldBrowseMs: coldMs, packageDownloadsDuringBrowse: 0, packageDownloadsAfterDetail: 1, packageDownloadsAfterDesignAdd: packageRequests, pageCounts: [30, 30, 8], screenshot: 'checks/asset-library-pagination.png' }));
+    console.log(JSON.stringify({ coldBrowseMs: coldMs, packageDownloadsDuringBrowse: 0, packageDownloadsAfterDetail: 0, packageDownloadsAfterDesignAdd: packageRequests, pageCounts: [30, 30, 8], screenshot: 'checks/material-runtime-pagination.png' }));
     console.log('PASS: whole-page reveal, 30-card pagination, lightweight cold browse, worker detail loading, persistent cache, metadata edits, folder/search navigation, mobile glass bar, database migration and design picker hydration.');
   } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

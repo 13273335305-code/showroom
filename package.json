@@ -2,9 +2,14 @@
   "type": "module",
   "scripts": {
     "test": "node --test checks/*.test.mjs",
+    "test:runtime": "node --test checks/asset-store.test.mjs checks/builtin-manifest.test.cjs checks/project-cloud.test.mjs checks/project-database.test.mjs && node checks/material-runtime-workflow.test.cjs",
+    "test:project-db": "node --test checks/project-database.test.mjs",
     "test:entries": "node checks/entry-workflow.test.cjs",
     "test:design": "node checks/design-material-types.test.cjs",
     "test:editor": "node checks/editor-pbr-layout.test.cjs",
     "test:sampling": "node checks/texture-sampling.test.cjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8"
   }
 }

@@ -8,7 +8,7 @@ const root = path.resolve(__dirname, '..');
 (async () => {
   const server = http.createServer(async (req, res) => {
     const pathname = new URL(req.url, 'http://localhost').pathname;
-    if (pathname === '/shared/auth.js') { res.setHeader('Content-Type', 'text/javascript'); res.end('export async function requireAuth() {}'); return; }
+    if (pathname === '/shared/auth.js') { res.setHeader('Content-Type', 'text/javascript'); res.end('export async function requireAuth() {}\nexport const authState = () => null;'); return; }
     const file = path.resolve(root, '.' + pathname);
     if (!file.startsWith(root + path.sep)) { res.writeHead(403).end(); return; }
     try {

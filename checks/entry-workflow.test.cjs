@@ -10,6 +10,7 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'spenic-entry-check-'));
   try {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    await require('./project-test-server.cjs').installProjectFixture(context);
     const errors = [];
     context.on('page', page => { page.on('pageerror', error => errors.push(error.message)); page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); }); });
     const editor = await context.newPage(), requests = [];
@@ -71,9 +72,9 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
     }
     assert.ok(target, 'Model accepts an asset material'); await design.mouse.up();
     await design.waitForFunction(() => !document.getElementById('undoMaterial').disabled);
-    const [projectDownload] = await Promise.all([design.waitForEvent('download'), design.locator('#saveProject').click()]);
-    const projectPath = path.join(temp, 'test.form'); await projectDownload.saveAs(projectPath);
-    await design.locator('#projectFile').setInputFiles(projectPath);
+    const { saveOnlineProject, openOnlineProject } = require('./project-roundtrip.cjs');
+    const project = await saveOnlineProject(design);
+    await openOnlineProject(design, project);
     await design.waitForFunction(() => document.getElementById('loading').hidden && document.getElementById('materialName').value === '测试编织材质');
     assert.equal(await design.locator('.material-item').count(), 10, 'Project restores additional material');
     assert.equal(await design.locator('#roughness').inputValue(), '0.37');

@@ -308,7 +308,7 @@ async function uploadMap(key, file, restoring = false) {
     if (Math.max(texture.image.width, texture.image.height) > renderer.capabilities.maxTextureSize) throw new Error('图片超过显卡支持尺寸');
     material[key]?.dispose();
     if (urls[key]) URL.revokeObjectURL(urls[key]);
-    material[key] = texture; files[key] = file; urls[key] = url;
+    material[key] = texture; files[key] = originalFile; urls[key] = url;
     const sourceWidth = originalFile.imageWidth || texture.image.width;
     const sourceHeight = originalFile.imageHeight || texture.image.height;
     density[key] = physicalSizeFromDensity(meta, sourceWidth, sourceHeight, physical.fallbackDpi);

@@ -1,0 +1,70 @@
+{
+    "format":  "SPENIC-MATERIAL-RUNTIME",
+    "version":  1,
+    "sourceVersion":  "7e9aa1f63d5f29f0a3138b1d8772f8ecd733b89968ffd31816383d85189d882e",
+    "maps":  {
+                 "map":  {
+                             "url":  "map.jpg",
+                             "name":  "417WBK.jpg",
+                             "type":  "image/jpeg",
+                             "prepared":  true,
+                             "width":  2048,
+                             "height":  1274,
+                             "bytes":  968601
+                         }
+             },
+    "name":  "新材质",
+    "description":  null,
+    "designInfo":  null,
+    "supplier":  null,
+    "previewInfo":  null,
+    "materialType":  "fabric",
+    "category":  "面布",
+    "surface":  {
+                    "color":  "#ffffff",
+                    "roughness":  0.65,
+                    "metalness":  0,
+                    "roughnessGrayscale":  false,
+                    "roughnessInvert":  false,
+                    "normalStrength":  1,
+                    "flip":  false,
+                    "aoStrength":  1,
+                    "emissive":  "#000000",
+                    "emissiveStrength":  1,
+                    "bumpStrength":  0.02,
+                    "opacity":  1,
+                    "transparent":  false,
+                    "alphaTest":  0,
+                    "side":  0
+                },
+    "physical":  {
+                     "mode":  "physical",
+                     "widthCm":  231.4956,
+                     "heightCm":  143.9926,
+                     "angle":  0,
+                     "locked":  true,
+                     "initialized":  true,
+                     "sizeSource":  "dpi",
+                     "fallbackDpi":  null
+                 },
+    "repeat":  [
+                   1,
+                   1
+               ],
+    "placement":  null,
+    "density":  {
+                    "map":  {
+                                "widthCm":  231.4956,
+                                "heightCm":  143.9926,
+                                "pixelWidth":  9114,
+                                "pixelHeight":  5669,
+                                "dpiX":  100,
+                                "dpiY":  100,
+                                "source":  "EXIF / inch",
+                                "conflict":  false
+                            }
+                },
+    "legacyMaps":  {
+
+                   }
+}

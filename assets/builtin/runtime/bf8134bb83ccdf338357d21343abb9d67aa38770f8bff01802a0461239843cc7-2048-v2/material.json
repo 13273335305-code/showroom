@@ -1,0 +1,89 @@
+{
+    "format":  "SPENIC-MATERIAL-RUNTIME",
+    "version":  1,
+    "sourceVersion":  "bf8134bb83ccdf338357d21343abb9d67aa38770f8bff01802a0461239843cc7",
+    "maps":  {
+                 "map":  {
+                             "url":  "map.jpg",
+                             "name":  "ZE25EC15_Diffuse.jpg",
+                             "type":  "image/jpeg",
+                             "prepared":  true,
+                             "width":  1360,
+                             "height":  1190,
+                             "bytes":  1953101
+                         },
+                 "normalMap":  {
+                                   "url":  "normalMap.jpg",
+                                   "name":  "ZE25EC15_Normal.jpg",
+                                   "type":  "image/jpeg",
+                                   "prepared":  true,
+                                   "width":  1360,
+                                   "height":  1190,
+                                   "bytes":  2191528
+                               }
+             },
+    "name":  "新材质",
+    "description":  null,
+    "designInfo":  null,
+    "supplier":  null,
+    "previewInfo":  null,
+    "materialType":  "fabric",
+    "category":  "面布",
+    "surface":  {
+                    "color":  "#ffffff",
+                    "roughness":  1,
+                    "metalness":  0,
+                    "roughnessGrayscale":  false,
+                    "roughnessInvert":  false,
+                    "normalStrength":  1.4,
+                    "flip":  false,
+                    "aoStrength":  1,
+                    "emissive":  "#000000",
+                    "emissiveStrength":  1,
+                    "bumpStrength":  0.02,
+                    "opacity":  1,
+                    "transparent":  false,
+                    "alphaTest":  0,
+                    "side":  0
+                },
+    "physical":  {
+                     "mode":  "physical",
+                     "widthCm":  5.7,
+                     "heightCm":  5,
+                     "angle":  0,
+                     "locked":  true,
+                     "initialized":  true,
+                     "sizeSource":  "manual",
+                     "fallbackDpi":  null
+                 },
+    "repeat":  [
+                   1,
+                   1
+               ],
+    "placement":  null,
+    "density":  {
+                    "map":  {
+                                "widthCm":  35.983333333333334,
+                                "heightCm":  31.48541666666667,
+                                "pixelWidth":  1360,
+                                "pixelHeight":  1190,
+                                "dpiX":  96,
+                                "dpiY":  96,
+                                "source":  "JPEG JFIF / inch",
+                                "conflict":  false
+                            },
+                    "normalMap":  {
+                                      "widthCm":  35.983333333333334,
+                                      "heightCm":  31.48541666666667,
+                                      "pixelWidth":  1360,
+                                      "pixelHeight":  1190,
+                                      "dpiX":  96,
+                                      "dpiY":  96,
+                                      "source":  "JPEG JFIF / inch",
+                                      "conflict":  false
+                                  }
+                },
+    "legacyMaps":  {
+
+                   }
+}

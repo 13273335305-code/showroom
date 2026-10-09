@@ -5,7 +5,6 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
-import { zipSync, unzipSync, strToU8, strFromU8 } from 'three/addons/libs/fflate.module.js';
 import { slotMaterial, assignMaterial, rebuildMaterialUsage, serializeAssignments, restoreAssignments } from './material-assignments.js';
 import { defaultPhysical, readPhysical, preparePhysicalUV, setPhysicalTransform, measureUVMetric } from './physical-textures.js';
 import { readImageDensity, physicalSizeFromDensity } from './image-density.js';
@@ -17,7 +16,7 @@ const getAsset = id => readAsset(id, { runtime: true });
 import { MATERIAL_MAPS, readSurface, applySurface, readLegacyUV, applyLegacyUV } from './shared/material-data.js';
 import { createDesignWorkspace } from './design-workspace.js';
 import { materialType, readPlacement, applyPlacement } from './shared/material-placement.js';
-import { packMaterial, unpackMaterial } from './shared/material-package.js';
+import { materialSourceReference, resolveMaterialFile } from './shared/material-source.js';
 import { ENVIRONMENT_DEFAULTS, packScene, unpackScene, sceneName, sceneFilename } from './shared/scene-file.js';
 import { createSceneCycle, sceneAppearance } from './shared/scene-cycle.js';
 import { installRoughnessShader } from './shared/roughness-map.js';
@@ -26,7 +25,8 @@ import { prepareAnnotationPicking, createMaterialPicker, AnnotationOcclusion } f
 import { createCameraMotion, INTRO_DURATION, INTRO_DISTANCE_RATIO, introFocusBlur, introDockTransform, introSunTransform } from './shared/camera-motion.js';
 import { createShowroom } from './shared/showroom.js';
 import { saveDesignSession, loadDesignSession } from './shared/design-session.js';
-import { getProject as getStoredProject, saveProject as saveStoredProject } from './shared/project-store.js';
+import { getProject as getStoredProject, saveProject as saveStoredProject, uploadProjectResource, downloadProjectResource } from './shared/project-store.js';
+import { createProjectResource, createProjectPreview, resolveProjectResource, validateProjectManifest } from './shared/project-manifest.js';
 import { compressImageFile } from './shared/asset-thumbnail.js';
 import { fitMaterialPreview, assetImageUrl } from './shared/material-preview.js';
 import { createDeveloperPanel } from './shared/developer-panel.js';
@@ -42,7 +42,7 @@ let physicalModel={cmPerUnit:1,fbxCmPerUnit:1,rawSize:[1,1,1],unitKnown:false,ca
 const MAPS=MATERIAL_MAPS;
 const DEFAULTS={...ENVIRONMENT_DEFAULTS,rotation:0,scale:1.2,renderMode:'pbr',autoRotate:false};
 let state={...DEFAULTS},renderer,scene,camera,controls,floor,reflector,stage,ring,grid,key,fill,hemi,model,entries=[],selected=null,materialPicker=null;
-let modelSource=null,modelGeneration=0,currentLoad=0,loadingModel=false,toastTimer,activeProjectId=null,activeProjectName='';
+let modelSource=null,modelGeneration=0,currentLoad=0,loadingModel=false,toastTimer,activeProjectId=null,activeProjectName='',activeProjectRevision=null,projectSavePromise=null;
 let loadingMessageToken=0,loadingMessageTimer=null,loadingSequenceActive=false;
 let partAssignments=new Map();
 let draggedMaterial=null, assignmentHistory=[],materialPreviewTimer=null;
@@ -586,11 +586,11 @@ async function loadModel(buffer,name,files=[],{restore=null,parts=null}={}){
 async function loadExample(){
  const params=new URLSearchParams(location.search),projectId=params.get('project'),assetId=params.get('asset');let asset=null,assetError=null;
  if(projectId){
-  try{const saved=await getStoredProject(projectId);if(!saved)throw new Error('项目不存在，可能已被删除');activeProjectId=saved.id;activeProjectName=saved.name;await openProject(saved.blob);return;}
-  catch(error){notify('打开项目失败：'+error.message,6000);}
+  try{await openStoredProject(projectId);return;}
+  catch(error){hideBusy();setOpeningDockHidden(false);setOpeningDayHidden(false);notify('打开项目失败：'+error.message,6000);return;}
  }
  if(assetId)try{asset=await getAsset(assetId);if(!asset)throw new Error('资产不存在，可能已被删除');}catch(error){assetError=error;}
- if(!assetId)try{const session=await loadDesignSession();if(session){await openProject(session);return;}}catch(error){console.warn('恢复设计台状态失败',error);}
+ if(!assetId&&!params.has('new'))try{const session=await loadDesignSession();if(session){await openStoredProject(session);return;}}catch(error){console.warn('恢复设计台状态失败',error);}
  try{
   if(asset?.kind==='model'){await importFiles([asset.file,...(asset.resources||[])],asset.partAssignments);return;}
   const r=await fetch('./MM06-展厅版.fbx');if(!r.ok)throw new Error('找不到示例 FBX');await loadModel(await r.arrayBuffer(),'MM06-展厅版.fbx');
@@ -618,7 +618,7 @@ async function addMaterialAsset(asset){
  entry.previewUrl=asset.preview?assetImageUrl(asset.preview):null;entry.previewInfo=asset.previewInfo;entry.assetPreviewChecked=true;
  entry.category=asset.category||'面布';const savedPhysical=readPhysical(asset.physical,true);entry.physical={...savedPhysical,sizeSource:'manual'};entry.repeat=asset.repeat||[1,1];entry.legacyMaps=asset.legacyMaps||{};
  try{
-  for(const[key]of MAPS){if(!asset.maps?.[key])continue;await yieldFrame();const runtime=asset.runtimeMaps?.[key]||await compressImageFile(asset.maps[key],2048);await uploadTexture(entry,key,runtime,true,asset.maps[key]);if(generation!==modelGeneration)throw new Error('模型已经切换，请重新添加材质');if(!entry.material[key])throw new Error('贴图未能载入：'+key);if(asset.density?.[key]){entry.material[key].userData.density=asset.density[key];configureTexture(entry,entry.material[key],key);}}
+  for(const[key]of MAPS){if(!asset.maps?.[key])continue;await yieldFrame();const runtime=asset.runtimeMaps?.[key]||await compressImageFile(asset.maps[key],2048);await uploadTexture(entry,key,runtime,true,asset.maps[key],{prepared:true,sourceRef:materialSourceReference(asset,key),density:asset.density?.[key]});if(generation!==modelGeneration)throw new Error('模型已经切换，请重新添加材质');if(!entry.material[key])throw new Error('贴图未能载入：'+key);if(asset.density?.[key]){entry.material[key].userData.density=asset.density[key];configureTexture(entry,entry.material[key],key);}}
   entry.physical=savedPhysical;for(const[key]of MAPS)if(entry.material[key])configureTexture(entry,entry.material[key],key);
   applySurface(entry.material,asset.surface);entry.flip=!!asset.surface.flip;
   entries.push(entry);entry.baseline.dispose();entry.baseline=entry.material.clone();
@@ -634,13 +634,13 @@ async function saveSelectedToLibrary(){
  const button=$('saveToLibrary');button.disabled=true;
  try{
   for(const[key]of MAPS){const texture=entry.material[key];if(!texture)continue;asset.density[key]=texture.userData.density||null;
-   if(entry.uploads[key])asset.maps[key]=entry.uploads[key].sourceFile||entry.uploads[key].file;
+   if(entry.uploads[key])asset.maps[key]=await resolveMaterialFile(entry.uploads[key].sourceFile||entry.uploads[key].file,entry.uploads[key].sourceRef);
    else{const canvas=document.createElement('canvas');if(!texture.image?.width)throw new Error('无法读取内置贴图 '+key);canvas.width=texture.image.width;canvas.height=texture.image.height;canvas.getContext('2d').drawImage(texture.image,0,0);const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('无法导出内置贴图 '+key);asset.maps[key]=new File([blob],key+'.png',{type:'image/png'});asset.legacyMaps[key]=readLegacyUV(texture);}
   }
   await saveAsset(asset);await refreshLibrary();notify('已保存「'+asset.name+'」到资产库');
  }catch(error){notify('保存资产失败：'+error.message,6000);}finally{button.disabled=false;}
 }
-async function importFiles(files,parts=null){if(loadingModel)return notify('请等待当前模型加载完成');const list=[...files],modelFile=list.find(f=>/\.(fbx|glb)$/i.test(f.name));if(!modelFile)return notify('请选择一个 .fbx 或 .glb 文件，可同时附带纹理图片');if(modelFile.size>512*1024*1024)return notify('模型文件过大，请使用小于 512 MB 的模型');activeProjectId=null;activeProjectName='';await loadModel(await modelFile.arrayBuffer(),modelFile.name,list.filter(f=>f!==modelFile),{parts});}
+async function importFiles(files,parts=null){if(loadingModel)return notify('请等待当前模型加载完成');const list=[...files],modelFile=list.find(f=>/\.(fbx|glb)$/i.test(f.name));if(!modelFile)return notify('请选择一个 .fbx 或 .glb 文件，可同时附带纹理图片');if(modelFile.size>512*1024*1024)return notify('模型文件过大，请使用小于 512 MB 的模型');activeProjectId=null;activeProjectName='';activeProjectRevision=null;await loadModel(await modelFile.arrayBuffer(),modelFile.name,list.filter(f=>f!==modelFile),{parts});}
 function renderMaterials(){const host=$('materialList');host.replaceChildren();document.querySelectorAll('[data-fabric]').forEach(b=>{b.classList.toggle('active',b.dataset.fabric===activeFabric);b.setAttribute('aria-pressed',String(b.dataset.fabric===activeFabric));});for(const entry of entries.filter(e=>!e.removed&&fabricCategory(e)===activeFabric)){const button=document.createElement('button');button.className='material-item'+(entry===selected?' active':'');button.setAttribute('aria-pressed',String(entry===selected));button.draggable=false;button.dataset.entryId=entry.id;button.addEventListener('pointerdown',event=>startMaterialDrag(event,entry));button.addEventListener('dblclick',event=>{event.preventDefault();event.stopPropagation();endMaterialDrag();pulseMaterialUsage(entry);});button.setAttribute('aria-label','选择材质 '+entry.name);const swatch=document.createElement('div');swatch.className='material-thumb';decorateSwatch(swatch,entry);const name=document.createElement('strong');name.textContent=entry.name;button.append(swatch,name);button.onclick=()=>{if(suppressMaterialClick){suppressMaterialClick=false;return;}setPatternMode(false);designUI?.setType('fabric');if(!replaceCategoryMaterials(entry,activeFabric)){selectEntry(entry);showPanel('material');}};designUI?.bindDockItem(button,{kind:'fabric',entry});host.append(button);}designUI?.syncDock();$('materialCount').textContent=String(entries.filter(e=>!e.removed).length).padStart(2,'0');}
 function stopMaterialPulse(){if(!materialPulse)return;cancelAnimationFrame(materialPulse.frame);for(const item of materialPulse.items){if(Array.isArray(item.mesh.material))item.mesh.material=item.original;else item.mesh.material=item.original;item.highlight.dispose();}materialPulse=null;}
 function pulseMaterialUsage(entry){
@@ -662,20 +662,21 @@ function selectEntry(entry){if(!entry||entry.removed)return;selected=entry;activ
 function buildSlots(){for(const[key,label,english]of MAPS){const wrap=document.createElement('div');wrap.className='texture-slot';wrap.id='slot-'+key;const upload=document.createElement('button');upload.className='texture-upload';upload.setAttribute('aria-label','上传'+label+'贴图');const span=document.createElement('span');const plus=document.createElement('strong');plus.textContent='＋';span.append(plus,document.createTextNode(label));upload.append(span);const input=document.createElement('input');input.type='file';input.accept='image/png,image/jpeg,image/webp,image/bmp';input.id='texture-'+key;input.onchange=async()=>{const entry=selected,file=input.files[0];input.value='';if(entry&&file){try{await uploadTexture(entry,key,file);}catch{}}};upload.onclick=()=>{if(!selected)return notify('请先导入模型');input.click();};const remove=document.createElement('button');remove.className='remove-texture';remove.textContent='×';remove.title='移除'+label+'贴图';remove.setAttribute('aria-label','移除'+label+'贴图');remove.onclick=()=>removeTexture(selected,key);wrap.append(upload,input,remove);wrap.title=label+' / '+english;$('textureSlots').append(wrap);}}
 function updateSlots(){for(const[key,label]of MAPS){const wrap=$('slot-'+key);const has=!!selected?.material[key];wrap.classList.toggle('has-image',has);wrap.querySelectorAll('img').forEach(i=>i.remove());const src=selected?.uploads[key]?.preview||selected?.thumbnails[key];if(has&&src){const img=new Image();img.src=src;img.alt=label+'预览';wrap.prepend(img);}wrap.querySelector('strong').textContent=has?'✓':'＋';wrap.querySelector('.remove-texture').hidden=!has;wrap.title=selected?.uploads[key]?.file.name||label+(has?' · 模型内置贴图':' · 点击上传');}}
 function configureTexture(entry,texture,key){texture.colorSpace=MAPS.find(([k])=>k===key)[3]?THREE.SRGBColorSpace:THREE.NoColorSpace;texture.wrapS=texture.wrapT=THREE.RepeatWrapping;delete texture.userData?.formPlacementBase;if(entry.legacyMaps?.[key])applyLegacyUV(texture,entry.legacyMaps[key]);else if(entry.physical.mode==='physical'){const measured=entry.physical.sizeSource==='dpi'?texture.userData.density:null;setPhysicalTransform(texture,measured?{...entry.physical,...measured}:entry.physical,physicalModel.cmPerUnit);}else{texture.channel=0;texture.matrixAutoUpdate=true;texture.center.set(0,0);texture.offset.set(0,0);texture.rotation=0;texture.repeat.set(...entry.repeat);texture.updateMatrix();}if(entry.placement)applyPlacement(texture,entry.placement);configureTextureSampling(texture,renderer);}
-async function uploadTexture(entry,key,file,quiet=false,sourceFile=null){
+async function uploadTexture(entry,key,file,quiet=false,sourceFile=null,{prepared=false,sourceRef=null,projectReference=null,density:savedDensity=null}={}){
  if(file.size>64*1024*1024){notify('单张贴图请小于 64 MB');return;}
  const started=performance.now(),generation=modelGeneration,token=(entry.mapTokens[key]||0)+1;entry.mapTokens[key]=token;
  let texture,url,highRes=sourceFile;
  try{
-  highRes=await compressImageFile(highRes||file,8192);
-  file=await compressImageFile(file,2048);
+  highRes=highRes||file;
+  const meta=sourceRef||savedDensity?null:readImageDensity(await highRes.arrayBuffer());
+  if(!prepared)file=await compressImageFile(file,2048);
   url=URL.createObjectURL(file);
-  const meta=readImageDensity(await highRes.arrayBuffer());texture=await new THREE.TextureLoader().loadAsync(url);
+  texture=await new THREE.TextureLoader().loadAsync(url);
   if(generation!==modelGeneration||entry.mapTokens[key]!==token){texture.dispose();URL.revokeObjectURL(url);return;}
   if(texture.image.width>renderer.capabilities.maxTextureSize||texture.image.height>renderer.capabilities.maxTextureSize)throw new Error('图片尺寸超过显卡支持范围');
-  const density=physicalSizeFromDensity(meta,highRes.imageWidth||texture.image.width,highRes.imageHeight||texture.image.height,entry.physical.fallbackDpi);
+  const density=savedDensity||(meta&&physicalSizeFromDensity(meta,highRes.imageWidth||texture.image.width,highRes.imageHeight||texture.image.height,entry.physical.fallbackDpi));
   if(entry.physical.mode==='physical'&&entry.physical.sizeSource==='dpi'&&!density&&!(quiet&&entry.legacyMaps?.[key])){
-   entry.pendingDpi[key]=file;texture.dispose();URL.revokeObjectURL(url);
+   entry.pendingDpi[key]=highRes;texture.dispose();URL.revokeObjectURL(url);
    if(entry===selected)updatePhysicalPanel(entry);
    if(quiet)throw new Error(file.name+' 未记录 DPI，请为此文件指定 DPI');
    notify(file.name+' 未记录有效 DPI；请在右侧填写 DPI 后应用，原贴图保持不变',6500);return;
@@ -683,7 +684,7 @@ async function uploadTexture(entry,key,file,quiet=false,sourceFile=null){
   if(density){texture.userData.density=density;entry.densityInfo={...density,name:file.name};if(entry.physical.sizeSource==='dpi'){entry.physical.widthCm=density.widthCm;entry.physical.heightCm=density.heightCm;entry.physical.initialized=true;}}
   if(!entry.physical.initialized&&entry.physical.sizeSource!=='dpi'){entry.physical.heightCm=entry.physical.widthCm*texture.image.height/texture.image.width;entry.physical.initialized=true;}
   const old=entry.material[key];if(old&&old!==entry.baseline[key])old.dispose();if(entry.uploads[key])URL.revokeObjectURL(entry.uploads[key].preview);
-  delete entry.pendingDpi[key];if(!quiet&&entry.legacyMaps)delete entry.legacyMaps[key];texture.userData.formUpload=true;configureUploadedTexture(texture);configureTexture(entry,texture,key);entry.material[key]=texture;entry.uploads[key]={file,sourceFile:highRes,preview:url};
+  delete entry.pendingDpi[key];if(!quiet&&entry.legacyMaps)delete entry.legacyMaps[key];texture.userData.formUpload=true;configureUploadedTexture(texture);configureTexture(entry,texture,key);entry.material[key]=texture;entry.uploads[key]={file,sourceFile:highRes,sourceRef,projectReference,preview:url};
   if(key==='map')entry.material.color.set(0xffffff);if(key==='roughnessMap')entry.material.roughness=1;if(key==='metalnessMap')entry.material.metalness=1;if(key==='emissiveMap')entry.material.emissive.set(0xffffff);
   entry.material.needsUpdate=true;if(entry===selected)selectEntry(entry);else renderMaterials();
   recordPerformanceOperation('纹理载入完成：'+entry.name+' / '+key,{durationMs:performance.now()-started});
@@ -1129,9 +1130,8 @@ function bindEvents(){
  $('canvas').addEventListener('dblclick',event=>{if(annotationMode)return;const hit=pickModelMaterial(event.clientX,event.clientY);if(!hit)return;selectEntry(hit.entry);showPanel('material');$('materialList').querySelector('[data-entry-id="'+hit.entry.id+'"]')?.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'});});
  $('snapshot').onclick=()=>setCaptureMode(!captureMode);
  document.addEventListener('keydown',event=>{if(captureMode&&event.key==='Escape'){event.preventDefault();event.stopPropagation();setCaptureMode(false);}},true);
- window.__spenicDesignSession={save:async()=>{try{const blob=await saveProject({downloadOutput:false,saveToLibrary:false});if(blob)await saveDesignSession(blob);}catch(error){console.warn('保存设计台状态失败',error);}}};
- window.addEventListener('pagehide',()=>{void window.__spenicDesignSession.save();},{once:true});
- $('headerUndo').onclick=undoMaterialAssignment;$('saveProject').onclick=saveProject;$('openProject').onclick=()=>$('projectFile').click();$('projectFile').onchange=()=>{const f=$('projectFile').files[0];$('projectFile').value='';if(f){activeProjectId=null;activeProjectName='';openProject(f);}};
+ window.__spenicDesignSession={save:()=>saveProject({silent:true})};
+ $('headerUndo').onclick=undoMaterialAssignment;$('saveProject').onclick=()=>saveProject();
  $('saveScene').onclick=()=>{try{const name=sceneName($('sceneName').value);download(packScene(state,name),sceneFilename(name));$('sceneName').value=name;notify('已保存场景：'+name);}catch(error){notify('保存场景失败：'+error.message,6000);}};
  $('openScene').onclick=()=>$('sceneFile').click();
  $('sceneFile').onchange=async()=>{
@@ -1143,43 +1143,52 @@ function bindEvents(){
   finally{$('openScene').disabled=false;$('saveScene').disabled=false;}
  };
 }
-function snapshotEntry(e){const m=e.material;return {id:e.id,removed:!!e.removed,name:e.name,category:fabricCategory(e),color:m.color.getHexString(),roughness:m.roughness,metalness:m.metalness,normalStrength:Math.abs(m.normalScale.x),aoStrength:m.aoMapIntensity,emissive:m.emissive.getHexString(),emissiveStrength:m.emissiveIntensity,bumpStrength:m.bumpScale,repeat:e.repeat,physical:{...e.physical},flip:e.flip,maps:Object.fromEntries(MAPS.map(([k])=>[k,m[k]?(e.uploads[k]?'upload':'original'):null]))};}
+function snapshotEntry(e){const m=e.material;return {id:e.id,removed:!!e.removed,name:e.name,category:fabricCategory(e),color:m.color.getHexString(),roughness:m.roughness,metalness:m.metalness,normalStrength:Math.abs(m.normalScale.x),aoStrength:m.aoMapIntensity,emissive:m.emissive.getHexString(),emissiveStrength:m.emissiveIntensity,bumpStrength:m.bumpScale,repeat:e.repeat,physical:{...e.physical},density:Object.fromEntries(MAPS.filter(([k])=>m[k]?.userData.density).map(([k])=>[k,m[k].userData.density])),flip:e.flip,maps:Object.fromEntries(MAPS.map(([k])=>[k,m[k]?(e.uploads[k]?'upload':'original'):null]))};}
 function projectNameFromModel(name){return String(name||'FORM').replace(/\.(fbx|glb)$/i,'').trim()||'FORM';}
 function projectThumbnail(){
  const canvas=$('canvas');
  if(!canvas?.toBlob)return Promise.resolve(null);
  return new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.82));
 }
-async function saveProject({ downloadOutput = true, saveToLibrary = downloadOutput } = {}){
+function saveProject(options={}){
+ if(!projectSavePromise)projectSavePromise=saveOnlineProject(options).finally(()=>{projectSavePromise=null;});
+ return projectSavePromise;
+}
+async function saveOnlineProject({silent=false}={}){
  if(annotations.some(a=>!a.saved||a.editing))return notify('请先点击 √ 或按回车保存正在输入的标记');
  finishPatternReveals();
- if(!modelSource||loadingModel)return notify('请先完成模型载入');if(entries.some(e=>Object.keys(e.pendingDpi||{}).length))return notify('还有贴图等待指定 DPI，请先应用后再保存项目');busy('正在保存项目','打包模型、所有上传贴图与场景设置');await yieldFrame();
- try{const extension=/\.glb$/i.test(modelSource.name)?'glb':'fbx',modelPath='model.'+extension,archive={[modelPath]:new Uint8Array(modelSource.buffer)},config={format:'FORM',version:1,name:modelSource.name,modelPath,scene:{...state},camera:{position:camera.position.toArray(),target:controls.target.toArray()},selected:selected?.id||0,materials:entries.map(e=>({...snapshotEntry(e),surface:readSurface(e.material),legacyMaps:e.legacyMaps,placement:e.placement})),assignments:serializeAssignments(model,entries),partAssignments:serializePartAssignments(),physicalModel:{...physicalModel},resources:[]};
- for(let i=0;i<modelSource.files.length;i++){const f=modelSource.files[i],path='resources/'+i;archive[path]=new Uint8Array(await f.arrayBuffer());config.resources.push({path,name:f.name,type:f.type});}
- for(const e of entries)for(const[key,u]of Object.entries(e.uploads)){const source=u.sourceFile||u.file,path='textures/'+e.id+'/'+key;archive[path]=new Uint8Array(await source.arrayBuffer());config.materials[e.id].maps[key]={path,name:source.name,type:source.type};}
+ if(!modelSource||loadingModel)return notify('请先完成模型载入');if(entries.some(e=>Object.keys(e.pendingDpi||{}).length))return notify('还有贴图等待指定 DPI，请先应用后再保存项目');busy('正在保存项目','同步素材引用与设计设置');await yieldFrame();
+ const generation=modelGeneration;
+ try{const extension=/\.glb$/i.test(modelSource.name)?'glb':'fbx',modelPath='model.'+extension,files={},config={format:'SPENIC-PROJECT',version:1,name:modelSource.name,modelPath,files,scene:{...state},camera:{position:camera.position.toArray(),target:controls.target.toArray()},selected:selected?.id||0,materials:entries.map(e=>({...snapshotEntry(e),surface:readSurface(e.material),legacyMaps:e.legacyMaps,placement:e.placement})),assignments:serializeAssignments(model,entries),partAssignments:serializePartAssignments(),physicalModel:{...physicalModel},resources:[]};
+ files[modelPath]=modelSource.projectReferences?.model||await uploadProjectResource(new File([modelSource.buffer],modelSource.name));
+ for(let i=0;i<modelSource.files.length;i++){const f=modelSource.files[i],path='resources/'+i;files[path]=modelSource.projectReferences?.resources?.[i]||await uploadProjectResource(f);config.resources.push({path,name:f.name,type:f.type});}
+ for(const e of entries)for(const[key,u]of Object.entries(e.uploads)){const source=u.sourceRef?u.file:u.sourceFile||u.file,path='textures/'+e.id+'/'+key;files[path]=u.projectReference||await createProjectResource(source,u.sourceRef,uploadProjectResource);config.materials[e.id].maps[key]={path,name:source.name,type:source.type};}
  const hosts=[];model.traverse(o=>{if(o.isMesh)hosts.push(o);});config.annotations=annotations.map(a=>({host:hosts.indexOf(a.host),point:a.point.toArray(),text:a.text}));config.patterns=[];
- for(let i=0;i<patterns.length;i++){const p=patterns[i],path='patterns/'+i;archive[path]=new Uint8Array(await p.file.arrayBuffer());const maps={};for(const [key,file] of Object.entries(p.pbrFiles||{})){const mapPath=path+'-'+key;archive[mapPath]=new Uint8Array(await file.arrayBuffer());maps[key]={path:mapPath,name:file.name,type:file.type};}const m=p.mesh.material;config.patterns.push({path,sourceKey:p.sourceKey,name:p.name,type:p.file.type,host:hosts.indexOf(p.host),slot:p.slot,singlePlacement:!!p.singlePlacement,placement:p.placement,surface:readSurface(m),point:p.point.toArray(),normal:p.normal.toArray(),uv:p.uv,width:p.width,height:p.height,angle:p.angle,pbr:{maps,roughness:m.roughness,metalness:m.metalness,normalScale:m.normalScale.toArray()}});}
- config.patternSources=[];for(let i=0;i<patternSources.length;i++){const source=patternSources[i],path='pattern-sources/'+i;archive[path]=new Uint8Array(await (await packMaterial(patternSourceAsset(source))).arrayBuffer());config.patternSources.push({path,key:source.key});}
- archive['project.json']=strToU8(JSON.stringify(config));
- const blob=new Blob([zipSync(archive,{level:0})],{type:'application/zip'});
- if(saveToLibrary){
-  const saved=await saveStoredProject({id:activeProjectId,name:activeProjectName||projectNameFromModel(modelSource.name),modelName:modelSource.name,blob,thumbnail:await projectThumbnail()});
-  activeProjectId=saved.id;activeProjectName=saved.name;
- }
- if(downloadOutput){download(blob,projectNameFromModel(modelSource.name)+'.form');notify(saveToLibrary?'已保存项目并下载完整文件':'已保存完整项目，包含模型与上传贴图');}
- return blob;
- }catch(e){console.error(e);notify('保存失败：'+e.message,6000);}finally{hideBusy();}
+ for(let i=0;i<patterns.length;i++){const p=patterns[i],path='patterns/'+i;files[path]=await snapshotPatternFile(p,'map',p.file);const maps={};for(const [key,file] of Object.entries(p.pbrFiles||{})){const mapPath=path+'-'+key;files[mapPath]=await snapshotPatternFile(p,key,file);maps[key]={path:mapPath,name:file.name,type:file.type};}const m=p.mesh.material;config.patterns.push({path,sourceKey:p.sourceKey,name:p.name,type:p.file.type,host:hosts.indexOf(p.host),slot:p.slot,singlePlacement:!!p.singlePlacement,placement:p.placement,surface:readSurface(m),point:p.point.toArray(),normal:p.normal.toArray(),uv:p.uv,width:p.width,height:p.height,angle:p.angle,pbr:{maps,roughness:m.roughness,metalness:m.metalness,normalScale:m.normalScale.toArray()}});}
+ config.patternSources=[];for(let i=0;i<patternSources.length;i++){const source=patternSources[i],asset=patternSourceAsset(source),snapshot={};for(const field of ['name','description','designInfo','supplier','previewInfo','materialType','category','surface','physical','repeat','placement','density','legacyMaps'])if(asset[field]!==undefined)snapshot[field]=asset[field];snapshot.maps={};for(const[key,file]of Object.entries(asset.maps)){const path='pattern-sources/'+i+'/'+key;files[path]=asset.projectRefs?.[key]||await createProjectResource(asset.runtimeMaps?.[key]||file,materialSourceReference(asset,key),uploadProjectResource);snapshot.maps[key]={path};}const preview=await createProjectPreview(asset.preview,uploadProjectResource);if(preview?.url)snapshot.preview={url:preview.url};else if(preview?.file){const path='pattern-sources/'+i+'/preview';files[path]=preview.file;snapshot.preview={path};}config.patternSources.push({key:source.key,asset:snapshot});}
+ if(generation!==modelGeneration)throw new Error('模型已切换，请重新保存项目');
+ const saved=await saveStoredProject({id:activeProjectId,revision:activeProjectRevision,name:activeProjectName||projectNameFromModel(modelSource.name),modelName:modelSource.name,manifest:config,thumbnail:await projectThumbnail()});
+ activeProjectId=saved.id;activeProjectName=saved.name;activeProjectRevision=saved.revision;await saveDesignSession(saved.id);
+ if(!silent)notify('已保存到项目库');
+ return saved;
+ }catch(e){console.error(e);notify('保存失败：'+e.message,6000);if(silent)throw e;}finally{hideBusy();}
 }
-async function openProject(file){
- if(loadingModel)return notify('请等待当前载入完成');if(file.size>768*1024*1024)return notify('项目过大，请使用小于 768 MB 的文件');busy('正在打开项目','恢复模型、贴图与灯光设置');await yieldFrame();
- try{let expanded=0;const archive=unzipSync(new Uint8Array(await file.arrayBuffer()),{filter:item=>{expanded+=item.originalSize;if(expanded>1024*1024*1024)throw new Error('项目解压后超过 1 GB');return true;}});const config=JSON.parse(strFromU8(archive['project.json']));const modelPath=config.modelPath||'model.fbx';if(config.format!=='FORM'||config.version!==1||!archive[modelPath])throw new Error('这不是有效的 FORM 项目');
- const resources=(config.resources||[]).map(r=>{if(!archive[r.path])throw new Error('项目缺少资源');return new File([archive[r.path]],r.name,{type:r.type});});
- await loadModel(archive[modelPath].slice().buffer,config.name,resources,{parts:config.partAssignments,restore:async()=>{
+async function openStoredProject(id){
+ const saved=await getStoredProject(id);if(!saved?.manifest)throw new Error('项目不存在，可能已被删除或没有访问权限');
+ activeProjectId=saved.id;activeProjectName=saved.name;activeProjectRevision=saved.revision;
+ try{await openProject(saved.manifest);await saveDesignSession(saved.id);}catch(error){activeProjectId=null;activeProjectName='';activeProjectRevision=null;throw error;}
+}
+async function openProject(config){
+ if(loadingModel)throw new Error('请等待当前载入完成');validateProjectManifest(config);busy('正在打开项目','载入模型、素材与设计设置');await yieldFrame();
+ try{const readFile=path=>resolveProjectResource(config.files[path],downloadProjectResource),modelPath=config.modelPath;
+ const [modelFile,...resources]=await Promise.all([readFile(modelPath),...(config.resources||[]).map(r=>readFile(r.path))]);
+ let restoreComplete=false;await loadModel(await modelFile.arrayBuffer(),config.name,resources,{parts:config.partAssignments,restore:async()=>{
+ modelSource.projectReferences={model:config.files[modelPath],resources:(config.resources||[]).map(r=>config.files[r.path])};
  if((config.materials||[]).length>1000)throw new Error('项目材质数量超过 1000');
  for(const data of config.materials||[]){if(data.id<entries.length)continue;if(data.id!==entries.length)throw new Error('项目材质编号无效');entries.push(createLibraryEntry(data.id,String(data.name)));}
  for(const data of config.materials||[])if(entries[data.id]){entries[data.id].legacyMaps=data.legacyMaps||{};entries[data.id].placement=readPlacement(data.placement);}
  if(config.physicalModel){const unit=config.physicalModel.cmPerUnit;if(!Number.isFinite(unit)||unit<=0||unit>1e9)throw new Error('模型单位无效');physicalModel.cmPerUnit=unit;physicalModel.calibrated=!!config.physicalModel.calibrated;updateModelDimensions();}
- for(const data of config.materials||[]){const entry=entries[data.id];if(!entry)continue;entry.physical=readPhysical(data.physical,true);entry.repeat=data.repeat||[1,1];for(const[key]of MAPS){const map=data.maps?.[key];if(map===null)removeTexture(entry,key);else if(map?.path){if(!archive[map.path])throw new Error('项目缺少贴图 '+map.name);await uploadTexture(entry,key,new File([archive[map.path]],map.name,{type:map.type}),true);}}
+ for(const data of config.materials||[]){const entry=entries[data.id];if(!entry)continue;entry.physical=readPhysical(data.physical,true);entry.repeat=data.repeat||[1,1];for(const[key]of MAPS){const map=data.maps?.[key];if(map===null)removeTexture(entry,key);else if(map?.path){const descriptor=config.files[map.path];await uploadTexture(entry,key,await readFile(map.path),true,null,{density:data.density?.[key],prepared:descriptor.prepared===true,sourceRef:descriptor.reference,projectReference:descriptor});if(!entry.material[key])throw new Error('项目贴图未能载入：'+key);}}
  entry.name=String(data.name);entry.category=['面布','边布','包边条','其他'].includes(data.category)?data.category:fabricCategory(entry);entry.material.name=entry.name;entry.material.color.set('#'+data.color);entry.material.roughness=data.roughness;entry.material.metalness=data.metalness;entry.material.normalScale.set(data.normalStrength,data.normalStrength*(data.flip?-1:1));entry.material.aoMapIntensity=data.aoStrength;entry.material.emissive.set('#'+data.emissive);entry.material.emissiveIntensity=data.emissiveStrength;entry.material.bumpScale=data.bumpStrength;entry.flip=!!data.flip;entry.repeat=data.repeat||[1,1];for(const[key]of MAPS)if(entry.material[key]&&(entry.uploads[key]||entry.physical.mode==='legacy')){if(entry.material[key]===entry.baseline[key])entry.material[key]=entry.material[key].clone();configureTexture(entry,entry.material[key],key);}
  }
  for(const data of config.materials||[]){const entry=entries[data.id];if(entry&&data.surface)applySurface(entry.material,data.surface);}
@@ -1189,20 +1198,20 @@ async function openProject(file){
  const hosts=[];model.traverse(o=>{if(o.isMesh)hosts.push(o);});
  for(const data of config.annotations||[]){if(!hosts[data.host]||!Array.isArray(data.point)||data.point.length!==3||!data.point.every(Number.isFinite))throw new Error('标记数据无效');const host=hosts[data.host];host.updateWorldMatrix(true,false);addAnnotation({object:host,point:host.localToWorld(new THREE.Vector3().fromArray(data.point))},data.text||'',false);}
  selectedAnnotation=annotations[0]||null;syncAnnotationPanel();
- for(const data of config.patterns||[]){if(!hosts[data.host]||!archive[data.path]||![data.width,data.height].every(v=>Number.isFinite(v)&&v>=.1&&v<=1000)||![...data.point,...data.normal,data.angle].every(Number.isFinite))throw new Error('图案数据无效');
- const file=new File([archive[data.path]],data.name,{type:data.type}),url=URL.createObjectURL(file);let texture;try{texture=await new THREE.TextureLoader().loadAsync(url);}finally{URL.revokeObjectURL(url);}texture.colorSpace=THREE.SRGBColorSpace;configureUploadedTexture(texture);
+ for(const data of config.patterns||[]){if(!hosts[data.host]||![data.width,data.height].every(v=>Number.isFinite(v)&&v>=.1&&v<=1000)||![...data.point,...data.normal,data.angle].every(Number.isFinite))throw new Error('图案数据无效');
+ const file=await readFile(data.path),runtime=config.files[data.path].prepared?file:await compressImageFile(file,2048),url=URL.createObjectURL(runtime);let texture;try{texture=await new THREE.TextureLoader().loadAsync(url);}finally{URL.revokeObjectURL(url);}texture.colorSpace=THREE.SRGBColorSpace;configureUploadedTexture(texture);
  const material=new THREE.MeshStandardMaterial({map:texture,transparent:true,alphaTest:.01,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-4,polygonOffsetUnits:-4,roughness:.8});installRoughnessShader(material);configureTextureSampling(texture,renderer);const mesh=new THREE.Mesh(new THREE.BufferGeometry(),material);mesh.matrixAutoUpdate=false;mesh.renderOrder=2;mesh.receiveShadow=true;
- const p={...data,host:hosts[data.host],point:new THREE.Vector3().fromArray(data.point),normal:new THREE.Vector3().fromArray(data.normal),file,mesh};p.pbrFiles={};
- for(const [key,,,color] of MAPS){if(key==='map')continue;const meta=data.pbr?.maps?.[key];if(!meta)continue;if(!archive[meta.path])throw new Error('项目缺少图案贴图');const file=new File([archive[meta.path]],meta.name,{type:meta.type}),url=URL.createObjectURL(file);try{material[key]=await new THREE.TextureLoader().loadAsync(url);material[key].colorSpace=color?THREE.SRGBColorSpace:THREE.NoColorSpace;configureUploadedTexture(material[key]);configureTextureSampling(material[key],renderer);p.pbrFiles[key]=file;}finally{URL.revokeObjectURL(url);}}
+ const p={...data,host:hosts[data.host],point:new THREE.Vector3().fromArray(data.point),normal:new THREE.Vector3().fromArray(data.normal),file,mesh,projectRefs:{map:config.files[data.path]},sourceFiles:{map:file},sourceRefs:{map:config.files[data.path].reference}};p.pbrFiles={};
+ for(const [key,,,color] of MAPS){if(key==='map')continue;const meta=data.pbr?.maps?.[key];if(!meta)continue;const file=await readFile(meta.path),runtime=config.files[meta.path].prepared?file:await compressImageFile(file,2048),url=URL.createObjectURL(runtime);try{material[key]=await new THREE.TextureLoader().loadAsync(url);material[key].colorSpace=color?THREE.SRGBColorSpace:THREE.NoColorSpace;configureUploadedTexture(material[key]);configureTextureSampling(material[key],renderer);p.pbrFiles[key]=file;p.sourceFiles[key]=file;p.projectRefs[key]=config.files[meta.path];p.sourceRefs[key]=config.files[meta.path].reference;}finally{URL.revokeObjectURL(url);}}
  if(data.surface)applySurface(material,data.surface);if(data.singlePlacement){material.transparent=true;material.alphaTest=Math.max(.01,material.alphaTest);p.placement=readPlacement(data.placement);for(const[key]of MAPS)if(material[key]){material[key].wrapS=material[key].wrapT=THREE.ClampToEdgeWrapping;}}
  if(data.pbr){for(const key of ['roughness','metalness'])if(Number.isFinite(data.pbr[key]))material[key]=THREE.MathUtils.clamp(data.pbr[key],0,1);if(data.pbr.normalScale?.length===2&&data.pbr.normalScale.every(Number.isFinite))material.normalScale.fromArray(data.pbr.normalScale);}material.needsUpdate=true;
  rebuildPattern(p);patterns.push(p);scene.add(mesh);selectedPattern=p;}
  syncPatterns();renderPatternList();
- for(const meta of config.patternSources||[]){if(!archive[meta.path])throw new Error('项目缺少图案资产');await addPatternSource(await unpackMaterial(new File([archive[meta.path]],'pattern.formmat')),false,meta.key);}
+ for(const meta of config.patternSources||[]){const asset={...meta.asset,kind:'material',maps:{},projectRefs:{}};for(const[key,map]of Object.entries(meta.asset.maps)){asset.maps[key]=await readFile(map.path);asset.projectRefs[key]=config.files[map.path];}asset.runtimeMaps=Object.fromEntries(Object.entries(asset.maps).filter(([key])=>asset.projectRefs[key].prepared));asset.preview=meta.asset.preview?.path?await readFile(meta.asset.preview.path):meta.asset.preview?.url||null;await addPatternSource(asset,false,meta.key);}
  renderDesignPatterns();
 
- }});
- }catch(e){console.error(e);hideBusy();notify('打开项目失败：'+e.message,7000);}
+ restoreComplete=true;}});if(!restoreComplete)throw new Error('项目模型或素材未能恢复');
+ }catch(e){hideBusy();throw e;}
 }
 
 const patternReveals=new Map();
@@ -1291,6 +1300,7 @@ function renderDesignPatterns(){const host=$('patternDock');if(!host)return;host
  for(const t of items){const item=t.source||t.pattern,b=document.createElement('button');b.className='material-item pattern-item';b.dataset.patternKind=t.source?'source':'placed';b.classList.toggle('active',!!selectedDesignPattern&&(t.source?selectedDesignPattern.source===t.source:selectedDesignPattern.pattern===t.pattern));b.setAttribute('aria-label','选择图案 '+item.name);const art=document.createElement('div');art.className='material-thumb';const m=designMaterial(t);decorateSwatch(art,{material:m,uploads:{},thumbnails:{map:designPreview(m.map)}});const name=document.createElement('strong');name.textContent=item.name;const badge=document.createElement('small');badge.textContent=t.source?(patternSourceUsed(t.source)?'已应用':'待放置'):'已贴合';b.append(art,name,badge);b.onpointerdown=event=>startDesignPatternDrag(event,t);b.onclick=()=>{if(suppressMaterialClick){suppressMaterialClick=false;return;}selectDesignPattern(t);};designUI?.bindDockItem(b,t);host.append(b);}
  designUI?.syncDock();$('dockPatternPlace').disabled=!selectedDesignPattern;$('dockPatternPlace').textContent=selectedDesignPattern?.pattern?'重新放置':'放置图案';
 }
-function placeDesignPattern(source,hit){const material=source.material.clone();installRoughnessShader(material);for(const[key]of MAPS)if(material[key]){material[key]=material[key].clone();material[key].needsUpdate=true;}const mesh=new THREE.Mesh(new THREE.BufferGeometry(),material);mesh.matrixAutoUpdate=false;mesh.renderOrder=2;mesh.receiveShadow=true;const p={...hit,mesh,sourceKey:source.key,name:source.name,file:source.asset.maps.map,pbrFiles:Object.fromEntries(Object.entries(source.asset.maps).filter(([key])=>key!=='map')),width:source.width,height:source.height,angle:source.placement.angle,placement:{offset:[0,0],angle:source.placement.angle},singlePlacement:true};try{moveDesignPattern(p,readPlacement(source.placement));patterns.push(p);scene.add(mesh);syncPatterns();selectedPattern=p;selectDesignPattern({kind:'pattern',pattern:p});playPatternReveal(p);return p;}catch(error){mesh.geometry.dispose();disposePatternMaps(p);material.dispose();throw error;}}
+function snapshotPatternFile(pattern,key,file){const unchanged=pattern.sourceFiles?.[key]===file;return unchanged&&pattern.projectRefs?.[key]?Promise.resolve(pattern.projectRefs[key]):createProjectResource(file,unchanged?pattern.sourceRefs?.[key]:null,uploadProjectResource);}
+function placeDesignPattern(source,hit){const material=source.material.clone();installRoughnessShader(material);for(const[key]of MAPS)if(material[key]){material[key]=material[key].clone();material[key].needsUpdate=true;}const mesh=new THREE.Mesh(new THREE.BufferGeometry(),material);mesh.matrixAutoUpdate=false;mesh.renderOrder=2;mesh.receiveShadow=true;const p={...hit,mesh,sourceKey:source.key,name:source.name,file:source.asset.maps.map,pbrFiles:Object.fromEntries(Object.entries(source.asset.maps).filter(([key])=>key!=='map')),sourceFiles:{...source.asset.maps},projectRefs:{...source.asset.projectRefs},sourceRefs:Object.fromEntries(Object.keys(source.asset.maps).map(key=>[key,materialSourceReference(source.asset,key)])),width:source.width,height:source.height,angle:source.placement.angle,placement:{offset:[0,0],angle:source.placement.angle},singlePlacement:true};try{moveDesignPattern(p,readPlacement(source.placement));patterns.push(p);scene.add(mesh);syncPatterns();selectedPattern=p;selectDesignPattern({kind:'pattern',pattern:p});playPatternReveal(p);return p;}catch(error){mesh.geometry.dispose();disposePatternMaps(p);material.dispose();throw error;}}
 function moveDesignPattern(p,placement){const previous={point:p.point.clone(),uv:p.uv?.slice(),angle:p.angle,placement:p.placement},old=readPlacement(p.placement||{angle:p.angle});if(p.singlePlacement){p.host.updateWorldMatrix(true,false);const normal=p.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(p.host.matrixWorld)).normalize(),orientation=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1),normal),unit=patternUnit();const delta=new THREE.Vector3((placement.offset[0]-old.offset[0])*p.width*unit,(placement.offset[1]-old.offset[1])*p.height*unit,0).applyQuaternion(orientation);p.point.copy(p.host.worldToLocal(p.point.clone().applyMatrix4(p.host.matrixWorld).add(delta)));}else if(p.uv)p.uv=[p.uv[0]+placement.offset[0]-old.offset[0],p.uv[1]+placement.offset[1]-old.offset[1]];p.angle=placement.angle;p.placement=placement;try{rebuildPattern(p);}catch(error){Object.assign(p,previous);throw error;}}
 export function startDesign(){try{init();}catch(e){console.error(e);$('loadingTitle').textContent='无法初始化 3D 渲染';}}

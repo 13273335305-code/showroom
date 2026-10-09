@@ -1,0 +1,68 @@
+{
+    "format":  "SPENIC-MATERIAL-RUNTIME",
+    "version":  1,
+    "sourceVersion":  "e523c5c199060a2820b4f5fd63531847e52a406d0b63a3eb9e99189ddc08fa82",
+    "maps":  {
+                 "map":  {
+                             "url":  "map.jpg",
+                             "name":  "测试.jpg",
+                             "type":  "image/jpeg",
+                             "prepared":  true,
+                             "width":  1367,
+                             "height":  2048,
+                             "bytes":  425666
+                         }
+             },
+    "name":  "新材质",
+    "description":  null,
+    "designInfo":  null,
+    "supplier":  null,
+    "previewInfo":  null,
+    "materialType":  "fabric",
+    "category":  "面布",
+    "surface":  {
+                    "color":  "#ffffff",
+                    "roughness":  0.65,
+                    "metalness":  0,
+                    "normalStrength":  1,
+                    "flip":  false,
+                    "aoStrength":  1,
+                    "emissive":  "#000000",
+                    "emissiveStrength":  1,
+                    "bumpStrength":  0.02,
+                    "opacity":  1,
+                    "transparent":  false,
+                    "alphaTest":  0,
+                    "side":  0
+                },
+    "physical":  {
+                     "mode":  "physical",
+                     "widthCm":  80.0862,
+                     "heightCm":  119.98960000000001,
+                     "angle":  0,
+                     "locked":  true,
+                     "initialized":  true,
+                     "sizeSource":  "dpi",
+                     "fallbackDpi":  null
+                 },
+    "repeat":  [
+                   1,
+                   1
+               ],
+    "placement":  null,
+    "density":  {
+                    "map":  {
+                                "widthCm":  80.0862,
+                                "heightCm":  119.98960000000001,
+                                "pixelWidth":  3153,
+                                "pixelHeight":  4724,
+                                "dpiX":  100,
+                                "dpiY":  100,
+                                "source":  "EXIF / inch",
+                                "conflict":  false
+                            }
+                },
+    "legacyMaps":  {
+
+                   }
+}
