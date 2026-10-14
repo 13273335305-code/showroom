@@ -2,7 +2,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test checks/*.test.mjs",
-    "test:runtime": "node --test checks/asset-store.test.mjs checks/builtin-manifest.test.cjs checks/project-cloud.test.mjs checks/project-database.test.mjs && node checks/material-runtime-workflow.test.cjs",
+    "test:runtime": "node --test checks/model-runtime.test.mjs checks/asset-cloud.test.mjs checks/project-cloud.test.mjs checks/project-database.test.mjs && node checks/model-runtime-workflow.test.cjs && node checks/asset-cloud-workflow.test.cjs && node checks/asset-library-performance.test.cjs",
     "test:project-db": "node --test checks/project-database.test.mjs",
     "test:assets": "node --test checks/asset-cloud.test.mjs checks/project-database.test.mjs && node checks/asset-cloud-workflow.test.cjs",
     "test:entries": "node checks/entry-workflow.test.cjs",

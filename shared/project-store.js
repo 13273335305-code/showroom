@@ -2,7 +2,7 @@ import { createProjectCloud } from './project-cloud.js';
 import { validateProjectManifest, retainProjectSources } from './project-manifest.js';
 
 const cloud = createProjectCloud(async () => (await import('./auth.js')).workspaceClient());
-export const listProjects = () => cloud.list();
+export const listProjects = options => cloud.list(options);
 export const getProject = id => cloud.read(id);
 export const deleteProject = id => cloud.remove(id);
 export const uploadProjectResource = file => cloud.upload(file);

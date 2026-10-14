@@ -14,6 +14,7 @@ function localResource(value) {
 }
 export function validateProjectManifest(config) {
   if (config?.format !== 'SPENIC-PROJECT' || config.version !== 1 || !config.files || typeof config.files !== 'object' || Array.isArray(config.files) || !config.modelPath) throw new Error('项目清单格式无效');
+  if (config.modelRuntimeVersion !== undefined && config.modelRuntimeVersion !== 1) throw new Error('项目模型运行版本无效');
   const files = Object.entries(config.files);
   if (files.length > 3000 || JSON.stringify(config).length > 4 * 1024 * 1024) throw new Error('项目清单过大');
   for (const [key, reference] of files) {

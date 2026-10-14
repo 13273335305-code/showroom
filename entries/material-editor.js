@@ -4,7 +4,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { defaultPhysical, readPhysical, preparePhysicalUV, setPhysicalTransform } from '../physical-textures.js';
 import { readImageDensity, physicalSizeFromDensity } from '../image-density.js';
 import { mountNavigation, downloadFile } from '../shared/navigation.js';
-import { getAsset, saveAsset } from '../shared/asset-store.js';
+import { getAsset } from '../shared/asset-store.js';
 import { MATERIAL_MAPS, readSurface, applySurface, applyLegacyUV } from '../shared/material-data.js';
 import { materialType } from '../shared/material-placement.js';
 import { packMaterial } from '../shared/material-package.js';
@@ -15,6 +15,7 @@ import { installRoughnessShader } from '../shared/roughness-map.js';
 import { compressImageFile } from '../shared/asset-thumbnail.js';
 import { requireAuth } from '../shared/auth.js';
 import { fitMaterialPreview } from '../shared/material-preview.js';
+import { enqueueMaterialUpload, getUpload, startUploadQueue, subscribeUploads } from '../shared/upload-queue.js';
 
 const $ = id => document.getElementById(id);
 await requireAuth({ feature: 'material' });
@@ -26,6 +27,13 @@ let legacyMaps = {}, savedPlacement, libraryMetadata = {};
 const files = {}, urls = {}, tokens = {}, density = {}, embeddedDensity = {};
 const patternPreview = createPatternPreview($('patternPreview'));
 let roughnessPreviewCache = null, savedPreview = null, savedPreviewInfo = null, previewGenerationCanvas = null;
+let savedPreviewCategory = null;
+let lastUploadTask = null, submittingPreview = false, editGeneration = 0;
+const previewCategorySizes = { '面布': [120, 90], '边布': [40, 30], '包边条': [10, 7.5], '其他': [10, 7.5] };
+const previewSizePairs = [
+  { width: 'previewPhysicalWidth', height: 'previewPhysicalHeight', button: 'previewPhysicalLock', name: '物理尺寸', digits: 2, ratio: 1 },
+  { width: 'previewPixelWidth', height: 'previewPixelHeight', button: 'previewPixelLock', name: '输出像素', digits: 0, ratio: 4 / 3 },
+];
 const material = new THREE.MeshStandardMaterial({ color: '#d6dbe0', roughness: .65, metalness: 0, bumpScale: .02 });
 installRoughnessShader(material);
 const status = message => { $('status').textContent = message; };
@@ -268,29 +276,68 @@ function syncPreviewGeneration() {
 function openPreviewGeneration() {
   if (pending) { status('请等待贴图载入完成'); return; }
   const dialog = $('previewGenerationDialog');
-  $('previewPhysicalWidth').value = Number((savedPreviewInfo?.widthCm || physical.widthCm || 10).toFixed(2));
-  $('previewPhysicalHeight').value = Number((savedPreviewInfo?.heightCm || physical.heightCm || 10).toFixed(2));
+  const category = $('category').value, defaults = previewCategorySizes[category] || previewCategorySizes['其他'];
+  const savedDimensions = savedPreviewCategory === category ? savedPreviewInfo : null;
+  $('previewPhysicalWidth').value = savedDimensions?.widthCm || defaults[0];
+  $('previewPhysicalHeight').value = savedDimensions?.heightCm || defaults[1];
   $('previewPixelWidth').value = savedPreviewInfo?.widthPx || 400;
   $('previewPixelHeight').value = savedPreviewInfo?.heightPx || 300;
+  for (const pair of previewSizePairs) setPreviewRatioLock(pair, true);
   syncPreviewGeneration();
   if (!dialog.open) dialog.showModal();
   $('previewPhysicalWidth').focus();
 }
+function setPreviewRatioLock(pair, locked) {
+  const button = $(pair.button);
+  if (locked) {
+    const width = Number($(pair.width).value), height = Number($(pair.height).value);
+    if (!(width > 0 && height > 0 && Number.isFinite(width / height))) return;
+    pair.ratio = width / height;
+  }
+  button.setAttribute('aria-pressed', String(locked));
+  button.title = `${locked ? '解锁' : '锁定'}${pair.name}宽高比`;
+}
+function updatePreviewSize(pair, editedId) {
+  const input = $(editedId), value = Number(input.value);
+  if ($(pair.button).getAttribute('aria-pressed') === 'true' && value > 0 && Number.isFinite(value) && input.validity.valid) {
+    const widthEdited = editedId === pair.width;
+    const linked = widthEdited ? value / pair.ratio : value * pair.ratio;
+    $(widthEdited ? pair.height : pair.width).value = Number(linked.toFixed(pair.digits));
+  }
+  syncPreviewGeneration();
+}
 async function saveMaterialWithPreview() {
+  if (submittingPreview) return;
+  submittingPreview = true;
   const saveButton = $('confirmPreviewGeneration');
   saveButton.disabled = true; $('saveMaterial').disabled = true;
   try {
+    const generation = editGeneration;
     const values = previewGenerationValues(), dataUrl = previewCrop(material.map?.image, values.widthPx, values.heightPx, values.widthCm, values.heightCm);
     const preview = await previewBlobFromDataUrl(dataUrl);
-    const current = assetId ? await getAsset(assetId) : null;
-    if (current) libraryMetadata = { ...libraryMetadata, description: current.description, designInfo: current.designInfo, supplier: current.supplier, parentId: current.parentId, revision: libraryMetadata.revision || current.revision };
     const asset = currentAsset({ preview, previewInfo: preview ? { widthCm: values.widthCm, heightCm: values.heightCm, widthPx: values.widthPx, heightPx: values.heightPx } : null });
-    const saved = await saveAsset(asset);
-    savedPreview = saved.preview || null; savedPreviewInfo = saved.previewInfo || null;
-    assetId = saved.id; dirty = false; history.replaceState(null, '', '?asset=' + encodeURIComponent(saved.id));
-    $('previewGenerationDialog').close(); status('已生成预览图并保存到资产库');
+    const task = await enqueueMaterialUpload(asset, { dependsOn: lastUploadTask });
+    lastUploadTask = task.id; assetId = task.targetAssetId;
+    if (asset.ownerId && asset.ownerId !== task.ownerId) libraryMetadata.parentId = null;
+    libraryMetadata.ownerId = task.ownerId;
+    savedPreview = preview; savedPreviewInfo = asset.previewInfo; savedPreviewCategory = asset.category;
+    if (generation === editGeneration) dirty = false;
+    history.replaceState(null, '', '?asset=' + encodeURIComponent(assetId) + '&upload=' + encodeURIComponent(task.id));
+    $('previewGenerationDialog').close(); status('已加入后台上传任务');
+    void syncMaterialUpload();
   } catch (error) { status('保存失败：' + error.message); }
-  finally { saveButton.disabled = false; $('saveMaterial').disabled = pending > 0; }
+  finally { submittingPreview = false; saveButton.disabled = false; $('saveMaterial').disabled = pending > 0; }
+}
+async function syncMaterialUpload() {
+  if (!lastUploadTask) return;
+  const id = lastUploadTask, task = await getUpload(id);
+  if (!task || id !== lastUploadTask) return;
+  if (task.status === 'completed') {
+    assetId = task.result.id;
+    libraryMetadata.revision = task.result.revision;
+    history.replaceState(null, '', '?asset=' + encodeURIComponent(task.result.id));
+    if (!dirty && !pending) status('已生成预览图并保存到资产库');
+  } else if (task.status === 'failed') status('后台上传失败，可在资产库上传任务中重试。');
 }
 async function uploadMap(key, file, restoring = false) {
   if (!/\.(png|jpe?g|webp|bmp)$/i.test(file.name) && !['image/png', 'image/jpeg', 'image/webp', 'image/bmp', 'image/x-ms-bmp'].includes(file.type)) throw new Error('请选择 PNG、JPG、WebP 或 BMP 图片');
@@ -336,12 +383,16 @@ function currentAsset(overrides = {}) {
   return { ...libraryMetadata, preview: savedPreview, previewInfo: savedPreviewInfo, ...overrides, id: assetId, kind: 'material', placement: savedPlacement, materialType: $('materialType').value, name: $('name').value.trim(), category: $('category').value, surface: readSurface(material), physical: { ...physical }, repeat: [...repeat], maps: { ...files }, density: { ...density }, legacyMaps: { ...legacyMaps } };
 }
 async function restoreAsset() {
-  const id = new URLSearchParams(location.search).get('asset');
-  if (!id) return;
-  const asset = await getAsset(id);
+  const parameters = new URLSearchParams(location.search), id = parameters.get('asset'), uploadId = parameters.get('upload');
+  if (!id && !uploadId) return;
+  const task = uploadId ? await getUpload(uploadId, { payload: true }) : null;
+  if (uploadId && !task && !id) throw new Error('上传任务不可用，请返回原账号查看。');
+  const asset = task?.asset ? { ...task.asset, id: task.targetAssetId, ownerId: task.ownerId } : await getAsset(task?.result?.id || id);
+  if (task) lastUploadTask = task.id;
   if (!asset) throw new Error('资产不存在，可能已被删除');
-  libraryMetadata = { description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, parentId: asset.parentId, revision: asset.revision };
+  libraryMetadata = { description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, parentId: asset.parentId, revision: asset.revision, ownerId: asset.ownerId };
   savedPreview = asset.preview || null; savedPreviewInfo = asset.previewInfo || null;
+  savedPreviewCategory = asset.category;
   if (asset.kind === 'texture') { $('name').value = asset.name.replace(/\.[^.]+$/, ''); $('materialType').value = 'pattern'; await uploadMap('map', asset.file); syncMaterialType(); return; }
   if (asset.kind !== 'material') throw new Error('请从资产库选择材质或贴图');
   $('materialType').value = materialType(asset);
@@ -354,6 +405,7 @@ async function restoreAsset() {
   applySurface(material, { ...asset.surface, roughnessGrayscale: asset.surface?.roughnessGrayscale ?? !!asset.maps?.roughnessMap });
   assetId = asset.id; $('name').value = asset.name; $('category').value = asset.category;
   syncSurfaceControls(); syncPhysicalControls(); syncMaterialType(); configureMaps(); dirty = false;
+  if (task?.status === 'completed') history.replaceState(null, '', '?asset=' + encodeURIComponent(task.result.id));
 }
 function buildPbrRows() {
   const channelControls = { normalMap: 'normalStrength', roughnessMap: 'roughness', metalnessMap: 'metalness', aoMap: 'aoStrength', bumpMap: 'bumpStrength', emissiveMap: 'emissiveStrength' };
@@ -506,7 +558,14 @@ async function init() {
   };
   $('lockSizing').onchange = () => { physical = { ...physical, locked: $('lockSizing').checked }; dirty = true; syncPhysicalControls(); };
   $('saveMaterial').onclick = openPreviewGeneration;
-  for (const id of ['previewPhysicalWidth', 'previewPhysicalHeight', 'previewPixelWidth', 'previewPixelHeight']) $(id).oninput = syncPreviewGeneration;
+  document.addEventListener('input', () => { editGeneration++; });
+  document.addEventListener('change', () => { editGeneration++; });
+  subscribeUploads(() => { void syncMaterialUpload().catch(() => {}); });
+  startUploadQueue();
+  for (const pair of previewSizePairs) {
+    for (const id of [pair.width, pair.height]) $(id).oninput = () => updatePreviewSize(pair, id);
+    $(pair.button).onclick = () => setPreviewRatioLock(pair, $(pair.button).getAttribute('aria-pressed') !== 'true');
+  }
   $('closePreviewGeneration').onclick = () => $('previewGenerationDialog').close();
   $('cancelPreviewGeneration').onclick = () => $('previewGenerationDialog').close();
   $('previewGenerationDialog').addEventListener('cancel', event => { event.preventDefault(); $('previewGenerationDialog').close(); });

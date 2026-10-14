@@ -11,9 +11,6 @@ echo.
 echo [1/3] Checking local changes...
 echo.
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0更新内置素材.ps1"
-if errorlevel 1 goto fail
-
 git add -A
 git status --short
 echo.

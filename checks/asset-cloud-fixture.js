@@ -4,7 +4,7 @@ import { fixtureAccess } from './project-store.js';
 const cloud = createAssetCloud(fixtureAccess);
 export const listCloudAssets = () => cloud.list();
 export const getCloudAsset = (id, options) => cloud.get(id, options);
-export const saveCloudAsset = asset => cloud.save(asset);
+export const saveCloudAsset = (asset, options) => cloud.save(asset, options);
 export const updateCloudAsset = (id, changes) => cloud.update(id, changes);
 export const deleteCloudAsset = id => cloud.remove(id);
 export const getCloudMaterialSource = reference => cloud.source(reference);

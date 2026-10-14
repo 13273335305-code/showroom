@@ -54,15 +54,15 @@
 
 | 模块 | 已完成改动 |
 | --- | --- |
-| `更新内置素材.ps1` | 预生成独立材质 JSON、2048 运行图、预览图；登记 FBX/GLB 和配套资源 |
-| `shared/asset-store.js` | 轻量清单、运行图与源包分开下载、版本校验、缓存及并发合并 |
+| `shared/asset-cloud.js` | 云端上传原图、2048 运行图、预览图、FBX/GLB 和配套资源 |
+| `shared/asset-store.js` | 云端轻量清单、运行图与原图分开下载 |
 | `shared/material-source.js` | 为应用中的运行文件保留源文件引用，保存时按需解析 |
 | `app.js` | 已处理的运行图直接应用；保存原图；保存和恢复每通道物理尺寸信息 |
 | `shared/material-package.js`、材质编辑器 | 完整导出保留原文件内容 |
-| `entries/asset-library.js` | 材质详情使用运行图；浏览列表不加载 Three.js |
-| `server.ps1`、`vercel.json` | 版本资源长期缓存 |
+| `entries/asset-library.js` | 材质详情使用原图生成预览；浏览列表不加载 Three.js |
+| `server.ps1`、`vercel.json` | 页面与脚本缓存校验 |
 
-将 `.formmat` 或 `.fbx` / `.glb` 放入 `assets/builtin`，运行 `更新内置素材.bat`，然后刷新网页。模型配套文件放在 `<模型完整文件名>.resources/`，使用原文件名、不嵌套目录；可选模型预览命名为 `<模型完整文件名>.preview.png`。具体规则见 `assets/builtin/使用说明.md`。
+通过资产库上传 `.formmat` 或 `.fbx` / `.glb` 及模型配套文件。素材统一保存在云端，本地素材目录与生成脚本已移除。上面的内置材质体积数据保留为此前方案的测量记录。
 
 ## Style3D 链接的实际引用方式
 

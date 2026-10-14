@@ -4,7 +4,7 @@ import { MATERIAL_MAPS } from './material-map-definitions.js';
 
 const TABLE = 'spenic_assets', FAVORITES = 'spenic_asset_favorites';
 const SUMMARY = 'id,owner_id,kind,name,category,library,parent_id,metadata,thumbnail_path,created_at,updated_at';
-const metadataFields = ['description', 'designInfo', 'supplier', 'materialType', 'surface', 'physical', 'repeat', 'density', 'legacyMaps', 'placement', 'previewInfo', 'partAssignments'];
+const metadataFields = ['description', 'designInfo', 'supplier', 'materialType', 'surface', 'physical', 'repeat', 'density', 'legacyMaps', 'placement', 'previewInfo', 'partAssignments', 'uploadTaskId'];
 const channels = new Set(MATERIAL_MAPS.map(([key]) => key));
 export const isCloudAssetId = id => /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(id || '');
 
@@ -30,6 +30,7 @@ function validateManifest(manifest) {
     if (!channels.has(key)) throw new Error('资产贴图通道无效'); need(path);
   }
   for (const path of [manifest.filePath, manifest.runtimePath, manifest.previewPath, manifest.thumbnailPath].filter(Boolean)) need(path);
+  if (manifest.modelRuntimeVersion !== undefined && (manifest.modelRuntimeVersion !== 1 || !manifest.runtimePath)) throw new Error('模型运行版本无效');
   for (const resource of manifest.resources || []) need(resource.path);
   return manifest;
 }
@@ -66,7 +67,7 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
     const urls = await previewUrls(client, rows.map(row => row.thumbnail_path));
     return rows.map(row => summary(row, urls.get(row.thumbnail_path)));
   }
-  async function hydrate(row, runtime) {
+  async function hydrate(row, runtime, texturePreview) {
     const { client } = await access();
     const manifest = validateManifest(row.manifest), refs = manifest.files;
     const previewPath = refs[manifest.previewPath]?.path || row.thumbnail_path;
@@ -76,26 +77,42 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
       const sourceRefs = Object.fromEntries(Object.entries(manifest.maps || {}).map(([key, path]) => [key, refs[path]]));
       asset.sourcePackage = { cloud: true, files: sourceRefs, version: row.updated_at, name: row.name };
       asset.maps = {}; asset.projectRefs = {};
-      const maps = runtime ? manifest.runtimeMaps : manifest.maps;
+      // The texture viewer needs only base color. Missing auxiliary PBR maps
+      // must not prevent it from opening, and prepared color is a valid fallback.
+      const previewMap = manifest.maps?.map || manifest.runtimeMaps?.map;
+      const maps = texturePreview
+        ? (previewMap ? { map: previewMap } : {})
+        : runtime ? manifest.runtimeMaps : manifest.maps;
       await Promise.all(Object.entries(maps || {}).map(async ([key, path]) => {
-        asset.maps[key] = await resources.download(refs[path]);
+        try { asset.maps[key] = await resources.download(refs[path]); }
+        catch (error) {
+          const fallback = texturePreview && manifest.runtimeMaps?.[key];
+          if (!fallback || fallback === path) throw error;
+          asset.maps[key] = await resources.download(refs[fallback]);
+        }
         if (runtime) asset.projectRefs[key] = { ...refs[path], prepared: true, reference: { ...asset.sourcePackage, key } };
       }));
       if (runtime) { asset.runtimeMaps = asset.maps; asset.runtimeOnly = true; asset.runtimePrepared = true; }
     } else {
-      asset.file = await resources.download(refs[runtime && manifest.runtimePath ? manifest.runtimePath : manifest.filePath]);
-      asset.resources = await Promise.all((manifest.resources || []).map(resource => resources.download(refs[resource.path])));
-      if (row.kind === 'model') asset.projectReferences = { model: refs[manifest.filePath], resources: (manifest.resources || []).map(resource => refs[resource.path]) };
+      const preparedModel = row.kind === 'model' && runtime && manifest.modelRuntimeVersion === 1;
+      const filePath = runtime && manifest.runtimePath ? manifest.runtimePath : manifest.filePath;
+      const resourceRefs = preparedModel ? [] : (manifest.resources || []).map(resource => refs[resource.path]);
+      [asset.file, ...asset.resources] = await Promise.all([resources.download(refs[filePath]), ...resourceRefs.map(reference => resources.download(reference))]);
+      if (row.kind === 'model') {
+        asset.runtimeModel = preparedModel;
+        asset.sourceName = refs[manifest.filePath].name;
+        asset.projectReferences = { model: refs[filePath], resources: resourceRefs };
+      }
       if (row.kind === 'texture' && runtime) asset.runtimeFile = asset.file;
     }
     return asset;
   }
-  async function get(id, { runtime = false } = {}) {
+  async function get(id, { runtime = false, texturePreview = false } = {}) {
     const row = await read(id); if (!row) return null;
     if (row.kind === 'folder') return summary(row);
-    const key = id + ':' + row.updated_at + ':' + runtime;
+    const key = id + ':' + row.updated_at + ':' + runtime + ':' + texturePreview;
     for (const cached of loads.keys()) if (cached.startsWith(id + ':') && !cached.startsWith(id + ':' + row.updated_at + ':')) loads.delete(cached);
-    if (!loads.has(key)) loads.set(key, hydrate(row, runtime).catch(error => { loads.delete(key); throw error; }));
+    if (!loads.has(key)) loads.set(key, hydrate(row, runtime, texturePreview).catch(error => { loads.delete(key); throw error; }));
     const asset = await loads.get(key);
     if (asset.previewReference && Date.now() >= asset.previewExpiresAt) {
       const { client } = await access(), path = asset.previewReference.path;
@@ -106,8 +123,9 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
   }
   async function write(asset, manifest, old) {
     const { client, userId } = await access();
+    if (asset.uploadOwnerId && asset.uploadOwnerId !== userId) throw new Error('账号已切换，请返回原账号继续上传。');
     const fork = old && old.owner_id !== userId;
-    const id = old && !fork ? old.id : crypto.randomUUID();
+    const id = old && !fork ? old.id : isCloudAssetId(asset.createId) ? asset.createId : crypto.randomUUID();
     const metadata = Object.fromEntries(metadataFields.filter(key => asset[key] !== undefined).map(key => [key, asset[key]]));
     const library = asset.kind === 'folder' ? asset.library || 'fabric' : asset.kind === 'model' ? 'model' : asset.kind === 'texture' || asset.materialType === 'pattern' ? 'pattern' : 'fabric';
     const row = { id, kind: asset.kind, name: asset.name.trim(), category: asset.category || '',
@@ -119,20 +137,40 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
     const urls = await previewUrls(client, [saved.thumbnail_path]);
     return { ...asset, ...summary(saved, urls.get(saved.thumbnail_path)), assetManifest: manifest };
   }
-  async function putPreview(manifest, preview) {
+  async function putPreview(manifest, preview, upload = file => resources.upload(file)) {
     if (!preview) return;
     if (typeof preview === 'string') {
       const response = await fetch(preview, { signal: AbortSignal.timeout(30000) });
       if (!response.ok) throw new Error('无法读取预览图'); preview = await response.blob();
     }
     if (!(preview instanceof Blob) || !preview.size || preview.size > 16 * 1024 * 1024) throw new Error('预览图必须小于 16 MB');
-    manifest.files.preview = await resources.upload(await compressImageFile(preview, 1024)); manifest.previewPath = 'preview';
-    manifest.files.thumbnail = await resources.upload(await compressImageFile(preview, 320)); manifest.thumbnailPath = 'thumbnail';
+    manifest.files.preview = await upload(await compressImageFile(preview, 1024)); manifest.previewPath = 'preview';
+    manifest.files.thumbnail = await upload(await compressImageFile(preview, 320)); manifest.thumbnailPath = 'thumbnail';
   }
-  async function save(asset) {
+  async function save(asset, { onProgress = () => {} } = {}) {
     if (!['material', 'model', 'texture', 'folder'].includes(asset.kind) || !asset.name?.trim()) throw new Error('资产名称或类型无效');
-    const old = isCloudAssetId(asset.id) ? await read(asset.id) : null;
+    if (asset.kind === 'model' && asset.runtimeModel) throw new Error('请从部件配置保存原模型');
+    const targetId = asset.id || asset.createId;
+    const old = isCloudAssetId(targetId) ? await read(targetId) : null;
     if (isCloudAssetId(asset.id) && !old) throw new Error('资产已删除，请重新创建');
+    if (asset.uploadOwnerId) {
+      const { userId } = await access();
+      if (asset.uploadOwnerId !== userId) throw new Error('账号已切换，请返回原账号继续上传。');
+      const committed = isCloudAssetId(asset.createId) && asset.createId !== targetId ? await read(asset.createId) : old;
+      if (committed?.owner_id === userId && committed.metadata?.uploadTaskId === asset.uploadTaskId) {
+        const urls = await previewUrls((await access()).client, [committed.thumbnail_path]);
+        return { ...asset, ...summary(committed, urls.get(committed.thumbnail_path)) };
+      }
+    }
+    let completed = 0;
+    const total = Object.keys(asset.maps || {}).length * 2 + 2;
+    await onProgress({ stage: 'preparing', completed, total });
+    const upload = async file => {
+      await onProgress({ stage: 'uploading', completed, total });
+      const reference = await resources.upload(file);
+      await onProgress({ stage: 'uploading', completed: ++completed, total });
+      return reference;
+    };
     const manifest = { format: 'SPENIC-ASSET', version: 1, files: {} };
     if (asset.kind === 'material') {
       manifest.maps = {}; manifest.runtimeMaps = {};
@@ -140,8 +178,8 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
       for (const [key, file] of Object.entries(asset.maps || {})) {
         if (!channels.has(key) || !(file instanceof Blob) || file.size > 64 * 1024 * 1024) throw new Error('材质贴图无效或超过 64 MB');
         const path = 'source/' + key, runtimePath = 'runtime/' + key;
-        manifest.files[path] = asset.runtimeOnly && asset.sourcePackage?.cloud ? asset.sourcePackage.files[key] : await resources.upload(file);
-        manifest.files[runtimePath] = asset.runtimeOnly && asset.projectRefs?.[key] ? { ...asset.projectRefs[key], reference: undefined } : await resources.upload(runtimeMaps[key]);
+        manifest.files[path] = asset.runtimeOnly && asset.sourcePackage?.cloud ? asset.sourcePackage.files[key] : await upload(file);
+        manifest.files[runtimePath] = asset.runtimeOnly && asset.projectRefs?.[key] ? { ...asset.projectRefs[key], reference: undefined } : await upload(runtimeMaps[key]);
         manifest.maps[key] = path; manifest.runtimeMaps[key] = runtimePath;
       }
     } else if (asset.kind !== 'folder') {
@@ -154,6 +192,16 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
           if (file.size > 64 * 1024 * 1024) throw new Error('模型配套资源超过 64 MB');
           const path = 'resources/' + i; manifest.files[path] = await resources.upload(file); manifest.resources.push({ path });
         }
+        if (asset.runtimeModelFile) {
+          if (!(asset.runtimeModelFile instanceof Blob) || asset.runtimeModelFile.size > 512 * 1024 * 1024) throw new Error('运行模型无效或超过 512 MB');
+          manifest.files.runtime = await resources.upload(asset.runtimeModelFile); manifest.runtimePath = 'runtime'; manifest.modelRuntimeVersion = 1;
+        } else if (asset.assetManifest?.modelRuntimeVersion === 1 && asset.assetManifest.files[asset.assetManifest.filePath]?.hash === manifest.files.file.hash &&
+          (asset.assetManifest.resources || []).length === manifest.resources.length && manifest.resources.every((resource, index) => {
+            const original = asset.assetManifest.files[asset.assetManifest.resources[index].path], current = manifest.files[resource.path];
+            return original.hash === current.hash && original.name === current.name;
+          })) {
+          manifest.files.runtime = asset.assetManifest.files[asset.assetManifest.runtimePath]; manifest.runtimePath = 'runtime'; manifest.modelRuntimeVersion = 1;
+        }
       }
     }
     if (asset.kind !== 'folder') {
@@ -161,9 +209,10 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
         for (const key of ['previewPath', 'thumbnailPath']) { const path = asset.assetManifest[key]; manifest[key] = path; manifest.files[path] = asset.assetManifest.files[path]; }
       } else {
         const automaticPreview = asset.kind === 'texture' ? asset.file : asset.maps?.map;
-        await putPreview(manifest, asset.preview || asset.thumbnail || (automaticPreview ? await compressImageFile(automaticPreview, 1024) : null));
+        await putPreview(manifest, asset.preview || asset.thumbnail || (automaticPreview ? await compressImageFile(automaticPreview, 1024) : null), upload);
       }
     }
+    await onProgress({ stage: 'saving', completed, total });
     return write(asset, manifest, old);
   }
   async function favorite(id, value) {

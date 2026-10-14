@@ -3,12 +3,16 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { getAsset, saveAsset } from '../shared/asset-store.js';
+import { getAsset } from '../shared/asset-store.js';
 import { requireAuth } from '../shared/auth.js';
+import { cloneSourceModel, prepareModelRuntime } from '../shared/model-runtime.js';
+import { gltfCentimetersPerUnit } from '../shared/model-units.js';
+import { enqueueMaterialUpload, getUpload, startUploadQueue, subscribeUploads } from '../shared/upload-queue.js';
 await requireAuth({ feature: 'parts' });
 const $=id=>document.getElementById(id),assetId=new URLSearchParams(location.search).get('asset');
-let asset,root,balls=[],selected=-1,assignments={},highlighted=[],slotLookup=new Map(),controls,allowPick=false,pointerStart=null,randomColorMode=false,viewportOffset=0;
+let asset,root,balls=[],selected=-1,assignments={},highlighted=[],slotLookup=new Map(),controls,allowPick=false,pointerStart=null,randomColorMode=false,viewportOffset=0,lastUploadTask=null,submittingSave=false;
 let developerOpen=false,savedCameraView={azimuth:40,elevation:26,framing:1.18,offset:[0,0,0]};
+let sourceModel=null;
 const formatNumber=value=>Number(value).toLocaleString('zh-CN',{maximumFractionDigits:2});
 const formatBytes=bytes=>{if(!Number.isFinite(bytes)||bytes<0)return '--';if(bytes<1024)return `${bytes} B`;const units=['KB','MB','GB'];let value=bytes/1024,index=0;while(value>=1024&&index<units.length-1){value/=1024;index++;}return `${value.toLocaleString('zh-CN',{maximumFractionDigits:2})} ${units[index]}`;};
 const modelFormat=model=>{const name=model.file?.name||model.name||'';const match=name.match(/\.([a-z0-9]+)$/i);return match?match[1].toUpperCase():'--';};
@@ -123,14 +127,17 @@ async function captureModelPreview(){
  }finally{previewRenderer?.dispose();previewRenderer?.forceContextLoss();if(selected>=0)highlight(balls[selected]);}
 }
 $('saveParts').onclick=async()=>{
- if(!asset||!root||!controls)return;
+ if(!asset||!root||!controls||submittingSave)return;
  const name=$('modelNameInput').value.trim();if(!name){$('partsStatus').textContent='模型名称不能为空';$('modelNameInput').focus();return;}
- const button=$('saveParts');button.disabled=true;
+ const button=$('saveParts');button.disabled=true;submittingSave=true;
  try{
-  const preview=await captureModelPreview(),next={...asset,name,category:$('modelCategoryInput').value.trim(),partAssignments:assignments,preview,thumbnail:preview};
-  asset=await saveAsset(next);history.replaceState(null,'','?asset='+encodeURIComponent(asset.id));$('partsStatus').textContent='已保存模型配置和预览图';
+  const runtimeModelFile=await prepareModelRuntime(sourceModel,{name:asset.file.name,textureConvention:/\.glb$/i.test(asset.file.name)?'gltf':'fbx',onProgress:message=>{$('partsStatus').textContent=message;}});
+  const preview=await captureModelPreview(),next={...asset,name,category:$('modelCategoryInput').value.trim(),partAssignments:structuredClone(assignments),preview,thumbnail:preview,runtimeModelFile};
+  const task=await enqueueMaterialUpload(next,{dependsOn:lastUploadTask});lastUploadTask=task.id;
+  asset={...next,id:task.targetAssetId};history.replaceState(null,'','?asset='+encodeURIComponent(task.targetAssetId)+'&upload='+encodeURIComponent(task.id));
+  $('partsStatus').textContent='已加入后台上传任务';
  }catch(error){$('partsStatus').textContent='保存失败：'+error.message;}
- finally{button.disabled=false;}
+ finally{button.disabled=false;submittingSave=false;}
 };
 async function loadAssetModel(asset){
  const urls=new Set(),resources=new Map((asset.resources||[]).map(file=>[file.name.split(/[\\/]/).pop().toLowerCase(),file]));
@@ -149,6 +156,7 @@ async function loadAssetModel(asset){
    const buffer=await asset.file.arrayBuffer();
    ktx2Loader=new KTX2Loader(manager).setTranscoderPath('./vendor/three/addons/libs/basis/').detectSupport(renderer);
    const gltf=await new Promise((resolve,reject)=>new GLTFLoader(manager).setKTX2Loader(ktx2Loader).parse(buffer,'',resolve,reject));
+   const unit=gltfCentimetersPerUnit(gltf);if(Number.isFinite(unit)&&gltf.scene)gltf.scene.userData.unitScaleFactor=unit;
    return gltf.scene||gltf.scenes?.[0]||(()=>{throw new Error('该 GLB 不包含可显示的场景');})();
   }
   const modelUrl=URL.createObjectURL(asset.file);urls.add(modelUrl);
@@ -161,5 +169,23 @@ async function loadAssetModel(asset){
   urls.forEach(url=>URL.revokeObjectURL(url));
  }
 }
-async function init(){try{initDeveloperPanel();asset=await getAsset(assetId);if(!asset||asset.kind!=='model')throw new Error('模型资产不存在');$('modelNameInput').value=asset.name||'';$('modelCategoryInput').value=asset.category||'';assignments=asset.partAssignments&&typeof asset.partAssignments==='object'?JSON.parse(JSON.stringify(asset.partAssignments)):{};root=await loadAssetModel(asset);renderModelInfo(root);root.traverse(mesh=>{if(mesh.isMesh){mesh.castShadow=true;mesh.receiveShadow=true;const materials=Array.isArray(mesh.material)?mesh.material:[mesh.material];materials.forEach(material=>{if(material?.color)material.color.set(0x9ca3aa);});}});scene.add(root);controls=new OrbitControls(camera,$('partsCanvas'));controls.enableDamping=true;controls.dampingFactor=.075;controls.autoRotate=false;controls.maxPolarAngle=Math.PI*.49;controls.screenSpacePanning=true;controls.mouseButtons={LEFT:THREE.MOUSE.ROTATE,MIDDLE:THREE.MOUSE.PAN,RIGHT:THREE.MOUSE.PAN};const box=new THREE.Box3().setFromObject(root),size=box.getSize(new THREE.Vector3()),scale=5.25/Math.max(...size),center=box.getCenter(new THREE.Vector3());root.scale.setScalar(scale);root.position.set(-center.x*scale,-box.min.y*scale,-center.z*scale);enumerateMaterials();resize();fit();await loadSavedCameraView();$('partsLoading').hidden=true;renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera);});}catch(error){$('partsLoading').textContent='载入失败：'+error.message;}}
+async function syncUploadTask(){
+ if(!lastUploadTask)return;
+ const task=await getUpload(lastUploadTask);if(!task)return;
+ if(task.status==='completed'){
+  asset={...asset,id:task.result.id,revision:task.result.revision};history.replaceState(null,'','?asset='+encodeURIComponent(task.result.id));$('partsStatus').textContent='已保存模型配置和预览图';
+ }else if(task.status==='failed')$('partsStatus').textContent='后台上传失败，可在资产库上传任务中重试。';
+}
+subscribeUploads(()=>{void syncUploadTask();});startUploadQueue();
+async function readModelAsset(id){
+ let lastError;
+ for(let attempt=0;attempt<4;attempt++){
+  try{const loaded=await getAsset(id);if(loaded)return loaded;}
+  catch(error){lastError=error;}
+  if(attempt<3){$('partsLoading').textContent='正在同步模型…';await new Promise(resolve=>setTimeout(resolve,250*(attempt+1)));}
+ }
+ if(lastError)throw lastError;
+ return null;
+}
+async function init(){try{initDeveloperPanel();const parameters=new URLSearchParams(location.search),uploadId=parameters.get('upload');lastUploadTask=uploadId;const task=uploadId?await getUpload(uploadId,{payload:true}):null;asset=task?.asset&&task.status!=='completed'?{...task.asset,id:task.targetAssetId}:await readModelAsset(assetId);if(!asset&&task?.asset)asset={...task.asset,id:task.targetAssetId};if(!asset||asset.kind!=='model')throw new Error('模型资产不存在，可能仍在同步，请返回模型库重试');$('modelNameInput').value=asset.name||'';$('modelCategoryInput').value=asset.category||'';assignments=asset.partAssignments&&typeof asset.partAssignments==='object'?JSON.parse(JSON.stringify(asset.partAssignments)):{};root=await loadAssetModel(asset);sourceModel=cloneSourceModel(root);renderModelInfo(root);root.traverse(mesh=>{if(mesh.isMesh){mesh.castShadow=true;mesh.receiveShadow=true;const materials=Array.isArray(mesh.material)?mesh.material:[mesh.material];materials.forEach(material=>{if(material?.color)material.color.set(0x9ca3aa);});}});scene.add(root);controls=new OrbitControls(camera,$('partsCanvas'));controls.enableDamping=true;controls.dampingFactor=.075;controls.autoRotate=false;controls.maxPolarAngle=Math.PI*.49;controls.screenSpacePanning=true;controls.mouseButtons={LEFT:THREE.MOUSE.ROTATE,MIDDLE:THREE.MOUSE.PAN,RIGHT:THREE.MOUSE.PAN};const box=new THREE.Box3().setFromObject(root),size=box.getSize(new THREE.Vector3()),scale=5.25/Math.max(...size),center=box.getCenter(new THREE.Vector3());root.scale.setScalar(scale);root.position.set(-center.x*scale,-box.min.y*scale,-center.z*scale);enumerateMaterials();resize();fit();await loadSavedCameraView();$('partsLoading').hidden=true;renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera);});void syncUploadTask();}catch(error){$('partsLoading').textContent='载入失败：'+error.message;}}
 init();

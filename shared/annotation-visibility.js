@@ -1,10 +1,10 @@
 import { BufferGeometry, Mesh, Raycaster, Vector3 } from '../vendor/three/build/three.module.js';
-import { acceleratedRaycast, computeBoundsTree } from '../vendor/three-mesh-bvh/index.module.js';
+import { acceleratedRaycast, computeBoundsTree, MeshBVH } from '../vendor/three-mesh-bvh/index.module.js';
 
 const geometries = new WeakMap(), proxies = new WeakMap(), pickerMeshes = new WeakMap();
 // BVH sorts triangle indices within each material group. Give it a private
 // index buffer while sharing vertex attributes; rendering and decals stay intact.
-export function prepareAnnotationPicking(model) {
+export function prepareAnnotationPicking(model, savedTrees = null) {
   const prepared = [];
   model.traverse(mesh => {
     if (!mesh.isMesh || mesh.isSkinnedMesh || Object.keys(mesh.geometry.morphAttributes).length) return;
@@ -15,7 +15,9 @@ export function prepareAnnotationPicking(model) {
       proxy.index = geometry.index?.clone() || null;
       proxy.groups = geometry.groups.map(group => ({ ...group }));
       proxy.drawRange = { ...geometry.drawRange };
-      computeBoundsTree.call(proxy);
+      const saved = savedTrees?.get(geometry.uuid);
+      if (saved) proxy.boundsTree = MeshBVH.deserialize(saved, proxy);
+      else computeBoundsTree.call(proxy);
       geometries.set(geometry, proxy);
       geometry.addEventListener('dispose', () => { proxy.boundsTree = null; proxy.dispose(); geometries.delete(geometry); });
     }
@@ -26,6 +28,14 @@ export function prepareAnnotationPicking(model) {
   });
   pickerMeshes.set(model, prepared);
   return prepared;
+}
+
+export function serializeAnnotationPicking(model) {
+  const trees = new Map();
+  for (const { mesh, proxy } of pickerMeshes.get(model) || prepareAnnotationPicking(model)) {
+    if (!trees.has(mesh.geometry.uuid)) trees.set(mesh.geometry.uuid, MeshBVH.serialize(proxy.geometry.boundsTree));
+  }
+  return trees;
 }
 
 // Material dragging uses the same BVH proxies as annotation picking. The

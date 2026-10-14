@@ -28,7 +28,7 @@ export const client = {
   }; } },
 };
 const cloud = createProjectCloud(async () => ({ client, userId }));
-export const listProjects = () => cloud.list();
+export const listProjects = options => cloud.list(options);
 export const getProject = id => cloud.read(id);
 export const saveProject = project => { if (project.manifest) retainProjectSources(project.manifest); return cloud.save(project); };
 export const deleteProject = id => cloud.remove(id);

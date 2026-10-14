@@ -32,9 +32,10 @@
     <div class="library-sub-actions"><select id="projectSort" aria-label="排序方式"><option value="recent">最近更新</option><option value="oldest">最早更新</option><option value="nameAsc">名称升序</option><option value="nameDesc">名称降序</option></select><button id="projectMoreOptions" class="more-button" type="button" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false" title="更多操作"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="3.8" r="2.05"></circle><circle cx="12" cy="12" r="2.05"></circle><circle cx="12" cy="20.2" r="2.05"></circle></svg></button><div id="projectMoreMenu" class="more-menu" role="menu" hidden><button type="button" id="selectAllProjects" role="menuitem">全选</button><button type="button" id="refreshProjects" role="menuitem">刷新项目</button><button type="button" id="clearProjectSearch" role="menuitem">清除搜索</button></div></div>
   </div>
   <main class="library-main project-main">
-    <section id="projectPanel" aria-label="项目列表">
-      <div id="projectEmpty" class="project-empty" hidden><strong>暂无保存的项目</strong><span>在设计台点击保存，即可在这里继续工作。</span></div>
-      <section id="projectGrid" class="asset-grid" aria-label="项目列表"></section>
+    <section id="projectPanel" class="is-asset-loading" aria-label="项目列表" aria-busy="true">
+      <div id="projectLoading" class="asset-loading-indicator" role="status" aria-label="正在加载项目"><div class="asset-grid-loader" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></div>
+      <div id="projectEmpty" class="project-empty asset-loading-content" hidden><strong>暂无保存的项目</strong><span>在设计台点击保存，即可在这里继续工作。</span></div>
+      <section id="projectGrid" class="asset-grid asset-loading-content" aria-label="项目列表" inert></section>
     </section>
   </main>
   <div id="assetScrollbar" class="asset-scrollbar" aria-hidden="true"><span class="asset-scrollbar-thumb"></span></div>
@@ -48,6 +49,7 @@
     <form id="newProjectFolderForm"><h2 id="newProjectFolderTitle">新建文件夹</h2><label for="newProjectFolderName">文件夹名称</label><input id="newProjectFolderName" type="text" maxlength="120" autocomplete="off"><p id="newProjectFolderError" role="alert"></p><div class="asset-dialog-actions"><button id="cancelNewProjectFolder" type="button">取消</button><button class="primary" type="submit">创建</button></div></form>
   </dialog>
   <div id="status" class="status-bar" role="status"></div>
+  <nav id="projectPagination" class="asset-pagination" aria-label="项目库翻页" hidden></nav>
   <script type="module" src="entries/project-library.js"></script>
 </body>
 </html>

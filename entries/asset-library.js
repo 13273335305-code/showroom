@@ -5,6 +5,8 @@ import { unpackMaterialAsync } from '../shared/material-package-loader.js';
 import { createAssetLoading } from '../shared/asset-loading.js';
 import { requireAuth, authState } from '../shared/auth.js';
 import { fitMaterialPreview, assetImageUrl } from '../shared/material-preview.js';
+import { compressImageFile } from '../shared/asset-thumbnail.js';
+import { mountUploadTasks } from '../shared/upload-tasks-ui.js';
 const $ = id => document.getElementById(id);
 await requireAuth({ feature: 'assets' });
 const libraryNames = { fabric: '\u9762\u6599\u5e93', pattern: '\u56fe\u6848\u5e93', model: '\u6a21\u578b\u5e93' };
@@ -13,13 +15,15 @@ let assets = [], renderVersion = 0, activeLibrary = 'fabric', activeFolderId = n
 const selectedAssetIds = new Set();
 const renderedCards = new Map();
 const cardUrls = new Map();
-let editing, editPreview, editPreviewUrl, editVersion = 0, movingAssetId = null;
+let editing, editPreview, editPreviewUrl, editVersion = 0, movingAssetId = null, deletingAsset = null, deleteDialogResolver = null;
 let currentPage = 1, pageContext = '', currentPageItems = [];
 let assetsLoading = true;
 const assetLoading = createAssetLoading({ host: $('assetPanel'), grid: $('assetGrid'), indicator: $('assetLoading') });
 let fabricPreviewClosingTimer = null;
 let fabricTextureRenderToken = 0;
 let fabricTextureState = null;
+let fabricPreviewAsset = null;
+let fabricPreviewLoadingUrl = null;
 const status = message => { $('status').textContent = message; };
 const previewOf = asset => asset?.kind === 'material' ? asset.preview || null : asset.preview || asset.thumbnail || (asset.kind === 'texture' ? asset.file : asset.maps?.map);
 const canEdit = asset => asset?.cloud && asset.ownerId === authState()?.id;
@@ -71,6 +75,31 @@ function closeMoreMenu() {
 }
 async function removeFolderTree(folder) {
   await deleteAsset(folder.id);
+}
+function askDelete(asset) {
+  const dialog = $('deleteDialog');
+  $('deleteDialogMessage').textContent = asset.kind === 'folder' ? `删除「${asset.name}」及其中内容？` : `确定删除「${asset.name}」？`;
+  deletingAsset = asset;
+  dialog.showModal(); $('confirmDelete').focus();
+  return new Promise(resolve => { deleteDialogResolver = resolve; });
+}
+function settleDelete(value) {
+  const resolver = deleteDialogResolver; deleteDialogResolver = null; deletingAsset = null;
+  if ($('deleteDialog').open) $('deleteDialog').close();
+  resolver?.(value);
+}
+function removeAssetsFromView(asset) {
+  const removed = new Set([asset.id]);
+  if (asset.kind === 'folder') {
+    let changed = true;
+    while (changed) { changed = false; for (const candidate of assets) if (candidate.parentId && removed.has(candidate.parentId) && !removed.has(candidate.id)) { removed.add(candidate.id); changed = true; } }
+  }
+  assets = assets.filter(candidate => !removed.has(candidate.id));
+  for (const id of removed) {
+    selectedAssetIds.delete(id); cardUrls.get(id)?.forEach(url => URL.revokeObjectURL(url)); cardUrls.delete(id); renderedCards.delete(id);
+  }
+  if (removed.has(activeFolderId)) activeFolderId = asset.parentId || null;
+  render();
 }
 function folderContains(folderId, ancestorId) {
   let current = folderById(folderId), seen = new Set();
@@ -173,10 +202,9 @@ function createMenu(asset, card) {
   }));
   if (canEdit(asset)) {
     const remove = action(asset.kind === 'folder' ? '删除文件夹' : '删除', async () => {
-    if (!confirm((asset.kind === 'folder' ? '删除文件夹「' : '删除「') + asset.name + '」及其中内容？')) return;
+    if (!await askDelete(asset)) return;
     if (asset.kind === 'folder') await removeFolderTree(asset); else await deleteAsset(asset.id);
-    if (activeFolderId === asset.id) activeFolderId = asset.parentId || null;
-    await refresh(); status(asset.kind === 'folder' ? '已删除文件夹' : '已删除资产');
+    removeAssetsFromView(asset); status(asset.kind === 'folder' ? '已删除文件夹' : '已删除资产');
     });
     remove.classList.add('danger'); actions.push(remove);
   }
@@ -213,9 +241,51 @@ function previewNumber(value, digits = 2) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(digits).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1') : '';
 }
 function fabricPreviewSource(asset) {
-  return asset?.runtimeMaps?.map || asset?.maps?.map || null;
+  return asset?.maps?.map || asset?.runtimeMaps?.map || null;
 }
-const FABRIC_TEXTURE_SURFACE = { width: 3600, height: 2700 };
+function clearFabricPreviewLoadingImage() {
+  $('fabricPreviewTextureFallback').classList.remove('is-revealing');
+  const image = $('fabricPreviewLoadingImage');
+  image.hidden = true; image.removeAttribute('src'); image.removeAttribute('style');
+  if (fabricPreviewLoadingUrl) URL.revokeObjectURL(fabricPreviewLoadingUrl);
+  fabricPreviewLoadingUrl = null;
+}
+function setFabricPreviewLoading(loading) {
+  $('fabricPreviewSurface').setAttribute('aria-busy', String(loading));
+  $('fabricPreviewLoader').hidden = !loading;
+}
+function finishFabricPreviewReveal() {
+  $('fabricPreviewTextureFallback').hidden = true;
+  setFabricPreviewLoading(false); clearFabricPreviewLoadingImage();
+}
+function revealFabricPreview() {
+  $('fabricPreviewTexture').hidden = false;
+  $('fabricPreviewSurface').setAttribute('aria-busy', 'false');
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) finishFabricPreviewReveal();
+  else $('fabricPreviewTextureFallback').classList.add('is-revealing');
+}
+$('fabricPreviewTextureFallback').addEventListener('animationend', event => {
+  if (event.target === event.currentTarget && event.animationName === 'fabric-preview-loading-out') finishFabricPreviewReveal();
+});
+window.matchMedia?.('(prefers-reduced-motion: reduce)').addEventListener('change', event => {
+  if (event.matches && $('fabricPreviewTextureFallback').classList.contains('is-revealing')) finishFabricPreviewReveal();
+});
+function showFabricPreviewLoading(asset) {
+  clearFabricPreviewLoadingImage();
+  const image = $('fabricPreviewLoadingImage');
+  const cardImage = renderedCards.get(asset.id)?.card.querySelector('.asset-art img');
+  const source = previewOf(asset);
+  const url = cardImage?.currentSrc || cardImage?.src || (source ? imageUrl(source) : null);
+  if (url) {
+    if (!cardImage && typeof source !== 'string') fabricPreviewLoadingUrl = url;
+    image.src = url; image.hidden = false;
+    fitMaterialPreview(image, asset.previewInfo);
+  }
+  $('fabricPreviewTexture').hidden = true;
+  $('fabricPreviewTextureFallback').hidden = false;
+  setFabricPreviewLoading(true);
+}
+const FABRIC_TEXTURE_SURFACE = { width: 1200, height: 900 };
 const FABRIC_BOARD_CM = {
   面布: { width: 200, height: 150 },
   边布: { width: 36, height: 27 },
@@ -230,6 +300,12 @@ function fabricTextureRange(asset) {
 function clampFabricTextureWidth(state, value) {
   return Math.max(state.range.minWidth, Math.min(state.range.maxWidth, value));
 }
+function setFabricTextureWidth(state, value) {
+  const next = clampFabricTextureWidth(state, value);
+  if (next === state.widthCm) return;
+  state.widthCm = next;
+  renderFabricTexture(state);
+}
 function fabricTexturePhysicalSize(asset, bitmap) {
   const physical = asset.physical || {};
   let widthCm = Number(physical.widthCm), heightCm = Number(physical.heightCm);
@@ -239,24 +315,16 @@ function fabricTexturePhysicalSize(asset, bitmap) {
 }
 function renderFabricTexture(state) {
   if (!state?.canvas || !state.bitmap) return;
-  const visibleHeightCm = state.widthCm * state.range.board.height / state.range.board.width;
-  const visibleWidthPx = Math.min(FABRIC_TEXTURE_SURFACE.width, Math.max(1, Math.round(FABRIC_TEXTURE_SURFACE.width * state.widthCm / state.range.board.width)));
-  const visibleHeightPx = Math.min(FABRIC_TEXTURE_SURFACE.height, Math.max(1, Math.round(FABRIC_TEXTURE_SURFACE.height * visibleHeightCm / state.range.board.height)));
-  // The backing canvas is the exported image. Resize it to the current
-  // physical window instead of keeping the maximum board size for every zoom.
-  state.canvas.width = visibleWidthPx;
-  state.canvas.height = visibleHeightPx;
-  const width = visibleWidthPx, height = visibleHeightPx;
+  const { width, height } = FABRIC_TEXTURE_SURFACE;
+  const pixelsPerCm = width / state.widthCm;
+  const visibleHeightCm = state.widthCm * height / width;
+  if (state.canvas.width !== width) state.canvas.width = width;
+  if (state.canvas.height !== height) state.canvas.height = height;
   const context = state.canvas.getContext('2d', { alpha: false });
-  // Keep the board's physical pixel density stable as the viewport changes.
-  // A low-resolution source may be reduced, but is never enlarged merely to
-  // fill the 3600 × 2700 board limit.
-  const pixelsPerCm = FABRIC_TEXTURE_SURFACE.width / state.range.board.width;
-  const desiredTileWidth = state.physical.widthCm * pixelsPerCm;
-  const desiredTileHeight = state.physical.heightCm * pixelsPerCm;
-  const tileScale = Math.min(1, desiredTileWidth / Math.max(1, state.bitmap.width), desiredTileHeight / Math.max(1, state.bitmap.height));
-  const tileWidth = Math.max(1, state.bitmap.width * tileScale);
-  const tileHeight = Math.max(1, state.bitmap.height * tileScale);
+  // Preview maps may be downsampled; their saved centimeter dimensions still
+  // determine tile size, independently of the bitmap's resolution or aspect ratio.
+  const tileWidth = state.physical.widthCm * pixelsPerCm;
+  const tileHeight = state.physical.heightCm * pixelsPerCm;
   context.imageSmoothingEnabled = true;
   context.imageSmoothingQuality = 'high';
   context.fillStyle = '#fff'; context.fillRect(0, 0, width, height);
@@ -268,8 +336,8 @@ function renderFabricTexture(state) {
   }
   state.canvas.dataset.widthCm = String(state.widthCm);
   state.canvas.dataset.heightCm = String(visibleHeightCm);
-  state.canvas.dataset.widthPx = String(visibleWidthPx);
-  state.canvas.dataset.heightPx = String(visibleHeightPx);
+  state.canvas.dataset.widthPx = String(width);
+  state.canvas.dataset.heightPx = String(height);
   state.canvas.style.cursor = state.range.zoomable ? 'zoom-in' : 'default';
   state.canvas.setAttribute('aria-label', `面料纹理画板 ${previewNumber(state.widthCm)} × ${previewNumber(visibleHeightCm)} cm`);
   const zoom = $('fabricPreviewZoom');
@@ -277,23 +345,54 @@ function renderFabricTexture(state) {
     zoom.hidden = false;
     zoom.textContent = `${previewNumber(state.widthCm)} × ${previewNumber(visibleHeightCm)} cm`;
   }
+  const control = $('fabricPreviewZoomControl'), range = $('fabricPreviewZoomRange');
+  if (control && range) {
+    control.hidden = !state.range.zoomable;
+    const { minWidth, maxWidth } = state.range;
+    range.style.setProperty('--zoom-position', String((state.widthCm - minWidth) / (maxWidth - minWidth || 1)));
+    range.setAttribute('aria-valuemin', '0'); range.setAttribute('aria-valuemax', String(maxWidth - minWidth)); range.setAttribute('aria-valuenow', String(maxWidth - state.widthCm));
+    range.setAttribute('aria-valuetext', `${previewNumber(state.widthCm)} cm`);
+  }
 }
-async function loadFabricTexture(asset, source) {
-  const token = ++fabricTextureRenderToken;
-  const canvas = $('fabricPreviewTexture'), fallback = $('fabricPreviewTextureFallback');
+function fabricPreviewActive(token) {
+  return token === fabricTextureRenderToken && $('fabricPreviewDialog').open && !$('fabricPreviewDialog').classList.contains('is-closing');
+}
+function showFabricPreviewError(message) {
+  setFabricPreviewLoading(false);
+  $('fabricPreviewErrorMessage').textContent = message;
+  $('fabricPreviewError').hidden = false;
+}
+async function loadFabricTexture(asset, source, token, previewOnly = false) {
+  const canvas = $('fabricPreviewTexture');
+  let bitmap;
   try {
-    const bitmap = await createImageBitmap(source);
-    if (token !== fabricTextureRenderToken) { bitmap.close(); return; }
+    if (typeof source === 'string') {
+      const response = await fetch(source, { signal: AbortSignal.timeout(30000) });
+      if (!response.ok) throw new Error('无法读取纹理预览');
+      source = await response.blob();
+    }
+    bitmap = await createImageBitmap(await compressImageFile(source, 3600));
+    if (!fabricPreviewActive(token)) return;
+    if (previewOnly) {
+      const { width, height } = FABRIC_TEXTURE_SURFACE;
+      canvas.width = width; canvas.height = height;
+      const info = asset.previewInfo;
+      const ratio = Number(info?.widthCm) > 0 && Number(info?.heightCm) > 0 ? info.widthCm / info.heightCm : bitmap.width / bitmap.height;
+      const drawWidth = width * Math.max(1, ratio / (width / height));
+      const drawHeight = height * Math.max(1, (width / height) / ratio);
+      canvas.getContext('2d').drawImage(bitmap, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+      canvas.style.cursor = 'default';
+      canvas.setAttribute('aria-label', '面料预览图');
+      revealFabricPreview();
+      return;
+    }
     const range = fabricTextureRange(asset);
     const physical = fabricTexturePhysicalSize(asset, bitmap);
     const state = { assetId: asset.id, canvas, bitmap, physical, range, widthCm: range.defaultWidth };
     fabricTextureState = state;
     renderFabricTexture(state);
-    canvas.hidden = false; fallback.hidden = true;
-  } catch (error) {
-    if (token !== fabricTextureRenderToken) return;
-    fabricTextureState = null; canvas.hidden = true; fallback.hidden = false;
-  }
+    revealFabricPreview();
+  } finally { if (bitmap && fabricTextureState?.bitmap !== bitmap) bitmap.close(); }
 }
 function fabricPreviewValue(asset, field) {
   const physical = asset.physical || {};
@@ -328,11 +427,13 @@ async function showFabricPreview(asset) {
   if (fabricPreviewClosingTimer) { clearTimeout(fabricPreviewClosingTimer); fabricPreviewClosingTimer = null; }
   dialog.classList.remove('is-closing');
   const token = ++fabricTextureRenderToken;
+  fabricPreviewAsset = asset;
   if (fabricTextureState?.bitmap) fabricTextureState.bitmap.close();
   fabricTextureState = null;
-  const canvas = $('fabricPreviewTexture'), fallback = $('fabricPreviewTextureFallback');
   $('fabricPreviewZoom').hidden = true;
-  canvas.hidden = true; fallback.hidden = false; fallback.textContent = '正在加载纹理…';
+  $('fabricPreviewZoomControl').hidden = true;
+  $('fabricPreviewError').hidden = true;
+  showFabricPreviewLoading(asset);
   $('fabricPreviewTitle').textContent = asset.name || '面料详情';
   $('fabricPreviewCategory').textContent = asset.category || '面料';
   const fields = [
@@ -346,19 +447,40 @@ async function showFabricPreview(asset) {
     const value = document.createElement('strong'); value.className = 'fabric-preview-field-value'; value.textContent = key === 'description' ? (asset.description || '未填写') : fabricPreviewValue(asset, key);
     item.append(heading, value); host.append(item);
   });
-  dialog.showModal();
+  if (!dialog.open) dialog.showModal();
   $('closeFabricPreview').focus();
   try {
-    const full = await getAsset(asset.id, { runtime: true });
-    if (token !== fabricTextureRenderToken || !dialog.open || dialog.classList.contains('is-closing')) return;
+    const full = await getAsset(asset.id, { texturePreview: true });
+    if (!fabricPreviewActive(token)) return;
+    if (!full) throw new Error('资产已被删除');
     const source = fabricPreviewSource(full);
-    fallback.textContent = '无纹理图';
-    if (source) await loadFabricTexture(full, source);
+    if (source) await loadFabricTexture(full, source, token);
+    else if (previewOf(full)) await loadFabricTexture(full, previewOf(full), token, true);
+    else {
+      // A material without a color map can still have a plain surface color.
+      const canvas = $('fabricPreviewTexture'), context = canvas.getContext('2d');
+      context.fillStyle = /^#[\da-f]{6}$/i.test(full.surface?.color) ? full.surface.color : '#ffffff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      canvas.style.cursor = 'default'; canvas.setAttribute('aria-label', '面料表面颜色');
+      revealFabricPreview();
+    }
   } catch (error) {
-    if (token === fabricTextureRenderToken && dialog.open) fallback.textContent = '纹理加载失败，请关闭后重试';
-    status(error.message);
+    if (!fabricPreviewActive(token)) return;
+    fabricTextureState?.bitmap.close(); fabricTextureState = null;
+    $('fabricPreviewZoom').hidden = true; $('fabricPreviewZoomControl').hidden = true;
+    const preview = previewOf(asset);
+    try {
+      if (!preview) throw error;
+      await loadFabricTexture(asset, preview, token, true);
+      if (fabricPreviewActive(token)) showFabricPreviewError('纹理暂时无法加载，已显示预览图');
+    } catch {
+      if (!fabricPreviewActive(token)) return;
+      clearFabricPreviewLoadingImage();
+      showFabricPreviewError('纹理加载失败，请重试');
+    }
   }
 }
+$('retryFabricPreview').onclick = () => { if (fabricPreviewAsset) void showFabricPreview(fabricPreviewAsset); };
 $('closeFabricPreview').onclick = closeFabricPreview;
 $('fabricPreviewDialog').addEventListener('click', event => {
   if (event.target === $('fabricPreviewDialog')) closeFabricPreview();
@@ -373,6 +495,8 @@ $('fabricPreviewDialog').addEventListener('close', () => {
   fabricTextureRenderToken++;
   if (fabricTextureState?.bitmap) fabricTextureState.bitmap.close();
   fabricTextureState = null;
+  fabricPreviewAsset = null;
+  setFabricPreviewLoading(false); clearFabricPreviewLoadingImage();
   const canvas = $('fabricPreviewTexture');
   $('fabricPreviewZoom').hidden = true;
   canvas.hidden = true;
@@ -384,11 +508,58 @@ $('fabricPreviewTexture').addEventListener('wheel', event => {
   if (!state?.range.zoomable || state.assetId === undefined) return;
   event.preventDefault();
   const direction = event.deltaY < 0 ? -1 : 1;
-  const next = clampFabricTextureWidth(state, state.widthCm + direction * state.range.step);
-  if (next === state.widthCm) return;
-  state.widthCm = next;
-  renderFabricTexture(state);
+  setFabricTextureWidth(state, state.widthCm + direction * state.range.step);
 }, { passive: false });
+const fabricZoomSlider = $('fabricPreviewZoomRange');
+let fabricZoomDrag = null;
+fabricZoomSlider.addEventListener('pointerdown', event => {
+  const state = fabricTextureState;
+  if (!state?.range.zoomable || event.button !== 0 || fabricZoomDrag) return;
+  event.preventDefault(); event.stopPropagation();
+  const thumb = fabricZoomSlider.querySelector('.fabric-preview-zoom-thumb').getBoundingClientRect();
+  fabricZoomDrag = { pointerId: event.pointerId, state, offsetY: event.clientY - (thumb.top + thumb.height / 2) };
+  fabricZoomSlider.focus({ preventScroll: true });
+  fabricZoomSlider.setPointerCapture(event.pointerId); fabricZoomSlider.classList.add('is-dragging');
+});
+function moveFabricZoomSlider(event) {
+  const drag = fabricZoomDrag;
+  if (!drag || drag.pointerId !== event.pointerId || drag.state !== fabricTextureState) return;
+  const rect = fabricZoomSlider.getBoundingClientRect();
+  const { minWidth, maxWidth, step } = drag.state.range;
+  // The thumb's CSS top is expressed over the full slider span, so its center
+  // can land exactly on the plus/minus button centers at 0 and 1.
+  const position = Math.max(0, Math.min(1, (event.clientY - drag.offsetY - rect.top) / rect.height));
+  const width = minWidth + Math.round(position * (maxWidth - minWidth) / step) * step;
+  setFabricTextureWidth(drag.state, width);
+}
+fabricZoomSlider.addEventListener('pointermove', moveFabricZoomSlider);
+fabricZoomSlider.addEventListener('pointerup', event => { moveFabricZoomSlider(event); endFabricZoomDrag(event); });
+function endFabricZoomDrag(event) {
+  if (!fabricZoomDrag || event && fabricZoomDrag.pointerId !== event.pointerId) return;
+  const id = fabricZoomDrag.pointerId;
+  fabricZoomDrag = null; fabricZoomSlider.classList.remove('is-dragging');
+  if (fabricZoomSlider.hasPointerCapture(id)) fabricZoomSlider.releasePointerCapture(id);
+}
+fabricZoomSlider.addEventListener('pointercancel', endFabricZoomDrag);
+fabricZoomSlider.addEventListener('lostpointercapture', endFabricZoomDrag);
+$('fabricPreviewDialog').addEventListener('close', () => endFabricZoomDrag());
+fabricZoomSlider.addEventListener('keydown', event => {
+  const state = fabricTextureState;
+  if (!state?.range.zoomable) return;
+  const { minWidth, maxWidth, step } = state.range;
+  const values = { ArrowUp: state.widthCm - step, ArrowRight: state.widthCm - step, ArrowDown: state.widthCm + step, ArrowLeft: state.widthCm + step,
+    Home: maxWidth, End: minWidth, PageUp: state.widthCm - step * 5, PageDown: state.widthCm + step * 5 };
+  if (!Object.hasOwn(values, event.key)) return;
+  event.preventDefault(); setFabricTextureWidth(state, values[event.key]);
+});
+$('fabricPreviewZoomIn').addEventListener('click', () => {
+  const state = fabricTextureState;
+  if (state?.range.zoomable) setFabricTextureWidth(state, state.widthCm - state.range.step);
+});
+$('fabricPreviewZoomOut').addEventListener('click', () => {
+  const state = fabricTextureState;
+  if (state?.range.zoomable) setFabricTextureWidth(state, state.widthCm + state.range.step);
+});
 
 function showEditPreview(blob) {
   if (editPreviewUrl) URL.revokeObjectURL(editPreviewUrl);
@@ -524,7 +695,7 @@ function render() {
     empty.append(title, text); host.append(empty);
   }
   for (const asset of shown) {
-    const signature = [asset.updatedAt, asset.builtinVersion, asset.kind, typeof asset.preview === 'string' ? asset.preview : asset.preview?.size, asset.name, asset.description, asset.designInfo, asset.supplier, asset.category, asset.favorite, asset.children?.join(',')].join('|');
+    const signature = [asset.updatedAt, asset.kind, typeof asset.preview === 'string' ? asset.preview : asset.preview?.size, asset.name, asset.description, asset.designInfo, asset.supplier, asset.category, asset.favorite, asset.children?.join(',')].join('|');
     const cached = asset.kind === 'folder' ? null : renderedCards.get(asset.id);
     if (cached?.signature === signature) {
       syncCardSelection(cached.card, cached.selectControl, selectedAssetIds.has(asset.id));
@@ -628,7 +799,7 @@ function render() {
   requestAnimationFrame(() => syncAssetScrollbar());
   if (!assetsLoading) void assetLoading.finish(loadingToken);
 }
-async function refresh({ refreshCatalog = false } = {}) {
+async function refresh() {
   const version = ++renderVersion;
   assetsLoading = true; assetLoading.begin();
   const show = result => {
@@ -642,7 +813,7 @@ async function refresh({ refreshCatalog = false } = {}) {
     assets = result.sort((a, b) => b.updatedAt - a.updatedAt); render();
   };
   try {
-    const result = await listAssets({ refreshCatalog, onProgress: (items, progress) => {
+    const result = await listAssets({ onProgress: (items, progress) => {
       if (version !== renderVersion) return;
       status(progress.message);
     } });
@@ -729,7 +900,7 @@ $('selectAllAssets').onclick = () => {
   shown.forEach(asset => selectedAssetIds.add(asset.id));
   closeMoreMenu(); render(); status(shown.length ? `已选择 ${shown.length} 项资产` : '当前没有可选择的资产');
 };
-$('refreshAssets').onclick = () => { closeMoreMenu(); refresh({ refreshCatalog: true }); };
+$('refreshAssets').onclick = () => { closeMoreMenu(); refresh(); };
 $('clearSearch').onclick = () => {
   searchInput.value = ''; searchQuery = ''; $('assetCategory').value = 'all'; closeMoreMenu(); render();
 };
@@ -749,6 +920,10 @@ $('cancelNewFolder').onclick = () => $('newFolderDialog').close();
 $('newFolderDialog').addEventListener('close', () => {
   $('newFolderError').textContent = '';
 });
+$('cancelDelete').onclick = () => settleDelete(false);
+$('deleteAssetForm').onsubmit = event => { event.preventDefault(); settleDelete(true); };
+$('deleteDialog').addEventListener('cancel', event => { event.preventDefault(); settleDelete(false); });
+$('deleteDialog').addEventListener('close', () => { if (deleteDialogResolver) settleDelete(false); });
 $('newFolderForm').onsubmit = async event => {
   event.preventDefault();
   const name = $('newFolderName').value.trim();
@@ -848,5 +1023,13 @@ let assetsStale = false;
 window.addEventListener('storage', event => { if (event.key === 'spenic-assets-revision') assetsStale = true; });
 window.addEventListener('focus', () => { if (assetsStale && !$('assetDialog').open && !$('fabricPreviewDialog').open) { assetsStale = false; refresh(); } });
 const initialLibrary = new URLSearchParams(location.search).get('library');
+let uploadRefreshTimer;
+mountUploadTasks({ button: $('uploadTasksButton'), badge: $('uploadTasksBadge'), panel: $('uploadTasksPanel'), list: $('uploadTasksList'), clear: $('clearCompletedUploads'), onComplete: () => {
+  clearTimeout(uploadRefreshTimer);
+  uploadRefreshTimer = setTimeout(() => {
+    if ($('assetDialog').open || $('fabricPreviewDialog').open) assetsStale = true;
+    else void refresh();
+  }, 300);
+} });
 selectLibrary(Object.hasOwn(libraryNames, initialLibrary) ? initialLibrary : 'fabric', { updateUrl: !!initialLibrary });
 refresh();

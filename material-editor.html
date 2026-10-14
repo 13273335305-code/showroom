@@ -82,13 +82,19 @@
           <h3 id="previewSettingsTitle">预览图设置</h3>
           <fieldset>
             <legend>物理尺寸</legend>
-            <label>宽度（cm）<input id="previewPhysicalWidth" type="number" min="0.01" max="100000" step="0.01"></label>
-            <label>高度（cm）<input id="previewPhysicalHeight" type="number" min="0.01" max="100000" step="0.01"></label>
+            <div class="preview-size-pair">
+              <label>宽度（cm）<input id="previewPhysicalWidth" type="number" min="0.01" max="100000" step="0.01"></label>
+              <label>高度（cm）<input id="previewPhysicalHeight" type="number" min="0.01" max="100000" step="0.01"></label>
+              <button id="previewPhysicalLock" class="preview-ratio-lock" type="button" aria-label="锁定物理尺寸宽高比" aria-pressed="true" title="解锁物理尺寸宽高比"><img src="assets/aspect-ratio-link.svg" alt="" aria-hidden="true"></button>
+            </div>
           </fieldset>
           <fieldset>
             <legend>输出像素</legend>
-            <label>宽度（px）<input id="previewPixelWidth" type="number" min="64" max="2048" step="1" value="400"></label>
-            <label>高度（px）<input id="previewPixelHeight" type="number" min="64" max="2048" step="1" value="300"></label>
+            <div class="preview-size-pair">
+              <label>宽度（px）<input id="previewPixelWidth" type="number" min="64" max="2048" step="1" value="400"></label>
+              <label>高度（px）<input id="previewPixelHeight" type="number" min="64" max="2048" step="1" value="300"></label>
+              <button id="previewPixelLock" class="preview-ratio-lock" type="button" aria-label="锁定输出像素宽高比" aria-pressed="true" title="解锁输出像素宽高比"><img src="assets/aspect-ratio-link.svg" alt="" aria-hidden="true"></button>
+            </div>
           </fieldset>
           <p id="previewGenerationHint" class="preview-generation-hint" role="status"></p>
         </section>

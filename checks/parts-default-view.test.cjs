@@ -103,7 +103,6 @@ async function cameraState(page) {
       await saveAsset({ ...asset, thumbnail: await new Promise(resolve => canvas.toBlob(resolve)) });
     });
     library.on('request', request => { if (request.url().includes('/shared/model-preview.js')) previewRequests.push(request.url()); });
-    await library.route('**/assets/builtin/manifest.json', route => route.fulfill({ json: [] }));
     await library.goto(base + '/asset-library.html'); await library.locator('#modelTab').click();
     const cardImage = library.locator('[data-asset-id="view-test-a"] .asset-art img');
     await cardImage.waitFor(); await cardImage.evaluate(image => image.decode());

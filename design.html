@@ -13,7 +13,7 @@
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
 </head>
 <body>
-<div id="designLaunchLoading" class="design-launch-loading" role="status" aria-live="polite"><div class="design-launch-card"><div class="loading-228" aria-hidden="true"></div><strong>正在进入设计台</strong></div></div>
+<div id="designLaunchLoading" class="design-launch-loading" role="status" aria-live="polite"><div class="design-launch-card"><div class="loading-228" aria-hidden="true"></div><strong><span>正</span><span>在</span><span>进</span><span>入</span><span>设</span><span>计</span><span>台</span></strong></div></div>
 <header class="topbar">
  <a class="brand" href="./index.html" aria-label="Spenic 工作空间首页"><img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic"><span class="brand-divider"></span><strong class="brand-title">设计台</strong></a>
  <button id="developerToggle" class="developer-toggle" type="button" hidden aria-label="开发者模式" title="开发者模式" aria-controls="developerPanel" aria-expanded="false" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="6" r="3.5" fill="currentColor" stroke="none"/><path d="M11 12c-5-1-8 2-8 7h6"/><path d="m14 14-3 3 3 3m6-6 3 3-3 3m-2-7-2 8"/></svg></button>
@@ -44,7 +44,7 @@
  <div id="captureFrame" class="capture-frame" aria-hidden="true"><span id="captureFlash" class="capture-flash"></span><span class="capture-frame-corner capture-frame-corner-tl"></span><span class="capture-frame-corner capture-frame-corner-tr"></span><span class="capture-frame-corner capture-frame-corner-bl"></span><span class="capture-frame-corner capture-frame-corner-br"></span></div>
  <div id="materialPreview" class="material-preview" aria-hidden="true"><div class="material-preview-image"></div><div class="material-preview-label"></div></div>
  <div class="viewer-heading"><div class="eyebrow">YOUR MATERIAL. YOUR VISION.</div><h1>让每一种质感，<br>看得见。</h1><p>在光与材质之间，找到理想的表达。</p></div>
- <div class="model-chip"><span class="cube-icon">◇</span><div><strong id="modelName">正在准备展厅…</strong><small id="modelStats">THREE.JS · PBR RENDERING</small></div><button id="importModel" title="导入 FBX 或 GLB 模型" aria-label="导入 FBX 或 GLB 模型">＋</button></div>
+ <div class="model-chip"><span class="cube-icon">◇</span><div><strong id="modelName">正在准备展厅…</strong><small id="modelStats">THREE.JS · PBR RENDERING</small></div></div>
  <div class="viewport-actions">
   <button id="showroomMode" class="showroom-toggle" type="button" disabled aria-label="进入展厅模式" aria-pressed="false" title="展厅模式：自动旋转、全屏与日光流转">
    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20V5l9-3 9 3v15M3 20h18M7 20v-3h10v3M12 2v4"/><path class="showroom-display" d="m8 10 4-2 4 2v4l-4 2-4-2zm0 0 4 2 4-2m-4 2v4"/><path class="showroom-exit" d="M16 11H8m3-3-3 3 3 3"/></svg>
@@ -79,7 +79,6 @@
  </button>
  <div class="loading" id="loading"><aside id="loadingProgress" class="loading-card"><strong id="loadingTitle">正在加载展厅</strong></aside></div>
  <div id="materialDropHint" class="material-drop-hint" role="status" hidden></div>
- <div class="drop-overlay" id="dropOverlay">松开以导入 FBX 或 GLB<br><small>可以同时拖入配套的纹理图片</small></div>
  <div id="annotationLayer" class="annotation-layer"></div>
  <svg id="rulerLayer" class="ruler-layer" aria-label="模型长宽高标尺" hidden></svg>
 </section>
@@ -178,7 +177,6 @@
    <label class="select-row">显示模式 <select id="renderMode"><option value="pbr">PBR 真实材质</option><option value="wire">线框结构</option><option value="flat">平面着色</option></select></label>
    </div><button id="resetScene" class="button full">重置场景设置</button>
   </section>
-  <div class="help-box" hidden><span>◇</span><p>导入你的模型，探索更多可能。<br><button id="importSecondary" class="text-button">选择 FBX / GLB 与配套纹理 ↗</button></p></div>
  </div>
 </aside>
 <section id="capturePanel" class="capture-panel" hidden aria-labelledby="capturePanelTitle">
@@ -196,7 +194,7 @@
  <div class="dock-delete-tools"><button id="dockTrash" class="dock-trash" aria-label="删除材质或图案" title="点击多选，或拖入删除；正在使用的面料不可删除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7"/></svg></button><div id="dockDeleteActions" hidden><button id="dockCancelDelete">取消</button><button id="dockDeleteSelected" disabled>删除</button></div></div>
 </footer>
 <dialog id="assetPicker" aria-label="材质库"><header><div class="picker-navigation"><button id="pickerBack" class="picker-circle-button picker-back" type="button" aria-label="返回上一层文件夹" title="已在根目录" disabled></button><div class="picker-category-shell"><button id="pickerCategory" class="picker-category" type="button" aria-label="筛选材质分类，当前：全部" title="当前分类：全部" aria-haspopup="menu" aria-expanded="false" aria-controls="pickerCategoryMenu"><span id="pickerCategoryLabel">全部</span><span class="picker-category-caret" aria-hidden="true"></span></button><div id="pickerCategoryMenu" class="picker-category-menu" role="menu" aria-label="材质分类" hidden><button type="button" role="menuitemradio" aria-checked="true" data-picker-category="all" tabindex="-1">全部</button><button type="button" role="menuitemradio" aria-checked="false" data-picker-category="面布" tabindex="-1">面布</button><button type="button" role="menuitemradio" aria-checked="false" data-picker-category="边布" tabindex="-1">边布</button><button type="button" role="menuitemradio" aria-checked="false" data-picker-category="包边条" tabindex="-1">包边条</button><button type="button" role="menuitemradio" aria-checked="false" data-picker-category="其他" tabindex="-1">其他</button></div></div></div><div class="picker-tools"><div class="picker-search"><input id="pickerSearch" type="search" aria-label="搜索库中材质" placeholder="搜索"><button type="button" aria-label="搜索"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="13.5" cy="13.5" r="8.5"></circle><path d="M20 20l8 8"></path></svg></button></div></div><button id="closeAssetPicker" class="picker-circle-button picker-close" type="button" aria-label="关闭材质库" title="关闭材质库"></button></header><div id="pickerLoading" class="asset-loading-indicator" role="status" aria-label="正在加载材质" hidden><div class="asset-grid-loader" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></div><div id="pickerGrid" class="asset-loading-content"></div><div id="pickerScrollbar" class="picker-scrollbar" aria-hidden="true"><span class="picker-scrollbar-thumb"></span></div><button id="confirmAssetPicker" class="picker-circle-button picker-confirm" type="button" aria-label="请先选择材质" title="请先选择材质" disabled><span class="picker-confirm-count" aria-hidden="true"></span><span class="picker-confirm-icon picker-check" aria-hidden="true"></span></button></dialog>
-<div id="toast" role="status" class="toast"></div><input id="modelFile" type="file" accept=".fbx,.glb,.bin,.ktx2,.png,.jpg,.jpeg,.webp,.bmp" multiple hidden>
+<div id="toast" role="status" class="toast"></div>
 <script>window.addEventListener('error',function(e){if(e.target&&e.target.tagName==='SCRIPT'){document.getElementById('loadingTitle').textContent='资源未能载入';}},true);</script>
 <script type="module" src="entries/design.js"></script>
 </body></html>

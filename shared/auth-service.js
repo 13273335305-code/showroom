@@ -80,7 +80,11 @@ export function authErrorMessage(error) {
   return '操作未完成，请稍后重试。';
 }
 
-export function createAuthService(config, createClient, { storage, appRoot, detectSessionInUrl = true, onEvent = () => {} } = {}) {
+export function isAuthSessionError(error) {
+  return [401, 403].includes(error?.status) || ['session_not_found', 'refresh_token_not_found', 'refresh_token_already_used', 'invalid_refresh_token', 'bad_jwt', 'user_not_found', 'user_banned'].includes(error?.code);
+}
+
+export function createAuthService(config, createClient, { storage, appRoot, detectSessionInUrl = true, onEvent = () => {}, now = Date.now } = {}) {
   const checked = readAuthConfig(config);
   const client = createClient(checked.url, checked.publishableKey, {
     auth: {
@@ -89,25 +93,57 @@ export function createAuthService(config, createClient, { storage, appRoot, dete
       storageKey: `spenic-auth-${new URL(checked.url).hostname}-v3`,
     },
   });
-  let recovery = false;
+  let recovery = false, verified = null, pending = null, generation = 0, observedKey = null;
+  const sessionKey = session => session ? JSON.stringify([session.access_token, session.user?.id]) : null;
+  function invalidateVerification() { verified = null; pending = null; generation++; }
   const { data: { subscription } } = client.auth.onAuthStateChange((event, session) => {
+    const key = sessionKey(session);
+    if (['SIGNED_OUT', 'TOKEN_REFRESHED', 'USER_UPDATED', 'PASSWORD_RECOVERY'].includes(event) || key !== observedKey) invalidateVerification();
+    observedKey = key;
     if (event === 'PASSWORD_RECOVERY') recovery = true;
     onEvent(event, session);
   });
   const checkedResult = result => { if (result.error) throw result.error; return result.data; };
-  async function verifiedSession() {
-    const { session } = checkedResult(await client.auth.getSession());
-    if (!session) return null;
-    // Ask the service for the user rather than trusting browser-stored identity.
-    const { user } = checkedResult(await client.auth.getUser(session.access_token));
-    if (!user?.id) throw new Error('Missing verified user');
-    return { user, session };
+  async function verifiedSession({ force = false } = {}) {
+    for (;;) {
+      const beforeRead = generation;
+      const { session } = checkedResult(await client.auth.getSession());
+      if (beforeRead !== generation) continue;
+      const key = sessionKey(session);
+      if (key !== observedKey) { invalidateVerification(); observedKey = key; }
+      if (!session) { verified = null; return null; }
+      const expiresAt = Number.isFinite(session.expires_at) ? session.expires_at * 1000 : Infinity;
+      if (!force && verified?.key === key && now() < Math.min(verified.until, expiresAt)) return { user: verified.user, session };
+      // Concurrent callers share remote verification; auth events invalidate late results.
+      const version = generation;
+      if (!pending) {
+        verified = null;
+        const startedAt = now();
+        pending = { promise: (async () => {
+          const { user } = checkedResult(await client.auth.getUser(session.access_token));
+          if (!user?.id) throw new Error('Missing verified user');
+          return { key, user, until: Math.min(startedAt + 45000, expiresAt) };
+        })() };
+      }
+      const request = pending;
+      try {
+        const result = await request.promise;
+        if (version !== generation) continue;
+        verified = result;
+        return { user: result.user, session };
+      } catch (error) {
+        if (version !== generation) continue;
+        verified = null;
+        throw error;
+      } finally { if (pending === request) pending = null; }
+    }
   }
   return {
     client,
     get recovery() { return recovery; },
     verifiedSession,
     async signIn(email, password, remember) {
+      invalidateVerification();
       storage?.setRemember(remember);
       checkedResult(await client.auth.signInWithPassword({ email, password }));
       const identity = await verifiedSession();
@@ -117,6 +153,7 @@ export function createAuthService(config, createClient, { storage, appRoot, dete
     },
     async signUp(email, password, remember) {
       if (!checked.allowSignUp) throw Object.assign(new Error(), { code: 'signup_disabled' });
+      invalidateVerification();
       storage?.setRemember(remember);
       const data = checkedResult(await client.auth.signUp({ email, password, options: { emailRedirectTo: new URL('login.html', appRoot).href } }));
       return data.session ? verifiedSession() : null;
@@ -125,12 +162,18 @@ export function createAuthService(config, createClient, { storage, appRoot, dete
       checkedResult(await client.auth.resetPasswordForEmail(email, { redirectTo: new URL('login.html?flow=recovery', appRoot).href }));
     },
     async updatePassword(password) {
-      if (!await verifiedSession()) throw Object.assign(new Error(), { code: 'session_not_found' });
+      if (!await verifiedSession({ force: true })) throw Object.assign(new Error(), { code: 'session_not_found' });
+      invalidateVerification();
       checkedResult(await client.auth.updateUser({ password }));
+      invalidateVerification();
       recovery = false;
       checkedResult(await client.auth.signOut({ scope: 'local' }));
     },
-    async signOut() { checkedResult(await client.auth.signOut({ scope: 'local' })); recovery = false; },
-    dispose() { subscription.unsubscribe(); },
+    async signOut() {
+      invalidateVerification();
+      try { checkedResult(await client.auth.signOut({ scope: 'local' })); recovery = false; }
+      finally { invalidateVerification(); }
+    },
+    dispose() { invalidateVerification(); subscription.unsubscribe(); },
   };
 }

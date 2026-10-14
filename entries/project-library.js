@@ -1,5 +1,7 @@
 import { deleteProject, listProjects, moveProject, renameProject, saveProjectFolder, setProjectVisibility } from '../shared/project-store.js';
 import { requireAuth, authState } from '../shared/auth.js';
+import { createAssetLoading } from '../shared/asset-loading.js';
+import { assetPage } from '../shared/asset-metadata.js';
 
 const $ = id => document.getElementById(id);
 await requireAuth({ feature: 'projects' });
@@ -7,14 +9,21 @@ let projects = [], query = '', sort = 'recent';
 let view = new URLSearchParams(location.search).get('view') === 'public' ? 'public' : 'personal';
 let activeFolderId = null, openRenameId = null, movingProjectId = null, openProjectMenu = null;
 const selectedProjectIds = new Set();
-const cardUrls = new Map();
+let currentPage = 1, pageContext = '', currentPageItems = [], projectsLoading = true, refreshVersion = 0;
+const projectLoading = createAssetLoading({ host: $('projectPanel'), grid: $('projectGrid'), indicator: $('projectLoading'), onChange: loading => { $('projectPagination').inert = loading; } });
 const status = message => { $('status').textContent = message; };
 const isFolder = item => item?.kind === 'folder';
 const ownsProject = item => item.ownerId === authState()?.id;
 
-function revokeCards() {
-  for (const value of cardUrls.values()) for (const url of Array.isArray(value) ? value : [value]) URL.revokeObjectURL(url);
-  cardUrls.clear();
+function previewImage(item, folder = false) {
+  const image = document.createElement('img');
+  image.alt = folder ? '' : item.name; image.decoding = 'async'; image.loading = 'eager';
+  image.onerror = () => {
+    if (folder) image.style.visibility = 'hidden';
+    else image.replaceWith(projectIcon());
+  };
+  image.src = item.thumbnailUrl;
+  return image;
 }
 function projectIcon() {
   const wrapper = document.createElement('span'); wrapper.className = 'project-preview-fallback'; wrapper.setAttribute('aria-hidden', 'true');
@@ -102,24 +111,61 @@ function closeMenus(restoreFocus = false) { if (!openProjectMenu) return; const 
 
 function appendFolderArt(folder, art) {
   art.classList.add('folder-art'); const previews = folderPreviewChildren(folder); art.classList.add(`folder-preview-count-${previews.length}`);
-  for (const [index, child] of previews.entries()) { const element = child.thumbnailUrl ? document.createElement('img') : document.createElement('div'); element.className = 'folder-preview-card'; element.setAttribute('aria-hidden', 'true'); element.style.setProperty('--folder-preview-x', `${index * -10}px`); element.style.setProperty('--folder-preview-y', `${index * 10}px`); element.style.setProperty('--folder-preview-z', String(3 - index)); if (child.thumbnailUrl) { element.src = child.thumbnailUrl; element.alt = ''; } else element.classList.add('folder-preview-swatch'); art.append(element); }
+  for (const [index, child] of previews.entries()) { const hasPreview = child.thumbnailUrl, element = hasPreview ? previewImage(child, true) : document.createElement('div'); element.className = 'folder-preview-card'; element.setAttribute('aria-hidden', 'true'); element.style.setProperty('--folder-preview-x', `${index * -10}px`); element.style.setProperty('--folder-preview-y', `${index * 10}px`); element.style.setProperty('--folder-preview-z', String(3 - index)); if (!hasPreview) element.classList.add('folder-preview-swatch'); art.append(element); }
   const cover = document.createElement('div'); cover.className = 'folder-cover'; cover.setAttribute('aria-hidden', 'true'); art.append(cover);
 }
 
+function renderPagination(page) {
+  const host = $('projectPagination'); host.replaceChildren(); host.hidden = !page.total;
+  const change = next => {
+    if (next === currentPage || next < 1 || next > page.totalPages) return;
+    const direction = next > currentPage ? 'next' : 'previous';
+    currentPage = next; render(); libraryScroll.scrollTop = 0; animateCardPage($('projectGrid'), direction);
+  };
+  const button = (label, number, ariaLabel = label) => {
+    const element = document.createElement('button'); element.type = 'button'; element.textContent = label; element.setAttribute('aria-label', ariaLabel);
+    element.onclick = () => change(number); return element;
+  };
+  const previous = button('‹', page.page - 1, '上一页'); previous.disabled = page.page === 1; host.append(previous);
+  const numbers = new Set([1, page.totalPages, page.page - 1, page.page, page.page + 1]);
+  if (page.totalPages <= 7) for (let i = 1; i <= page.totalPages; i++) numbers.add(i);
+  let last = 0;
+  for (const number of [...numbers].filter(n => n >= 1 && n <= page.totalPages).sort((a, b) => a - b)) {
+    if (last && number > last + 1) { const dots = document.createElement('span'); dots.className = 'pagination-dots'; dots.textContent = '…'; host.append(dots); }
+    const element = button(String(number), number, `第 ${number} 页`);
+    if (number === page.page) element.setAttribute('aria-current', 'page'); host.append(element); last = number;
+  }
+  const next = button('›', page.page + 1, '下一页'); next.disabled = page.page === page.totalPages; host.append(next);
+}
 function render() {
-  revokeCards(); closeMenus(); updateBreadcrumb(); const grid = $('projectGrid'); grid.replaceChildren(); const collection = visibleProjects(); $('projectEmpty').hidden = collection.length > 0; grid.hidden = collection.length === 0;
-  if (!collection.length) { $('projectEmpty').querySelector('strong').textContent = query ? '没有匹配的项目' : (activeFolderId ? '文件夹暂无项目' : (projects.length ? '暂无当前范围的项目' : '暂无保存的项目')); $('projectEmpty').querySelector('span').textContent = activeFolderId ? '可以从项目卡片的更多菜单移动项目到这里。' : '在设计台点击保存，即可在这里继续工作。'; return; }
-  for (const item of collection) {
+  const loadingToken = projectLoading.begin();
+  closeMenus(); updateBreadcrumb(); const grid = $('projectGrid'); grid.replaceChildren(); const collection = visibleProjects(); $('projectEmpty').hidden = collection.length > 0; grid.hidden = collection.length === 0;
+  const context = JSON.stringify([view, activeFolderId, query, sort]);
+  if (context !== pageContext) { currentPage = 1; pageContext = context; }
+  const page = assetPage(collection, currentPage); currentPage = page.page; currentPageItems = page.items; renderPagination(page);
+  if (!collection.length) { $('projectEmpty').querySelector('strong').textContent = query ? '没有匹配的项目' : (activeFolderId ? '文件夹暂无项目' : (projects.length ? '暂无当前范围的项目' : '暂无保存的项目')); $('projectEmpty').querySelector('span').textContent = activeFolderId ? '可以从项目卡片的更多菜单移动项目到这里。' : '在设计台点击保存，即可在这里继续工作。'; }
+  for (const item of currentPageItems) {
     const folder = isFolder(item), card = document.createElement('article'); card.className = 'asset-card ' + (folder ? 'asset-folder project-folder' : 'project-card'); card.dataset.projectId = item.id; card.tabIndex = 0; card.setAttribute('role', 'link'); card.setAttribute('aria-label', folder ? '打开文件夹 ' + item.name : '打开项目 ' + item.name); if (!folder) card.style.setProperty('--card-accent', '#3978ed'); setupCardInteraction(card, item);
-    const art = document.createElement('div'); art.className = 'asset-art'; if (folder) appendFolderArt(item, art); else if (item.thumbnailUrl) { const image = document.createElement('img'); image.src = item.thumbnailUrl; image.alt = item.name; art.append(image); } else art.append(projectIcon());
+    const art = document.createElement('div'); art.className = 'asset-art'; if (folder) appendFolderArt(item, art); else if (item.thumbnailUrl) art.append(previewImage(item)); else art.append(projectIcon());
     const info = document.createElement('div'); info.className = 'asset-info'; const title = document.createElement('h2'); title.textContent = item.name; title.title = item.name; info.append(title);
     const selectControl = folder ? null : createSelectionControl(item, card); if (selectControl) syncCardSelection(card, selectControl, selectedProjectIds.has(item.id)); card.append(art, info, ...(selectControl ? [selectControl] : []), ...createProjectMenu(item, card)); grid.append(card);
   }
+  if (!projectsLoading) void projectLoading.finish(loadingToken);
+  syncScrollbar();
 }
 
 async function refresh() {
-  try { projects = await listProjects(); const ids = new Set(projects.filter(item => !isFolder(item)).map(item => item.id)); for (const id of selectedProjectIds) if (!ids.has(id)) selectedProjectIds.delete(id); render(); syncScrollbar(); }
-  catch (error) { status('读取项目库失败：' + error.message); }
+  const version = ++refreshVersion;
+  projectsLoading = true; projectLoading.begin(); status('');
+  try {
+    const result = await listProjects(); if (version !== refreshVersion) return;
+    projects = result; projectsLoading = false;
+    const ids = new Set(projects.filter(item => !isFolder(item)).map(item => item.id)); for (const id of selectedProjectIds) if (!ids.has(id)) selectedProjectIds.delete(id);
+    render();
+  } catch (error) {
+    if (version !== refreshVersion) return;
+    projectsLoading = false; status('读取项目库失败：' + error.message); render();
+  }
 }
 function beginRename(item) { openRenameId = item.id; $('renameProjectTitle').textContent = isFolder(item) ? '重命名文件夹' : '重命名项目'; $('renameProjectName').value = item.name; $('renameProjectError').textContent = ''; $('renameProjectDialog').showModal(); $('renameProjectName').focus(); $('renameProjectName').select(); }
 
@@ -137,7 +183,7 @@ $('projectMoveForm').onsubmit = async event => { event.preventDefault(); if (!mo
 $('cancelNewProjectFolder').onclick = () => $('newProjectFolderDialog').close();
 $('newProjectFolderForm').onsubmit = async event => { event.preventDefault(); const name = $('newProjectFolderName').value.trim(); if (!name) { $('newProjectFolderError').textContent = '请输入文件夹名称'; return; } try { await saveProjectFolder({ name, parentId: activeFolderId, visibility: view }); $('newProjectFolderDialog').close(); await refresh(); status('已创建文件夹'); } catch (error) { $('newProjectFolderError').textContent = error.message; } };
 $('projectMoreOptions').onclick = () => { const menu = $('projectMoreMenu'); menu.hidden = !menu.hidden; $('projectMoreOptions').setAttribute('aria-expanded', String(!menu.hidden)); };
-$('selectAllProjects').onclick = () => { const shown = visibleProjects().filter(item => !isFolder(item)); shown.forEach(item => selectedProjectIds.add(item.id)); closeProjectMoreMenu(); render(); status(shown.length ? `已选择 ${shown.length} 个项目` : '当前没有可选择的项目'); };
+$('selectAllProjects').onclick = () => { const shown = currentPageItems.filter(item => !isFolder(item)); shown.forEach(item => selectedProjectIds.add(item.id)); closeProjectMoreMenu(); render(); status(shown.length ? `已选择 ${shown.length} 个项目` : '当前没有可选择的项目'); };
 $('refreshProjects').onclick = () => { closeProjectMoreMenu(); refresh(); };
 $('clearProjectSearch').onclick = () => { $('projectSearch').value = ''; query = ''; closeProjectMoreMenu(); render(); };
 

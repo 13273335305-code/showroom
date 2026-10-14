@@ -78,6 +78,13 @@
       <div class="asset-dialog-actions"><button id="cancelNewFolder" type="button">取消</button><button class="primary" type="submit">创建</button></div>
     </form>
   </dialog>
+  <dialog id="deleteDialog" class="asset-dialog folder-dialog delete-dialog" aria-labelledby="deleteDialogTitle">
+    <form id="deleteAssetForm">
+      <h2 id="deleteDialogTitle">删除资产</h2>
+      <p id="deleteDialogMessage"></p>
+      <div class="asset-dialog-actions"><button id="cancelDelete" type="button">取消</button><button id="confirmDelete" class="primary" type="submit">删除</button></div>
+    </form>
+  </dialog>
   <dialog id="fabricPreviewDialog" class="fabric-preview-dialog" aria-labelledby="fabricPreviewTitle">
     <div class="fabric-preview-window">
       <div class="fabric-preview-heading">
@@ -87,10 +94,26 @@
         </div>
         <button id="closeFabricPreview" class="fabric-preview-close" type="button" aria-label="关闭面料预览">×</button>
       </div>
-      <section class="fabric-preview-texture" aria-label="面料纹理图">
-        <canvas id="fabricPreviewTexture" width="3600" height="2700" aria-label="面料纹理图"></canvas>
-        <div id="fabricPreviewTextureFallback" class="fabric-preview-texture-fallback" hidden>无预览图</div>
+      <section id="fabricPreviewSurface" class="fabric-preview-texture" aria-label="面料纹理图" aria-busy="false">
+        <canvas id="fabricPreviewTexture" width="1200" height="900" aria-label="面料纹理图"></canvas>
+        <div id="fabricPreviewTextureFallback" class="fabric-preview-texture-fallback" hidden>
+          <div class="fabric-preview-loading-background" aria-hidden="true"><img id="fabricPreviewLoadingImage" alt="" hidden></div>
+          <div id="fabricPreviewLoader" class="flip-card" role="status" aria-label="Loading texture" hidden>
+            <div class="flip-card__box" aria-hidden="true"><div class="flip-card__face flip-card__face--front"></div><div class="flip-card__face flip-card__face--back"></div></div>
+          </div>
+        </div>
+        <div id="fabricPreviewZoomControl" class="fabric-preview-zoom-control" hidden aria-label="纹理缩放">
+          <button id="fabricPreviewZoomIn" type="button" aria-label="放大纹理" title="放大">＋</button>
+          <div id="fabricPreviewZoomRange" class="fabric-preview-zoom-slider" role="slider" tabindex="0" aria-label="纹理缩放比例" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0">
+            <span class="fabric-preview-zoom-thumb" aria-hidden="true"></span>
+          </div>
+          <button id="fabricPreviewZoomOut" type="button" aria-label="缩小纹理" title="缩小">－</button>
+        </div>
         <span id="fabricPreviewZoom" class="fabric-preview-zoom" aria-live="polite" hidden></span>
+        <div id="fabricPreviewError" class="fabric-preview-error" role="status" hidden>
+          <span id="fabricPreviewErrorMessage"></span>
+          <button id="retryFabricPreview" type="button">重新加载</button>
+        </div>
       </section>
       <section class="fabric-preview-details" aria-labelledby="fabricPreviewDetailsTitle">
         <div class="fabric-preview-details-heading">
@@ -102,7 +125,17 @@
     </div>
   </dialog>
   <div id="status" class="status-bar" role="status"></div>
-  <nav id="assetPagination" class="asset-pagination" aria-label="资产库翻页" hidden></nav>
+  <div class="asset-library-footer">
+    <nav id="assetPagination" class="asset-pagination" aria-label="资产库翻页" hidden></nav>
+    <div class="upload-tasks-control">
+      <button id="uploadTasksButton" class="upload-tasks-button" type="button" title="上传任务" aria-label="上传任务" aria-expanded="false" aria-controls="uploadTasksPanel"><img src="assets/upload-task.svg" alt="" aria-hidden="true"><span id="uploadTasksBadge" class="upload-tasks-badge" hidden></span></button>
+      <section id="uploadTasksPanel" class="upload-tasks-panel" aria-labelledby="uploadTasksTitle" hidden>
+        <header><h2 id="uploadTasksTitle">上传任务</h2><button type="button" class="upload-tasks-close" data-close-uploads aria-label="关闭上传任务" title="关闭">×</button></header>
+        <ul id="uploadTasksList" class="upload-tasks-list" aria-live="polite"></ul>
+        <footer><button id="clearCompletedUploads" type="button" hidden>清除已完成</button></footer>
+      </section>
+    </div>
+  </div>
   <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
   <script type="module" src="entries/asset-library.js"></script>
 </body>

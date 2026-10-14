@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { authErrorMessage, createAuthService, createAuthStorage, readAuthConfig, safeAuthTarget } from '../shared/auth-service.js';
+import { authErrorMessage, createAuthService, createAuthStorage, isAuthSessionError, readAuthConfig, safeAuthTarget } from '../shared/auth-service.js';
 
 const config = { url: 'https://workspace.supabase.co', publishableKey: 'sb_publishable_test-only', allowSignUp: true };
 const appRoot = 'https://example.com/studio/';
@@ -8,7 +8,7 @@ function store() {
   const values = new Map();
   return { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
 }
-function harness(overrides = {}, settings = config) {
+function harness(overrides = {}, settings = config, serviceOptions = {}) {
   const calls = [], user = { id: 'server-user', email: 'designer@example.com' };
   let session = null, callback, options;
   const ok = data => ({ data, error: null });
@@ -24,7 +24,7 @@ function harness(overrides = {}, settings = config) {
     ...overrides,
   };
   const storage = createAuthStorage(store(), store());
-  const service = createAuthService(settings, (url, key, supplied) => { options = supplied; return { auth }; }, { storage, appRoot });
+  const service = createAuthService(settings, (url, key, supplied) => { options = supplied; return { auth }; }, { storage, appRoot, ...serviceOptions });
   return { service, calls, user, get options() { return options; }, setSession(value) { session = value; }, emit(event) { callback(event, session); } };
 }
 
@@ -123,4 +123,93 @@ test('errors are understandable and do not echo service messages or credentials'
   assert.match(authErrorMessage({ status: 429 }), /频繁/);
   assert.match(authErrorMessage({ message: 'Failed to fetch' }), /网络/);
   assert.equal(authErrorMessage({ message: 'raw secret token and stack' }), '操作未完成，请稍后重试。');
+});
+
+test('parallel verification and resource reads share a bounded remote result', async () => {
+  let time = 100000;
+  const h = harness({}, config, { now: () => time });
+  h.setSession({ access_token: 'token', user: { id: 'server-user' }, expires_at: 1000 });
+  const identities = await Promise.all(Array.from({ length: 20 }, () => h.service.verifiedSession()));
+  assert.ok(identities.every(identity => identity.user.id === 'server-user'));
+  assert.equal(h.calls.filter(call => call[0] === 'getUser').length, 1);
+  time += 44999; await h.service.verifiedSession();
+  assert.equal(h.calls.filter(call => call[0] === 'getUser').length, 1);
+  time++; await h.service.verifiedSession();
+  assert.equal(h.calls.filter(call => call[0] === 'getUser').length, 2);
+  await h.service.verifiedSession({ force: true });
+  assert.equal(h.calls.filter(call => call[0] === 'getUser').length, 3);
+});
+
+test('verification cache never outlives token expiry', async () => {
+  let time = 100000;
+  const h = harness({}, config, { now: () => time });
+  h.setSession({ access_token: 'token', expires_at: 105 });
+  await h.service.verifiedSession(); time = 105000;
+  await h.service.verifiedSession();
+  assert.equal(h.calls.filter(call => call[0] === 'getUser').length, 2);
+});
+
+test('refresh, user updates, recovery and account changes invalidate verification', async () => {
+  const h = harness();
+  h.setSession({ access_token: 'token', user: { id: 'server-user' } });
+  await h.service.verifiedSession(); h.emit('SIGNED_IN'); await h.service.verifiedSession();
+  assert.equal(h.calls.filter(call => call[0] === 'getUser').length, 1);
+  for (const event of ['TOKEN_REFRESHED', 'USER_UPDATED', 'PASSWORD_RECOVERY']) {
+    h.emit(event); await h.service.verifiedSession();
+  }
+  assert.equal(h.calls.filter(call => call[0] === 'getUser').length, 4);
+  h.setSession({ access_token: 'other-token', user: { id: 'other-user' } });
+  await h.service.verifiedSession();
+  assert.deepEqual(h.calls.at(-1), ['getUser', 'other-token']);
+  await h.service.signOut();
+  assert.equal(await h.service.verifiedSession(), null);
+});
+
+test('a late verification result cannot restore a signed-out session', async () => {
+  let finish;
+  const h = harness({ getUser() { return new Promise(resolve => { finish = resolve; }); } });
+  h.setSession({ access_token: 'token' });
+  const result = h.service.verifiedSession();
+  await Promise.resolve();
+  h.setSession(null); h.emit('SIGNED_OUT');
+  finish({ data: { user: h.user }, error: null });
+  assert.equal(await result, null);
+});
+
+test('a late result for an old token is discarded and the new token is verified', async () => {
+  let finish;
+  const tokens = [];
+  const h = harness({ getUser(token) {
+    tokens.push(token);
+    if (token === 'old') return new Promise(resolve => { finish = resolve; });
+    return Promise.resolve({ data: { user: { id: 'new-user' } }, error: null });
+  } });
+  h.setSession({ access_token: 'old', user: { id: 'old-user' } });
+  const result = h.service.verifiedSession(); await Promise.resolve();
+  h.setSession({ access_token: 'new', user: { id: 'new-user' } }); h.emit('SIGNED_IN');
+  finish({ data: { user: { id: 'old-user' } }, error: null });
+  assert.equal((await result).user.id, 'new-user');
+  assert.deepEqual(tokens, ['old', 'new']);
+});
+
+test('failed verification is not cached and transient errors remain distinct from sign-out', async () => {
+  let attempts = 0;
+  const h = harness({ async getUser() {
+    attempts++;
+    if (attempts === 1) throw new Error('Failed to fetch');
+    return { data: { user: { id: 'server-user' } }, error: null };
+  } });
+  h.setSession({ access_token: 'token' });
+  await assert.rejects(h.service.verifiedSession(), /fetch/);
+  assert.equal((await h.service.verifiedSession()).user.id, 'server-user');
+  assert.equal(attempts, 2);
+  for (const error of [{ status: 503 }, { status: 429 }, new Error('Failed to fetch')]) assert.equal(isAuthSessionError(error), false);
+  for (const error of [{ status: 401 }, { code: 'session_not_found' }, { code: 'bad_jwt' }]) assert.equal(isAuthSessionError(error), true);
+});
+
+test('password updates reverify even within the cache lifetime', async () => {
+  const h = harness(); h.setSession({ access_token: 'token' });
+  await h.service.verifiedSession(); await h.service.updatePassword('new-password');
+  assert.equal(h.calls.filter(call => call[0] === 'getUser').length, 2);
+  assert.equal(await h.service.verifiedSession(), null);
 });

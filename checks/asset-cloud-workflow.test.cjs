@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || 'C:/Users/Administrator/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 const { installProjectFixture } = require('./project-test-server.cjs');
 const root = path.resolve(__dirname, '..');
+const screenshotRoot = process.env.SCREENSHOT_DIR || path.join(root, 'checks');
 const alice = '11111111-1111-1111-1111-111111111111', bob = '22222222-2222-2222-2222-222222222222';
 
 function modelBytes() {
@@ -24,6 +25,7 @@ function modelBytes() {
 }
 
 (async () => {
+  await fs.mkdir(screenshotRoot, { recursive: true });
   const server = http.createServer(async (req, res) => {
     try {
       const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
@@ -78,17 +80,18 @@ function modelBytes() {
     assert.equal(await setup.locator(`[data-asset-id="${ids.fabric}"].is-favorite`).count(), 0);
     await card.locator('.asset-art').click();
     await page.waitForFunction(() => !document.getElementById('fabricPreviewTexture').hidden);
-    assert.equal(sourceReads(), 0, 'Detail downloads runtime maps, not original maps');
+    assert.equal(sourceReads(), 1, 'Detail downloads the original texture');
+    assert.deepEqual(await page.locator('#fabricPreviewTexture').evaluate(canvas => [canvas.width, canvas.height]), [1200, 900]);
     const dimensions = await page.evaluate(async id => {
       const asset = await (await import('./shared/asset-store.js')).getAsset(id, { runtime: true });
       const bitmap = await createImageBitmap(asset.maps.map); const result = { width: bitmap.width, height: bitmap.height, size: asset.physical.widthCm }; bitmap.close(); return result;
     }, ids.fabric);
     assert.deepEqual(dimensions, { width: 2048, height: 1536, size: 12 });
     await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.getElementById('fabricPreviewDialog').open);
-    await page.screenshot({ path: path.join(root, 'checks/asset-cloud-desktop.png') });
+    await page.screenshot({ path: path.join(screenshotRoot, 'asset-cloud-desktop.png') });
     await page.setViewportSize({ width: 390, height: 844 }); await ready(page);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
-    await page.screenshot({ path: path.join(root, 'checks/asset-cloud-mobile.png') });
+    await page.screenshot({ path: path.join(screenshotRoot, 'asset-cloud-mobile.png') });
     await page.setViewportSize({ width: 1440, height: 1000 });
     const design = await viewer.newPage(); await design.goto(base + '/design.html?asset=' + ids.model);
     await design.waitForFunction(() => document.getElementById('loading').hidden && document.querySelectorAll('.material-item').length > 0, null, { timeout: 60000 });
@@ -106,16 +109,27 @@ function modelBytes() {
     assert.ok(hit, 'Cloud fabric can be dropped on the model'); await design.mouse.up();
     await design.waitForFunction(() => !document.getElementById('undoMaterial').disabled);
     await design.waitForTimeout(2300);
-    assert.equal(sourceReads(), 0, 'Design application keeps originals deferred');
+    assert.equal(sourceReads(), 1, 'Design application does not download additional originals');
     const uploads = state.objects.size;
     await design.locator('#saveProject').click();
     await design.waitForFunction(() => document.getElementById('toast').textContent === '已保存到项目库' && document.getElementById('loading').hidden, null, { timeout: 60000 });
     assert.equal(state.projects.size, 1);
     const saved = [...state.projects.values()][0];
+    const thumbnail = state.objects.get(saved.thumbnail_path);
+    const thumbnailPixels = await design.evaluate(async bytes => {
+      const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }));
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 32;
+      canvas.getContext('2d').drawImage(bitmap, 0, 0, 32, 32);
+      const values = canvas.getContext('2d').getImageData(0, 0, 32, 32).data;
+      const result = { width: bitmap.width, height: bitmap.height, colors: new Set(values).size };
+      bitmap.close(); return result;
+    }, [...thumbnail.body]);
+    assert.equal(Math.max(thumbnailPixels.width, thumbnailPixels.height), 640, 'Project saves a compact card preview');
+    assert.ok(thumbnailPixels.colors > 20, 'Saved preview contains the rendered scene');
     assert.ok(Object.values(saved.manifest.files).some(ref => ref.path === runtimePath));
     assert.ok(Object.values(saved.manifest.files).some(ref => ref.path === sourcePath));
     assert.ok(state.objects.size <= uploads + 1, 'Saving the project only uploads its thumbnail');
-    assert.equal(sourceReads(), 0, 'Project save retains references without downloading source maps');
+    assert.equal(sourceReads(), 1, 'Project save retains references without downloading source maps');
     const pixels = await design.evaluate(async () => {
       const img = new Image(); img.src = document.getElementById('canvas').toDataURL(); await img.decode();
       const c = document.createElement('canvas'); c.width = c.height = 128; c.getContext('2d').drawImage(img, 0, 0, 128, 128);
@@ -127,10 +141,10 @@ function modelBytes() {
       return { colors: colors.size, saturated };
     });
     assert.ok(pixels.colors > 20 && pixels.saturated > 20, '3D model displays the colored cloud texture');
-    await design.screenshot({ path: path.join(root, 'checks/asset-cloud-design.png') });
+    await design.screenshot({ path: path.join(screenshotRoot, 'asset-cloud-design.png') });
     await design.setViewportSize({ width: 390, height: 844 }); await design.locator('#closeInspector').click();
     await design.keyboard.press('f'); await design.waitForTimeout(1500);
-    await design.screenshot({ path: path.join(root, 'checks/asset-cloud-design-mobile.png') });
+    await design.screenshot({ path: path.join(screenshotRoot, 'asset-cloud-design-mobile.png') });
     await setup.evaluate(async id => (await import('./shared/asset-store.js')).deleteAsset(id), ids.fabric);
     await setup.evaluate(async id => (await import('./shared/asset-store.js')).deleteAsset(id), ids.model);
     await design.goto(base + '/design.html?project=' + saved.id);

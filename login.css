@@ -539,6 +539,31 @@ body .auth-account .auth-account-menu-error { margin: 4px 12px 8px; color: #963b
   .auth-notice { right: 14px; bottom: 12px; left: 14px; text-align: center; transform: none; }
 }
 
+.auth-verification-notice {
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  max-width: calc(100vw - 28px);
+  box-sizing: border-box;
+  border-radius: 8px;
+  font: 12px/1.6 'Microsoft YaHei', sans-serif;
+}
+.auth-verification-notice .auth-link {
+  flex: none;
+  min-height: 40px;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--blue, #357cf4);
+  font: inherit;
+  cursor: pointer;
+}
+.auth-verification-notice .auth-link:hover { text-decoration: underline; }
+.auth-verification-notice .auth-link:disabled { opacity: .55; cursor: wait; }
+
 @media (prefers-reduced-motion: reduce) {
   .auth-overlay, .auth-shell, .auth-overlay.is-leaving, .auth-overlay.is-leaving .auth-shell, .auth-shell.is-shaking { animation: none; }
 }

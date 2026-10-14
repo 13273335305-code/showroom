@@ -44,7 +44,11 @@ function fixture() {
       if (!blobs.has(path)) { uploads++; blobs.set(path, file); }
       return { kind: 'cloud', hash, path, size: file.size, name: file.name || 'preview.png', type: file.type };
     },
-    async download(ref) { downloads.push(ref.path); return blobs.get(ref.path); },
+    async download(ref) {
+      downloads.push(ref.path);
+      if (!blobs.has(ref.path)) throw new Error('Resource unavailable');
+      return blobs.get(ref.path);
+    },
   };
   return { cloud: createAssetCloud(async () => ({ client, userId }), resources), rows, stars, downloads, fields, blobs,
     setUser(id) { userId = id; }, get uploads() { return uploads; } };
@@ -52,6 +56,43 @@ function fixture() {
 const material = () => ({ kind: 'material', name: '面料', materialType: 'fabric', category: '面布',
   physical: { widthCm: 12, heightCm: 8 }, surface: { color: '#ffffff', roughness: .6 },
   maps: { map: new File(['original-color'], 'original.png', { type: 'image/png' }) }, preview: new Blob(['preview'], { type: 'image/png' }) });
+
+test('background material uploads report stages and use an idempotent creation ID', async () => {
+  const f = fixture(), createId = crypto.randomUUID(), taskId = crypto.randomUUID(), stages = [];
+  const asset = { ...material(), createId, uploadTaskId: taskId, uploadOwnerId: alice };
+  const saved = await f.cloud.save(asset, { onProgress: value => stages.push(value) });
+  assert.equal(saved.id, createId); assert.equal(f.rows.size, 1);
+  assert.equal(stages[0].stage, 'preparing'); assert.equal(stages.at(-1).stage, 'saving');
+  assert.equal(stages.at(-1).completed, 4); assert.equal(stages.at(-1).total, 4);
+  const uploads = f.uploads, revision = saved.revision;
+  const retry = await f.cloud.save(asset);
+  assert.equal(retry.id, createId); assert.equal(retry.revision, revision); assert.equal(f.rows.size, 1); assert.equal(f.uploads, uploads);
+  const edit = await f.cloud.save({ ...asset, createId: undefined, id: saved.id, revision, name: 'Updated', uploadTaskId: crypto.randomUUID() });
+  assert.equal(edit.id, createId); assert.equal(f.rows.size, 1); assert.notEqual(edit.revision, revision);
+});
+
+test('background tasks cannot publish into a different account after switching users', async () => {
+  const f = fixture(); f.setUser(bob);
+  await assert.rejects(f.cloud.save({ ...material(), createId: crypto.randomUUID(), uploadTaskId: crypto.randomUUID(), uploadOwnerId: alice }), /账号已切换/);
+  assert.equal(f.rows.size, 0); assert.equal(f.uploads, 0);
+});
+
+test('background copies reserve a stable ID and replay without creating duplicates', async () => {
+  const f = fixture(), original = await f.cloud.save(material());
+  f.setUser(bob);
+  const asset = await f.cloud.get(original.id, { runtime: true });
+  const createId = crypto.randomUUID();
+  const copy = { ...asset, name: '后台副本', createId, uploadTaskId: crypto.randomUUID(), uploadOwnerId: bob };
+  const saved = await f.cloud.save(copy);
+  assert.equal(saved.id, createId); assert.equal(saved.ownerId, bob);
+  const uploads = f.uploads;
+  const replay = await f.cloud.save(copy);
+  assert.equal(replay.id, createId); assert.equal(replay.revision, saved.revision);
+  assert.equal(f.rows.size, 2); assert.equal(f.uploads, uploads);
+  const next = await f.cloud.save({ ...copy, id: createId, createId: undefined, revision: saved.revision, uploadTaskId: crypto.randomUUID(), name: '副本更新' });
+  assert.equal(next.id, createId); assert.equal(f.rows.size, 2);
+  assert.equal(f.rows.get(original.id).name, original.name);
+});
 
 test('public asset lists load metadata and thumbnails; source maps and runtime maps hydrate only on demand', async () => {
   const f = fixture(), saved = await f.cloud.save(material());
@@ -83,6 +124,33 @@ test('metadata updates do not download textures; stale writers and nonowners can
   assert.equal(f.rows.get(saved.id).name, '修改名称');
 });
 
+test('texture previews skip missing auxiliary maps without poisoning full material loads', async () => {
+  const f = fixture(), asset = material();
+  asset.maps.normalMap = new File(['normal'], 'normal.png', { type: 'image/png' });
+  const saved = await f.cloud.save(asset), manifest = f.rows.get(saved.id).manifest;
+  f.blobs.delete(manifest.files['source/normalMap'].path);
+  const preview = await f.cloud.get(saved.id, { texturePreview: true });
+  assert.equal(await preview.maps.map.text(), 'original-color');
+  assert.deepEqual(Object.keys(preview.maps), ['map']);
+  assert.deepEqual(f.downloads, [manifest.files['source/map'].path]);
+  await assert.rejects(f.cloud.get(saved.id), /Resource unavailable/);
+});
+
+test('texture previews fall back to prepared color and failed loads can be retried', async () => {
+  const f = fixture(), saved = await f.cloud.save(material()), manifest = f.rows.get(saved.id).manifest;
+  const runtime = new File(['prepared-color'], 'prepared.png', { type: 'image/png' });
+  const path = alice + '/prepared';
+  manifest.files['runtime/map'] = { ...manifest.files['source/map'], path };
+  f.blobs.delete(manifest.files['source/map'].path);
+  await assert.rejects(f.cloud.get(saved.id, { texturePreview: true }), /Resource unavailable/);
+  f.blobs.set(path, runtime);
+  const preview = await f.cloud.get(saved.id, { texturePreview: true });
+  assert.equal(await preview.maps.map.text(), 'prepared-color');
+  assert.equal(preview.runtimeOnly, undefined);
+  assert.equal(preview.sourcePackage.files.map.path, manifest.files['source/map'].path);
+  await assert.rejects(f.cloud.get(saved.id), /Resource unavailable/);
+});
+
 test('saving another users runtime asset forks without reuploading; favorites belong to each account', async () => {
   const f = fixture(), saved = await f.cloud.save(material()), uploads = f.uploads;
   f.setUser(bob); const asset = await f.cloud.get(saved.id, { runtime: true });
@@ -103,4 +171,26 @@ test('cloud model and image assets restore original files and companion resource
   assert.equal(restored.file.name, 'model.glb'); assert.equal(restored.resources[0].name, 'normal.png');
   const texture = await f.cloud.save({ kind: 'texture', name: 'image.png', file: new File(['image'], 'image.png', { type: 'image/png' }) });
   assert.equal((await f.cloud.get(texture.id, { runtime: true })).runtimeFile.name, 'image.png');
+});
+
+test('prepared models download only the runtime file; originals remain available for configuration and copies', async () => {
+  const f = fixture(), original = new File(['fbx-source'], 'model.fbx'), resource = new File(['original-texture'], 'map.png');
+  const runtime = new File(['prepared-geometry'], 'model.fbx.spmodel');
+  const saved = await f.cloud.save({ kind: 'model', name: 'Model', file: original, resources: [resource], runtimeModelFile: runtime, partAssignments: { 0: ['面布'] } });
+  const manifest = f.rows.get(saved.id).manifest;
+  assert.equal(manifest.modelRuntimeVersion, 1);
+  f.setUser(bob);
+  const loaded = await f.cloud.get(saved.id, { runtime: true });
+  assert.equal(loaded.runtimeModel, true); assert.equal(await loaded.file.text(), 'prepared-geometry');
+  assert.deepEqual(loaded.resources, []); assert.deepEqual(loaded.partAssignments, { 0: ['面布'] });
+  assert.deepEqual(f.downloads, [manifest.files.runtime.path]);
+  assert.equal(loaded.projectReferences.model.path, manifest.files.runtime.path);
+  await assert.rejects(f.cloud.save(loaded), /部件配置/);
+  const source = await f.cloud.get(saved.id);
+  assert.equal(await source.file.text(), 'fbx-source'); assert.equal(source.resources[0].name, 'map.png');
+  const copy = await f.cloud.save({ ...source, name: 'Copy' });
+  assert.notEqual(copy.id, saved.id);
+  assert.equal(f.rows.get(copy.id).manifest.files.runtime.path, manifest.files.runtime.path);
+  const replaced = await f.cloud.save({ ...copy, file: new File(['new-original'], 'new.fbx') });
+  assert.equal(f.rows.get(replaced.id).manifest.runtimePath, undefined, 'Changed source cannot reuse stale runtime');
 });

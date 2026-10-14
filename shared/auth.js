@@ -1,5 +1,5 @@
 import { authConfig } from '../auth-config.js';
-import { authErrorMessage, createAuthService, createAuthStorage, readAuthConfig, safeAuthTarget } from './auth-service.js';
+import { authErrorMessage, createAuthService, createAuthStorage, isAuthSessionError, readAuthConfig, safeAuthTarget } from './auth-service.js';
 
 const appRoot = new URL('../', import.meta.url);
 const loginUrl = new URL('login.html', appRoot);
@@ -9,6 +9,7 @@ const callbackHash = new URLSearchParams(location.hash.slice(1));
 const passwordCallback = parameters.get('flow') === 'recovery' || ['recovery', 'invite'].includes(callbackHash.get('type'));
 const callbackError = parameters.has('error') || callbackHash.has('error');
 let currentIdentity = null, servicePromise = null, authPromise = null, activeOverlay = null, accountCleanup = null;
+let lastFocusCheck = -Infinity, focusCheck = null, verificationNotice = null;
 
 function browserStorage(name) { try { return window[name]; } catch { return undefined; } }
 const storage = createAuthStorage(browserStorage('localStorage'), browserStorage('sessionStorage'));
@@ -23,6 +24,7 @@ export async function workspaceClient() {
   const identity = await service.verifiedSession();
   if (!identity) throw new Error('请先登录工作空间');
   currentIdentity = identity;
+  verificationNotice?.remove(); verificationNotice = null;
   return { client: service.client, userId: identity.user.id };
 }
 
@@ -72,6 +74,7 @@ export async function clearAuth() {
   const service = await getService();
   await service.signOut();
   currentIdentity = null;
+  verificationNotice?.remove(); verificationNotice = null;
 }
 
 function mountAccountAction() {
@@ -234,6 +237,7 @@ function wireOverlay(view, resolve) {
     currentIdentity = identity;
     if (isLoginPage) { location.replace(safeAuthTarget(parameters.get('next'), appRoot)); return; }
     mountAccountAction(); view.close(); resolve({ ...authState(), allowed: true });
+    void import('./upload-queue.js').then(module => module.startUploadQueue()).catch(() => {});
   }
   async function initialize() {
     busy = true; renderBusy(); message(); $('authRetry').hidden = true;
@@ -307,12 +311,46 @@ export async function requireAuth() {
 }
 
 window.addEventListener('pageshow', event => { if (event.persisted) location.reload(); });
-window.addEventListener('focus', async () => {
-  if (!currentIdentity || activeOverlay || isLoginPage) return;
-  try {
-    const identity = await (await getService()).verifiedSession();
-    if (!identity || identity.user.id !== currentIdentity.user.id) { currentIdentity = null; returnToLogin(); }
-  } catch { currentIdentity = null; returnToLogin(); }
-});
+function showVerificationRetry() {
+  if (verificationNotice) return;
+  verificationNotice = document.createElement('div');
+  verificationNotice.className = 'auth-notice auth-verification-notice';
+  verificationNotice.setAttribute('role', 'status');
+  const text = document.createElement('span');
+  text.textContent = '暂时无法验证登录，请检查网络后重试。';
+  const retry = document.createElement('button');
+  retry.type = 'button'; retry.className = 'auth-link'; retry.textContent = '重试';
+  retry.addEventListener('click', async () => {
+    retry.disabled = true;
+    try { await recheckSession(true); } finally { retry.disabled = false; }
+  });
+  verificationNotice.append(text, retry); document.body.append(verificationNotice);
+}
+
+async function recheckSession(force = false) {
+  if (!currentIdentity || activeOverlay || isLoginPage || document.visibilityState === 'hidden') return;
+  if (focusCheck) return focusCheck;
+  if (!force && performance.now() - lastFocusCheck < 15000) return;
+  lastFocusCheck = performance.now();
+  const userId = currentIdentity.user.id;
+  focusCheck = (async () => {
+    try {
+      const identity = await (await getService()).verifiedSession({ force });
+      if (!currentIdentity || currentIdentity.user.id !== userId) return;
+      if (!identity || identity.user.id !== userId) { currentIdentity = null; returnToLogin(); return; }
+      currentIdentity = identity;
+      verificationNotice?.remove(); verificationNotice = null;
+    } catch (error) {
+      if (!currentIdentity || currentIdentity.user.id !== userId) return;
+      if (isAuthSessionError(error)) { currentIdentity = null; returnToLogin(); }
+      else showVerificationRetry();
+    }
+  })();
+  try { await focusCheck; } finally { focusCheck = null; }
+}
+
+window.addEventListener('focus', () => { recheckSession(); });
+window.addEventListener('online', () => { if (verificationNotice) recheckSession(true); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') recheckSession(); });
 
 if (isLoginPage) requireAuth();

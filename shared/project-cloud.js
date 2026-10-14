@@ -17,21 +17,43 @@ function projectRecord(row) {
 }
 
 export function createProjectCloud(access) {
-  const uploadJobs = new Map(), downloadJobs = new Map();
+  const uploadJobs = new Map(), downloadJobs = new Map(), previewJobs = new Map();
   async function read(id) {
     const { client } = await access();
     return projectRecord(checked(await client.from(PROJECTS).select('*').eq('id', id).maybeSingle()));
   }
-  async function list() {
+  async function previewUrls(paths) {
+    const { client, userId } = await access(), now = Date.now();
+    for (const [key, job] of previewJobs) if (job.expiresAt <= now) previewJobs.delete(key);
+    const unique = [...new Set(paths.filter(Boolean))];
+    const missing = unique.filter(path => !previewJobs.has(userId + ':' + path));
+    for (let offset = 0; offset < missing.length; offset += 100) {
+      const batchPaths = missing.slice(offset, offset + 100);
+      const batch = Promise.resolve().then(async () => {
+        const rows = checked(await client.storage.from(PROJECT_BUCKET).createSignedUrls(batchPaths, 3600));
+        return new Map(rows.filter(row => !row.error && row.signedUrl).map(row => [row.path, row.signedUrl]));
+      });
+      for (const path of batchPaths) {
+        const key = userId + ':' + path;
+        const job = { expiresAt: now + 3300000 };
+        job.promise = batch.then(urls => {
+          const url = urls.get(path) || null;
+          if (!url && previewJobs.get(key) === job) previewJobs.delete(key);
+          return url;
+        }).catch(error => { if (previewJobs.get(key) === job) previewJobs.delete(key); throw error; });
+        previewJobs.set(key, job);
+      }
+    }
+    return new Map(await Promise.all(unique.map(async path => [path, await previewJobs.get(userId + ':' + path).promise])));
+  }
+  async function list({ previews = true } = {}) {
     const { client } = await access(), rows = [];
     for (let offset = 0; ; offset += 200) {
       const page = checked(await client.from(PROJECTS).select(SUMMARY).order('id').range(offset, offset + 199));
       rows.push(...page); if (page.length < 200) break;
     }
-    const paths = [...new Set(rows.map(row => row.thumbnail_path).filter(Boolean))];
-    const signed = paths.length ? checked(await client.storage.from(PROJECT_BUCKET).createSignedUrls(paths, 3600)) : [];
-    const previews = new Map(signed.filter(row => !row.error).map(row => [row.path, row.signedUrl]));
-    return rows.map(row => ({ ...projectRecord(row), thumbnailUrl: previews.get(row.thumbnail_path) || null }));
+    const urls = previews ? await previewUrls(rows.map(row => row.thumbnail_path)) : new Map();
+    return rows.map(row => ({ ...projectRecord(row), thumbnailUrl: urls.get(row.thumbnail_path) || null }));
   }
   async function upload(file) {
     if (!(file instanceof Blob) || !file.size || file.size > 512 * 1024 * 1024) throw new Error('项目资源必须为有效文件且小于 512 MB');
@@ -93,5 +115,5 @@ export function createProjectCloud(access) {
     const { client } = await access();
     checked(await client.rpc('spenic_set_project_visibility', { project_id: id, make_public: Boolean(isPublic) }));
   }
-  return { list, read, save, update, remove, visibility, upload, download };
+  return { list, previewUrls, read, save, update, remove, visibility, upload, download };
 }
