@@ -223,6 +223,8 @@ function mountOverlay() {
   foreground.forEach(element => { element.inert = true; });
   let foregroundVisible = false;
   const revealForeground = (progress, elapsedMs = progress * 3500) => {
+    const blackoutPhase = elapsedMs >= 1200 ? 'complete' : 'fading';
+    if (overlay.dataset.authBlackout !== blackoutPhase) overlay.dataset.authBlackout = blackoutPhase;
     if (!foregroundVisible) {
       hello.style.opacity = String(introHelloOpacity(elapsedMs));
     }

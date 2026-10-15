@@ -207,6 +207,16 @@ html.auth-login-document body.auth-login-page { min-height: 100dvh; }
 }
 .auth-page-header { position: absolute; top: var(--auth-content-vertical-edge); left: var(--auth-content-left); min-height: 0; padding: 0; }
 .auth-overlay[data-auth-intro] { animation: none; }
+.auth-overlay[data-auth-intro]::after {
+  content: ''; position: fixed; inset: 0; z-index: 10;
+  background: #000; opacity: 1; pointer-events: none;
+}
+.auth-overlay[data-auth-blackout="fading"]::after { animation: auth-blackout-out 1200ms var(--ease-out) both; }
+.auth-overlay[data-auth-blackout="complete"]::after { opacity: 0; visibility: hidden; }
+@keyframes auth-blackout-out { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .auth-overlay[data-auth-intro]::after { display: none; }
+}
 .auth-overlay[data-auth-intro]:not([data-auth-intro="complete"]) > :not(.auth-background) { pointer-events: none; }
 .auth-intro-hello {
   position: fixed; top: 50%; left: 50%; z-index: 1; display: grid; place-items: center;
