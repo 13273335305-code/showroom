@@ -57,6 +57,37 @@ const material = () => ({ kind: 'material', name: '面料', materialType: 'fabri
   physical: { widthCm: 12, heightCm: 8 }, surface: { color: '#ffffff', roughness: .6 },
   maps: { map: new File(['original-color'], 'original.png', { type: 'image/png' }) }, preview: new Blob(['preview'], { type: 'image/png' }) });
 
+test('fabric color codes survive saving, listing, reopening and metadata edits', async () => {
+  const f = fixture(), saved = await f.cloud.save({ ...material(), fabricColorCode: 'DBW', fabricGroupId: 'batch-389', fabricDefaultColorCode: 'WBR' });
+  assert.equal(f.rows.get(saved.id).metadata.fabricGroupId, 'batch-389');
+  assert.equal((await f.cloud.list())[0].fabricGroupId, 'batch-389');
+  assert.equal(f.rows.get(saved.id).metadata.fabricColorCode, 'DBW');
+  assert.equal((await f.cloud.list())[0].fabricColorCode, 'DBW');
+  const opened = await f.cloud.get(saved.id);
+  assert.equal(opened.fabricDefaultColorCode, 'WBR');
+  assert.equal(opened.fabricGroupId, 'batch-389');
+  assert.equal(opened.fabricColorCode, 'DBW');
+  await f.cloud.update(saved.id, { name: '389' });
+  assert.equal((await f.cloud.list())[0].fabricDefaultColorCode, 'WBR');
+  assert.equal((await f.cloud.get(saved.id)).fabricGroupId, 'batch-389');
+  assert.equal((await f.cloud.get(saved.id)).fabricColorCode, 'DBW');
+  await f.cloud.save({ ...await f.cloud.get(saved.id), fabricColorCode: '' });
+  assert.equal((await f.cloud.get(saved.id)).fabricColorCode, '');
+});
+
+test('card covers use the saved preview without downloading source or runtime textures', async () => {
+  const f = fixture();
+  const saved = await f.cloud.save({ ...material(), previewInfo: { widthPx: 400, heightPx: 300, widthCm: 120, heightCm: 90 } });
+  const cover = await f.cloud.get(saved.id, { previewOnly: true });
+  const row = f.rows.get(saved.id);
+  assert.equal(cover.preview, 'https://assets.test/' + row.manifest.files[row.manifest.previewPath].path);
+  assert.deepEqual(cover.previewInfo, { widthPx: 400, heightPx: 300, widthCm: 120, heightCm: 90 });
+  assert.equal(cover.maps, undefined);
+  assert.equal(f.downloads.length, 0);
+  await f.cloud.get(saved.id);
+  assert.ok(f.downloads.length > 0, 'Preview-only cache does not replace the full material');
+});
+
 test('background material uploads report stages and use an idempotent creation ID', async () => {
   const f = fixture(), createId = crypto.randomUUID(), taskId = crypto.randomUUID(), stages = [];
   const asset = { ...material(), createId, uploadTaskId: taskId, uploadOwnerId: alice };

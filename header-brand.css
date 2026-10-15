@@ -1,0 +1,30 @@
+/* Shared brand treatment, based on the design workspace header. */
+body header:is(.topbar,.asset-topbar) .brand{display:flex;align-items:center;gap:14px;flex-shrink:0;color:#253246;text-decoration:none;font-family:'PingFang SC','Microsoft YaHei','Segoe UI',sans-serif}
+body header:is(.topbar,.asset-topbar) .brand .brand-logo{display:block;width:126px;height:30px;object-fit:contain;flex-shrink:0}
+body header:is(.topbar,.asset-topbar) .brand .brand-divider{display:block;width:1px;height:20px;margin:0;background:#bdcadb70;flex-shrink:0}
+body header:is(.topbar,.asset-topbar) .brand .brand-title{display:block;font-size:19px;font-weight:750;letter-spacing:.06em;white-space:nowrap}
+body header:is(.topbar,.asset-topbar) .brand-home{display:flex;align-items:center;flex-shrink:0;color:inherit;text-decoration:none}
+body header:is(.topbar,.asset-topbar) .tool-switcher{position:relative;display:flex;align-items:center}
+body header:is(.topbar,.asset-topbar) .tool-trigger{position:relative;display:inline-flex;align-items:center;margin:0;padding:0;border:1px solid transparent;border-radius:12px;background:transparent;color:#253246;font:inherit;line-height:normal;cursor:pointer;transition:background-color .16s ease,border-color .16s ease,color .16s ease}
+body header:is(.topbar,.asset-topbar) .tool-trigger .brand-title{transform-origin:center bottom;transition:transform .16s ease}
+body header:is(.topbar,.asset-topbar) .tool-trigger::after{content:'';position:absolute;bottom:-7px;left:50%;width:60%;max-width:52px;height:2px;border-radius:999px;background:#cbd2d9;opacity:0;transform:translateX(-50%) scaleX(.35);transform-origin:center;transition:opacity .16s ease,transform .16s ease}
+body header:is(.topbar,.asset-topbar) .tool-switcher:hover .tool-trigger,body header:is(.topbar,.asset-topbar) .tool-trigger[aria-expanded=true],body header:is(.topbar,.asset-topbar) .tool-trigger:focus-visible{border-color:#ffffffb8;background:#ffffff72;color:#2366cd}
+body header:is(.topbar,.asset-topbar) .tool-switcher:hover .tool-trigger .brand-title,body header:is(.topbar,.asset-topbar) .tool-trigger[aria-expanded=true] .brand-title,body header:is(.topbar,.asset-topbar) .tool-trigger:focus-visible .brand-title{transform:translateY(-2px) scale(.92)}
+body header:is(.topbar,.asset-topbar) .tool-switcher:hover .tool-trigger::after,body header:is(.topbar,.asset-topbar) .tool-trigger[aria-expanded=true]::after,body header:is(.topbar,.asset-topbar) .tool-trigger:focus-visible::after{opacity:1;transform:translateX(-50%) scaleX(1)}
+body header:is(.topbar,.asset-topbar) .tool-trigger:focus-visible{outline:2px solid #77a9f7;outline-offset:4px;border-radius:5px}
+body header:is(.topbar,.asset-topbar) .tool-switcher-menu{position:absolute;top:calc(100% + 15px);left:0;z-index:50;display:flex;flex-direction:column;align-items:stretch;gap:2px;width:128px;padding:5px;border:1px solid #ffffffd9;border-radius:13px;background:linear-gradient(135deg,#ffffffef,#f3f7fced 58%,#ffffffef);box-shadow:0 10px 26px #1c3c5a24,inset 0 1px 0 #ffffffed;backdrop-filter:blur(12px) saturate(120%);-webkit-backdrop-filter:blur(12px) saturate(120%);animation:tool-switcher-in .16s ease-out both}
+body header:is(.topbar,.asset-topbar) .tool-switcher-menu[hidden]{display:none}
+body header:is(.topbar,.asset-topbar) .tool-switcher-menu a{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;min-height:34px;padding:7px 10px;border-radius:9px;color:#526b87;font-size:13px;line-height:18px;text-decoration:none;white-space:nowrap}
+body header:is(.topbar,.asset-topbar) .tool-switcher-menu a:hover,body header:is(.topbar,.asset-topbar) .tool-switcher-menu a:focus-visible{background:#ffffffa8;color:#2366cd;outline:none}
+body header:is(.topbar,.asset-topbar) .tool-switcher-menu a.is-current{background:#e5efff;color:#2366cd;font-weight:700}
+@keyframes tool-switcher-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:760px){
+  body header:is(.topbar,.asset-topbar) .brand .brand-logo{width:85px;height:25px}
+  body header:is(.topbar,.asset-topbar) .brand .brand-title,body header:is(.topbar,.asset-topbar) .brand .brand-divider{display:none}
+  body header:is(.topbar,.asset-topbar) .tool-trigger .brand-title{display:block;font-size:15px}
+  body header:is(.topbar,.asset-topbar) .tool-switcher-menu{max-width:calc(100vw - 24px)}
+  body header:is(.topbar,.asset-topbar) .tool-switcher-menu a{font-size:12px}
+  body.material-editor-page header.topbar .brand-home,body.parts-page header.topbar .brand-home{display:none}
+  body.material-editor-page header.topbar .brand,body.parts-page header.topbar .brand{gap:0}
+}
+@media(prefers-reduced-motion:reduce){body header:is(.topbar,.asset-topbar) .tool-switcher-menu{animation:none}}

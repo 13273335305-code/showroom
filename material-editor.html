@@ -1,16 +1,19 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Spenic · 材质编辑器</title>
-  <link rel="icon" type="image/png" sizes="64x64" href="assets/spenic-favicon.png"><link rel="stylesheet" href="workspace.css">
+  <link rel="icon" type="image/png" sizes="64x64" href="assets/spenic-favicon.png"><link rel="stylesheet" href="workspace.css?v=fabric-default-color-20261015">
 <link rel="stylesheet" href="header.css">
   <link rel="stylesheet" href="login.css">
+  <link rel="stylesheet" href="header-brand.css">
   <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
+  <link rel="stylesheet" href="workspace-developer.css">
+  <script type="module" src="shared/workspace-developer.js"></script>
 </head>
 <body class="standalone material-editor-page">
   <header class="topbar">
-    <a class="brand" href="./index.html"><img src="assets/spenic-logo.png" alt="Spenic"><strong>材质编辑器</strong></a>
+    <a class="brand" href="./index.html"><img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic"><span class="brand-divider"></span><strong class="brand-title">材质编辑器</strong></a>
     <div class="header-actions"><button id="newMaterial">新建材质</button><button id="exportMaterial">导出材质</button><button id="saveMaterial" class="primary" disabled>保存到资产库</button></div>
   </header>
   <main class="editor-layout">
@@ -27,9 +30,15 @@
           <button type="button" data-material-type="pattern" aria-pressed="false">图案</button>
         </div>
         <select id="materialType" aria-label="材质大类" hidden><option value="fabric">面料</option><option value="pattern">图案</option></select>
-        <h2>材质信息</h2>
-        <label>名称<input id="name" value="新材质" maxlength="100"></label>
+        <div class="material-info-heading">
+          <h2>材质信息</h2>
+          <button id="batchFabric" class="editor-secondary-button" type="button" disabled>批处理齐色</button>
+        </div>
+        <input id="batchFabricFolder" type="file" webkitdirectory multiple accept="image/png,image/jpeg,image/webp,image/bmp" hidden>
+        <p id="batchFabricSummary" class="batch-fabric-summary" role="status" hidden></p>
+        <label class="material-name-row">名称<input id="name" value="新材质" maxlength="100"></label>
         <label id="fabricCategoryRow">面料分类<select id="category"><option>面布</option><option>边布</option><option>包边条</option><option>其他</option></select></label>
+        <label id="fabricColorCodeRow" for="fabricColorCode">面料色号<span class="fabric-color-code-controls"><span id="fabricColorSwatch" class="fabric-color-swatch" role="img" aria-label="色号预览"><span class="fabric-color-swatch-lines" aria-hidden="true"></span></span><input id="fabricColorCode" type="text" maxlength="100" spellcheck="false"></span></label>
         <div class="pbr-heading-row">
           <h2 id="pbrHeading">PBR 贴图</h2>
           <button id="openSizingPage" class="editor-secondary-button" type="button" aria-controls="sizingPage" aria-expanded="false">铺贴尺寸</button>
@@ -58,6 +67,24 @@
     </div>
   </main>
   <div id="status" class="status-bar" role="status"></div>
+  <dialog id="batchFabricCategoryDialog" class="preview-generation-dialog batch-fabric-category-dialog" aria-labelledby="batchFabricCategoryTitle">
+    <form method="dialog">
+      <header class="preview-generation-header">
+        <h2 id="batchFabricCategoryTitle">批量设置面料分类</h2>
+        <button class="editor-close-button" type="submit" value="cancel" aria-label="关闭面料分类选项">×</button>
+      </header>
+      <div class="batch-fabric-category-body">
+        <span class="batch-fabric-default-label" id="batchFabricDefaultLabel">默认色号</span>
+        <ul id="batchFabricSwatches" class="batch-fabric-swatches" aria-labelledby="batchFabricDefaultLabel"></ul>
+        <label for="batchFabricCategory">面料分类</label>
+        <select id="batchFabricCategory" name="category"><option>面布</option><option>边布</option><option>包边条</option><option>其他</option></select>
+      </div>
+      <footer class="preview-generation-actions">
+        <button type="submit" value="cancel">取消</button>
+        <button id="confirmBatchFabric" class="primary" type="submit" value="upload">开始上传</button>
+      </footer>
+    </form>
+  </dialog>
   <dialog id="previewGenerationDialog" class="preview-generation-dialog" aria-labelledby="previewGenerationTitle">
     <div class="preview-generation-window">
       <header class="preview-generation-header">
@@ -105,6 +132,6 @@
       </footer>
     </div>
   </dialog>
-  <script type="module" src="entries/material-editor.js"></script>
+  <script type="module" src="entries/material-editor.js?v=fabric-default-color-20261015"></script>
 </body>
 </html>

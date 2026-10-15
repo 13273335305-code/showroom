@@ -1,0 +1,37 @@
+.home-page .home-hero{max-width:none;padding-right:150px}
+.workspace-developer-entry{position:absolute;right:30px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:48px;padding:0 20px;border:1px solid #ffffffdf;border-radius:15px;background:linear-gradient(135deg,#ffffffce,#edf4ffad);box-shadow:0 9px 26px #315b8d12,inset 0 1px #fff;color:#59799f;font:600 14px "Microsoft YaHei","Segoe UI",sans-serif;cursor:pointer}
+.workspace-developer-entry svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.workspace-developer-entry:hover{background:#fff;color:#286ad0;border-color:#c3d8f5}
+.workspace-developer-entry:focus-visible,.workspace-developer-dialog button:focus-visible,.workspace-log-indicator:focus-visible{outline:3px solid #77a9f7;outline-offset:3px}
+.workspace-developer-entry i{display:none;width:7px;height:7px;border-radius:50%;background:#db505d}
+.workspace-developer-entry[data-recording=true] i{display:block}
+dialog.workspace-developer-dialog{box-sizing:border-box;width:min(520px,calc(100vw - 32px));max-height:calc(100dvh - 40px);margin:auto;padding:0;overflow:auto;border:1px solid #ffffffeb;border-radius:24px;background:linear-gradient(145deg,#fbfdff,#eef4fc);box-shadow:0 28px 100px #1e385b3b;color:#24364d;font:14px/1.65 "Microsoft YaHei","Segoe UI",sans-serif}
+.workspace-developer-dialog::backdrop{background:#20344b40;backdrop-filter:blur(7px)}
+.workspace-developer-dialog header{display:flex;justify-content:space-between;align-items:center;padding:25px 28px 20px;border-bottom:1px solid #dce6f1}
+.workspace-developer-dialog h2{margin:2px 0 0;font-size:23px;letter-spacing:-.03em}
+.workspace-developer-dialog .workspace-dev-eyebrow{font-size:10px;letter-spacing:.22em;color:#7290b4;font-weight:700}
+.workspace-developer-dialog .workspace-dev-close{display:grid;place-items:center;min-width:36px;min-height:36px;padding:0;border:0;border-radius:11px;background:#e4ecf6;color:#637b97;font:24px/1 sans-serif;cursor:pointer}
+.workspace-dev-body{padding:24px 28px 28px}
+.workspace-dev-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.workspace-dev-heading h3{margin:0;font-size:16px}
+.workspace-dev-status{display:flex;align-items:center;gap:6px;font-size:12px;color:#7b8da4}
+.workspace-dev-status::before{content:"";width:6px;height:6px;flex-shrink:0;border-radius:50%;background:#9babc0}
+.workspace-dev-status[data-recording=true]{color:#c44354}
+.workspace-dev-status[data-recording=true]::before{background:#d95162}
+.workspace-dev-description{margin:10px 0 20px;color:#7a8da5;font-size:12px}
+.workspace-dev-values{display:grid;gap:0;margin:0;padding:4px 16px;border:1px solid #dfe8f3;border-radius:15px;background:#ffffff92}
+.workspace-dev-values>div{display:grid;grid-template-columns:90px minmax(0,1fr);gap:12px;padding:12px 0;border-bottom:1px solid #e8eef6}
+.workspace-dev-values>div:last-child{border:0}
+.workspace-dev-values dt{color:#8191a6;font-size:12px}
+.workspace-dev-values dd{margin:0;color:#435f7f;font-size:12px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.workspace-dev-actions{display:flex;gap:10px;margin-top:22px}
+.workspace-dev-actions button{flex:1;min-height:43px;padding:9px 12px;border:1px solid #cedded;border-radius:12px;background:#f8fbff;color:#557493;font:600 13px "Microsoft YaHei",sans-serif;cursor:pointer}
+.workspace-dev-actions .workspace-dev-primary{border-color:#4e87e1;background:#4e87e1;color:#fff}
+.workspace-dev-actions .workspace-dev-stop{border-color:#f0c7ce;background:#fff2f4;color:#c34d5d}
+.workspace-dev-actions button:disabled{opacity:.45;cursor:default}
+.workspace-dev-note{margin:14px 0 0;color:#8a9bb0;font-size:11px}
+.workspace-dev-error{margin:12px 0 0;color:#c44354;font-size:12px}
+.workspace-log-indicator{position:fixed;right:24px;bottom:24px;z-index:100;display:flex;align-items:center;gap:8px;min-height:40px;padding:0 15px;border:1px solid #d1dfef;border-radius:999px;background:#f9fcffed;box-shadow:0 5px 24px #294c7522;color:#527297;font:12px "Microsoft YaHei",sans-serif;cursor:pointer}
+.workspace-log-indicator[hidden]{display:none}
+.workspace-log-indicator[data-recording=true]::before{content:"";width:7px;height:7px;border-radius:50%;background:#d95162}
+@media(max-width:800px){.home-page .home-hero{padding-right:0;padding-top:66px}.workspace-developer-entry{top:0;right:0;transform:none;min-height:40px;padding:0 15px;font-size:12px}.workspace-developer-dialog header{padding:20px}.workspace-dev-body{padding:20px}.workspace-log-indicator{right:14px;bottom:14px}}

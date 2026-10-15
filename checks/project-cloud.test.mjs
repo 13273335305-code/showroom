@@ -44,7 +44,9 @@ test('cloud resources deduplicate concurrent uploads and check downloaded bytes'
   const file = new File(['source'], 'a.png', { type: 'image/png' });
   const [a, b] = await Promise.all([cloud.upload(file), cloud.upload(file)]);
   assert.equal(a.path, b.path); assert.equal(uploads, 1);
-  const downloaded = await cloud.download(a); assert.equal(await downloaded.text(), 'source');
+  const [downloaded, sharedNormal] = await Promise.all([cloud.download(a), cloud.download({ ...a, name: 'shared-normal.png' })]);
+  assert.equal(await downloaded.text(), 'source'); assert.equal(await sharedNormal.text(), 'source');
+  assert.equal(sharedNormal.name, 'shared-normal.png'); assert.equal(reads, 1);
   await cloud.download(a); assert.equal(reads, 1);
   await assert.rejects(cloud.download({ ...a, size: a.size + 1 }), /大小与清单不一致/);
   const fresh = createProjectCloud(async () => ({ client, userId: owner }));

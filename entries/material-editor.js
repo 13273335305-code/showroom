@@ -15,6 +15,9 @@ import { installRoughnessShader } from '../shared/roughness-map.js';
 import { compressImageFile } from '../shared/asset-thumbnail.js';
 import { requireAuth } from '../shared/auth.js';
 import { fitMaterialPreview } from '../shared/material-preview.js';
+import { fabricInfoFromFilename } from '../shared/fabric-info.js';
+import { updateFabricColorSwatch, renderBatchFabricSwatches } from '../shared/fabric-color-swatch.js?v=fabric-default-color-20261015';
+import { planFabricBatch, enqueueFabricBatch } from '../shared/fabric-batch.js';
 import { enqueueMaterialUpload, getUpload, startUploadQueue, subscribeUploads } from '../shared/upload-queue.js';
 
 const $ = id => document.getElementById(id);
@@ -28,7 +31,7 @@ const files = {}, urls = {}, tokens = {}, density = {}, embeddedDensity = {};
 const patternPreview = createPatternPreview($('patternPreview'));
 let roughnessPreviewCache = null, savedPreview = null, savedPreviewInfo = null, previewGenerationCanvas = null;
 let savedPreviewCategory = null;
-let lastUploadTask = null, submittingPreview = false, editGeneration = 0;
+let lastUploadTask = null, submittingPreview = false, batchingFabric = false, editGeneration = 0;
 const previewCategorySizes = { '面布': [120, 90], '边布': [40, 30], '包边条': [10, 7.5], '其他': [10, 7.5] };
 const previewSizePairs = [
   { width: 'previewPhysicalWidth', height: 'previewPhysicalHeight', button: 'previewPhysicalLock', name: '物理尺寸', digits: 2, ratio: 1 },
@@ -151,6 +154,9 @@ function syncMaterialType() {
   const pattern = $('materialType').value === 'pattern';
   document.querySelectorAll('[data-material-type]').forEach(button => { const active = button.dataset.materialType === $('materialType').value; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
   $('fabricCategoryRow').hidden = pattern;
+  $('fabricColorCodeRow').hidden = pattern;
+  syncFabricColorSwatch();
+  $('batchFabric').hidden = pattern;
   $('sizing').closest('label').hidden = pattern; $('repeatControls').hidden = pattern || physical.mode !== 'legacy';
   $('physicalControls').hidden = !pattern && physical.mode !== 'physical';
   $('materialCanvas').hidden = pattern; $('patternPreview').hidden = !pattern;
@@ -159,6 +165,9 @@ function syncMaterialType() {
   document.body.classList.toggle('pattern-editing', pattern);
   controls.enabled = !pattern;
   updatePatternPreview();
+}
+function syncFabricColorSwatch() {
+  updateFabricColorSwatch($('fabricColorSwatch'), $('fabricColorCode').value);
 }
 function setSizingPageOpen(open) {
   $('sizingPage').hidden = !open;
@@ -224,14 +233,14 @@ function removeMap(key) {
 function previewNumber(value, digits = 2) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(digits).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1') : '';
 }
-function previewCrop(source, width, height, physicalWidth, physicalHeight) {
+function previewCrop(source, width, height, physicalWidth, physicalHeight, sourcePhysical = physical) {
   if (!source?.width || !source?.height || !Number.isInteger(width) || !Number.isInteger(height)) return null;
   const canvas = previewGenerationCanvas ||= document.createElement('canvas');
   canvas.width = width; canvas.height = height;
   const context = canvas.getContext('2d', { alpha: false });
   // Sample a centered physical window. Output pixels only resample that window.
-  const sw = source.width * physicalWidth / physical.widthCm;
-  const sh = source.height * physicalHeight / physical.heightCm;
+  const sw = source.width * physicalWidth / sourcePhysical.widthCm;
+  const sh = source.height * physicalHeight / sourcePhysical.heightCm;
   const sx = (source.width - sw) / 2, sy = (source.height - sh) / 2;
   const pattern = context.createPattern(source, 'repeat');
   if (!pattern) return null;
@@ -328,6 +337,52 @@ async function saveMaterialWithPreview() {
   } catch (error) { status('保存失败：' + error.message); }
   finally { submittingPreview = false; saveButton.disabled = false; $('saveMaterial').disabled = pending > 0; }
 }
+function chooseBatchFabricCategory(plan) {
+  const dialog = $('batchFabricCategoryDialog'), select = $('batchFabricCategory');
+  select.replaceChildren(...Array.from($('category').options, option => option.cloneNode(true)));
+  select.value = $('category').value;
+  renderBatchFabricSwatches($('batchFabricSwatches'), plan.variants);
+  dialog.returnValue = '';
+  return new Promise(resolve => {
+    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'upload' ? select.value : null), { once: true });
+    dialog.showModal();
+    select.focus();
+  });
+}
+async function batchFabricFolder(selectedFiles) {
+  if (!selectedFiles.length || batchingFabric) return;
+  if (pending) { status('请等待贴图载入完成后再批处理齐色'); return; }
+  batchingFabric = true;
+  const button = $('batchFabric'), summary = $('batchFabricSummary');
+  button.disabled = true; summary.hidden = false;
+  summary.textContent = '正在读取齐色文件夹…';
+  try {
+    const plan = planFabricBatch(selectedFiles);
+    summary.hidden = true;
+    const category = await chooseBatchFabricCategory(plan);
+    if (category === null) return;
+    summary.hidden = false;
+    const defaults = previewCategorySizes[category] || previewCategorySizes['其他'];
+    const dimensions = savedPreviewCategory === category ? savedPreviewInfo : null;
+    const template = {
+      category, description: libraryMetadata.description, designInfo: libraryMetadata.designInfo, supplier: libraryMetadata.supplier,
+      surface: readSurface(material), physical: { ...physical }, repeat: [...repeat], maps: { ...files }, density: { ...density }, legacyMaps: { ...legacyMaps },
+      previewInfo: { widthCm: dimensions?.widthCm || defaults[0], heightCm: dimensions?.heightCm || defaults[1], widthPx: savedPreviewInfo?.widthPx || 400, heightPx: savedPreviewInfo?.heightPx || 300 },
+    };
+    const result = await enqueueFabricBatch(plan, template, {
+      enqueue: asset => enqueueMaterialUpload(asset),
+      createPreview: (image, sourcePhysical, values) => previewBlobFromDataUrl(previewCrop(image, values.widthPx, values.heightPx, values.widthCm, values.heightCm, sourcePhysical)),
+      onProgress: ({ completed, total, queued }) => {
+        button.textContent = `批处理中 ${completed}/${total}`;
+        summary.textContent = `已处理 ${completed}/${total} 个色号，${queued} 项已加入上传队列`;
+      },
+    });
+    summary.textContent = `齐色批处理完成：${result.queued} 项已加入上传队列` + (result.skipped ? `，已忽略 ${result.skipped} 个非色号文件` : '')
+      + (result.failures.length ? `，${result.failures.length} 项失败\n` + result.failures.map(item => `${item.name}：${item.message}`).join('\n') : '');
+    status(`齐色批处理完成，${result.queued} 项已加入上传队列`);
+  } catch (error) { summary.hidden = false; summary.textContent = '齐色批处理失败：' + error.message; status(summary.textContent); }
+  finally { batchingFabric = false; button.disabled = false; button.textContent = '批处理齐色'; $('batchFabricFolder').value = ''; }
+}
 async function syncMaterialUpload() {
   if (!lastUploadTask) return;
   const id = lastUploadTask, task = await getUpload(id);
@@ -364,6 +419,12 @@ async function uploadMap(key, file, restoring = false) {
       delete legacyMaps[key];
       if (key === 'map') applyBaseColorDpi();
       if (key === 'map') material.color.set('#ffffff');
+      if (key === 'map' && $('materialType').value === 'fabric') {
+        const info = fabricInfoFromFilename(originalFile.name);
+        $('name').value = info.name;
+        $('fabricColorCode').value = info.fabricColorCode;
+        syncFabricColorSwatch();
+      }
       if (key === 'roughnessMap') { material.roughness = 1; applySurface(material, { roughnessGrayscale: true, roughnessInvert: false }); }
       if (key === 'metalnessMap') material.metalness = 1;
       if (key === 'emissiveMap') material.emissive.set('#ffffff');
@@ -380,7 +441,7 @@ function currentAsset(overrides = {}) {
   if (pending) throw new Error('请等待贴图载入完成');
   if ($('materialType').value === 'pattern' && !files.map) throw new Error('图案需要基础颜色图片');
   if (!$('name').value.trim()) throw new Error('请输入材质名称');
-  return { ...libraryMetadata, preview: savedPreview, previewInfo: savedPreviewInfo, ...overrides, id: assetId, kind: 'material', placement: savedPlacement, materialType: $('materialType').value, name: $('name').value.trim(), category: $('category').value, surface: readSurface(material), physical: { ...physical }, repeat: [...repeat], maps: { ...files }, density: { ...density }, legacyMaps: { ...legacyMaps } };
+  return { ...libraryMetadata, preview: savedPreview, previewInfo: savedPreviewInfo, ...overrides, id: assetId, kind: 'material', placement: savedPlacement, materialType: $('materialType').value, name: $('name').value.trim(), category: $('category').value, fabricColorCode: $('fabricColorCode').value.trim(), surface: readSurface(material), physical: { ...physical }, repeat: [...repeat], maps: { ...files }, density: { ...density }, legacyMaps: { ...legacyMaps } };
 }
 async function restoreAsset() {
   const parameters = new URLSearchParams(location.search), id = parameters.get('asset'), uploadId = parameters.get('upload');
@@ -390,7 +451,7 @@ async function restoreAsset() {
   const asset = task?.asset ? { ...task.asset, id: task.targetAssetId, ownerId: task.ownerId } : await getAsset(task?.result?.id || id);
   if (task) lastUploadTask = task.id;
   if (!asset) throw new Error('资产不存在，可能已被删除');
-  libraryMetadata = { description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, parentId: asset.parentId, revision: asset.revision, ownerId: asset.ownerId };
+  libraryMetadata = { description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, fabricGroupId: asset.fabricGroupId, fabricDefaultColorCode: asset.fabricDefaultColorCode, parentId: asset.parentId, revision: asset.revision, ownerId: asset.ownerId };
   savedPreview = asset.preview || null; savedPreviewInfo = asset.previewInfo || null;
   savedPreviewCategory = asset.category;
   if (asset.kind === 'texture') { $('name').value = asset.name.replace(/\.[^.]+$/, ''); $('materialType').value = 'pattern'; await uploadMap('map', asset.file); syncMaterialType(); return; }
@@ -404,6 +465,7 @@ async function restoreAsset() {
   }
   applySurface(material, { ...asset.surface, roughnessGrayscale: asset.surface?.roughnessGrayscale ?? !!asset.maps?.roughnessMap });
   assetId = asset.id; $('name').value = asset.name; $('category').value = asset.category;
+  $('fabricColorCode').value = asset.fabricColorCode ?? (materialType(asset) === 'fabric' ? fabricInfoFromFilename(asset.maps?.map?.name).fabricColorCode : '');
   syncSurfaceControls(); syncPhysicalControls(); syncMaterialType(); configureMaps(); dirty = false;
   if (task?.status === 'completed') history.replaceState(null, '', '?asset=' + encodeURIComponent(task.result.id));
 }
@@ -529,6 +591,11 @@ async function init() {
   });
   buildPbrRows();
   initEditorScrollbar();
+  $('batchFabric').onclick = () => {
+    if (pending) { status('请等待贴图载入完成后再批处理齐色'); return; }
+    $('batchFabricFolder').click();
+  };
+  $('batchFabricFolder').onchange = event => { void batchFabricFolder(Array.from(event.target.files || [])); };
   $('openSizingPage').onclick = () => setSizingPageOpen(true);
   $('closeSizingPage').onclick = () => setSizingPageOpen(false);
   for (const id of ['color', 'emissive', 'flip']) $(id).oninput = updateSurface;
@@ -537,7 +604,11 @@ async function init() {
     syncMaterialType(); syncPhysicalControls(); configureMaps(); dirty = true;
   };
   document.querySelectorAll('[data-material-type]').forEach(button => { button.onclick = () => { if ($('materialType').value === button.dataset.materialType) return; $('materialType').value = button.dataset.materialType; $('materialType').dispatchEvent(new Event('change')); }; });
-  for (const id of ['name', 'category']) $(id).oninput = () => { dirty = true; if (id === 'name' && $('previewGenerationDialog').open) syncPreviewGeneration(); };
+  for (const id of ['name', 'category', 'fabricColorCode']) $(id).oninput = () => {
+    dirty = true;
+    if (id === 'fabricColorCode') syncFabricColorSwatch();
+    if (id === 'name' && $('previewGenerationDialog').open) syncPreviewGeneration();
+  };
   for (const id of ['widthCm', 'heightCm', 'angle', 'sizing', 'repeatU', 'repeatV']) $(id).onchange = () => {
     try {
       let widthCm = Number($('widthCm').value), heightCm = Number($('heightCm').value);
@@ -572,9 +643,9 @@ async function init() {
   $('confirmPreviewGeneration').onclick = saveMaterialWithPreview;
   $('exportMaterial').onclick = async () => { try { const asset = currentAsset(); downloadFile(await packMaterial(asset), asset.name + '.formmat'); status('已导出材质包，包含 PBR 贴图'); } catch (error) { status(error.message); } };
   $('newMaterial').onclick = () => { if (!dirty || confirm('当前材质尚未保存，确定新建？')) { dirty = false; location.href = './material-editor.html'; } };
-  window.addEventListener('beforeunload', event => { if (dirty || pending) { event.preventDefault(); event.returnValue = ''; } });
+  window.addEventListener('beforeunload', event => { if (dirty || pending || batchingFabric) { event.preventDefault(); event.returnValue = ''; } });
   syncSurfaceControls(); syncPhysicalControls();
   try { await restoreAsset(); } catch (error) { status('打开资产失败：' + error.message); }
-  $('saveMaterial').disabled = false; syncMaterialType();
+  $('saveMaterial').disabled = false; $('batchFabric').disabled = false; syncMaterialType();
 }
 init().catch(error => { console.error(error); status('无法初始化材质预览，请检查 WebGL 2 和硬件加速：' + error.message); });

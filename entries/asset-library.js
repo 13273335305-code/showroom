@@ -1,4 +1,4 @@
-import { downloadFile } from '../shared/navigation.js';
+import { downloadFile, mountToolSwitcher } from '../shared/navigation.js';
 import { listAssets, getAsset, saveAsset, updateAsset, deleteAsset } from '../shared/asset-store.js';
 import { materialType, assetPage } from '../shared/asset-metadata.js';
 import { unpackMaterialAsync } from '../shared/material-package-loader.js';
@@ -7,14 +7,19 @@ import { requireAuth, authState } from '../shared/auth.js';
 import { fitMaterialPreview, assetImageUrl } from '../shared/material-preview.js';
 import { compressImageFile } from '../shared/asset-thumbnail.js';
 import { mountUploadTasks } from '../shared/upload-tasks-ui.js';
+import { groupFabricCards } from '../shared/fabric-card-groups.js';
+import { updateFabricColorSwatch } from '../shared/fabric-color-swatch.js';
 const $ = id => document.getElementById(id);
 await requireAuth({ feature: 'assets' });
+mountToolSwitcher('assets');
 const libraryNames = { fabric: '\u9762\u6599\u5e93', pattern: '\u56fe\u6848\u5e93', model: '\u6a21\u578b\u5e93' };
 const libraryType = asset => asset.kind === 'folder' ? asset.library || 'fabric' : asset.kind === 'model' ? 'model' : asset.kind === 'texture' ? 'pattern' : materialType(asset);
 let assets = [], renderVersion = 0, activeLibrary = 'fabric', activeFolderId = null, openMenu, searchQuery = '';
 const selectedAssetIds = new Set();
 const renderedCards = new Map();
 const cardUrls = new Map();
+const hiddenDeletedAssetIds = new Set();
+const selectedFabricColors = new Map(), fabricColorPages = new Map();
 let editing, editPreview, editPreviewUrl, editVersion = 0, movingAssetId = null, deletingAsset = null, deleteDialogResolver = null;
 let currentPage = 1, pageContext = '', currentPageItems = [];
 let assetsLoading = true;
@@ -76,9 +81,9 @@ function closeMoreMenu() {
 async function removeFolderTree(folder) {
   await deleteAsset(folder.id);
 }
-function askDelete(asset) {
+function askDelete(asset, message) {
   const dialog = $('deleteDialog');
-  $('deleteDialogMessage').textContent = asset.kind === 'folder' ? `删除「${asset.name}」及其中内容？` : `确定删除「${asset.name}」？`;
+  $('deleteDialogMessage').textContent = message || (asset.kind === 'folder' ? `删除「${asset.name}」及其中内容？` : `确定删除「${asset.name}」？`);
   deletingAsset = asset;
   dialog.showModal(); $('confirmDelete').focus();
   return new Promise(resolve => { deleteDialogResolver = resolve; });
@@ -88,8 +93,8 @@ function settleDelete(value) {
   if ($('deleteDialog').open) $('deleteDialog').close();
   resolver?.(value);
 }
-function removeAssetsFromView(asset) {
-  const removed = new Set([asset.id]);
+function removeAssetsFromView(asset, removedIds = [asset.id], background = false) {
+  const removed = new Set(removedIds);
   if (asset.kind === 'folder') {
     let changed = true;
     while (changed) { changed = false; for (const candidate of assets) if (candidate.parentId && removed.has(candidate.parentId) && !removed.has(candidate.id)) { removed.add(candidate.id); changed = true; } }
@@ -99,7 +104,34 @@ function removeAssetsFromView(asset) {
     selectedAssetIds.delete(id); cardUrls.get(id)?.forEach(url => URL.revokeObjectURL(url)); cardUrls.delete(id); renderedCards.delete(id);
   }
   if (removed.has(activeFolderId)) activeFolderId = asset.parentId || null;
-  render();
+  render({ background });
+}
+async function deleteFabric(asset, wholeFabric) {
+  const targets = wholeFabric ? asset.fabricVariants || [asset] : [asset];
+  if (targets.some(target => !canEdit(target))) throw new Error('只有上传者可以删除面料');
+  const message = wholeFabric
+    ? `确定删除面料「${asset.name}」及其全部 ${targets.length} 个色号？`
+    : `确定删除面料「${asset.name}」的色号「${asset.fabricColorCode || '未填写'}」？`;
+  if (!await askDelete(asset, message)) return;
+  const ids = new Set(targets.map(target => target.id));
+  const snapshots = assets.filter(candidate => ids.has(candidate.id));
+  const selected = snapshots.filter(candidate => selectedAssetIds.has(candidate.id));
+  ids.forEach(id => hiddenDeletedAssetIds.add(id));
+  removeAssetsFromView(asset, [...ids], true);
+  const removed = [];
+  try {
+    for (const target of targets) { await deleteAsset(target.id); removed.push(target.id); }
+  } catch (error) {
+    const completed = new Set(removed);
+    const restored = snapshots.filter(candidate => !completed.has(candidate.id));
+    ids.forEach(id => { if (!completed.has(id)) hiddenDeletedAssetIds.delete(id); });
+    const current = new Set(assets.map(candidate => candidate.id));
+    assets.push(...restored.filter(candidate => !current.has(candidate.id)));
+    selected.forEach(candidate => { if (!completed.has(candidate.id)) selectedAssetIds.add(candidate.id); });
+    render({ background: true });
+    throw new Error(`已删除 ${removed.length}/${targets.length} 个色号，未删除的内容已恢复。${error.message}`);
+  }
+  status(wholeFabric ? '已删除面料及全部色号' : '已删除当前色号');
 }
 function folderContains(folderId, ancestorId) {
   let current = folderById(folderId), seen = new Set();
@@ -201,12 +233,19 @@ function createMenu(asset, card) {
     downloadFile(full.file, full.file.name); for (const file of full.resources || []) downloadFile(file, file.name);
   }));
   if (canEdit(asset)) {
+    if (isMaterial && libraryType(asset) === 'fabric') {
+      for (const [label, wholeFabric] of [['删除色号', false], ['删除面料', true]]) {
+        const remove = action(label, () => deleteFabric(asset, wholeFabric));
+        remove.classList.add('danger'); actions.push(remove);
+      }
+    } else {
     const remove = action(asset.kind === 'folder' ? '删除文件夹' : '删除', async () => {
     if (!await askDelete(asset)) return;
     if (asset.kind === 'folder') await removeFolderTree(asset); else await deleteAsset(asset.id);
     removeAssetsFromView(asset); status(asset.kind === 'folder' ? '已删除文件夹' : '已删除资产');
     });
     remove.classList.add('danger'); actions.push(remove);
+    }
   }
   if (!actions.length) return document.createDocumentFragment();
   panel.append(...actions);
@@ -664,13 +703,19 @@ function renderPagination(page) {
   }
   const next = button('›', page.page + 1, '下一页'); next.disabled = page.page === page.totalPages; host.append(next);
 }
-function render() {
-  const loadingToken = assetLoading.begin();
-  closeMenu();
+function cardSignature(asset) {
+  return [asset.updatedAt, asset.kind, typeof asset.preview === 'string' ? asset.preview : asset.preview?.size, asset.name, asset.description, asset.designInfo, asset.supplier, asset.category, asset.favorite, asset.children?.join(','), asset.fabricVariants?.map(variant => [variant.id, variant.updatedAt, variant.fabricColorCode, variant.preview].join(':')).join(','), fabricColorPages.get(asset.fabricCardKey)].join('|');
+}
+function render({ background = false } = {}) {
+  const loadingToken = background ? null : assetLoading.begin();
+  if (!background) closeMenu();
   updateBreadcrumb();
-  const host = $('assetGrid'); host.replaceChildren();
+  const host = $('assetGrid'), nextCards = [];
+  const scroll = document.querySelector('.library-main'), scrollTop = scroll?.scrollTop;
+  const appendCard = card => background ? nextCards.push(card) : host.append(card);
+  if (!background) host.replaceChildren();
   const collection = assets.filter(asset => libraryType(asset) === activeLibrary && (asset.parentId || null) === activeFolderId);
-  let shown = filterVisibleAssets(collection);
+  let shown = filterVisibleAssets(activeLibrary === 'fabric' ? groupFabricCards(collection, selectedFabricColors) : collection);
   const sortMode = $('assetSort')?.value || 'recent';
   shown.sort((a, b) => {
     const folderOrder = Number(b.kind === 'folder') - Number(a.kind === 'folder');
@@ -692,14 +737,14 @@ function render() {
     const empty = document.createElement('div'); empty.className = 'asset-empty';
     const title = document.createElement('h2'); title.textContent = collection.length ? '没有匹配的资产' : libraryNames[activeLibrary] + '暂无资产';
     const text = document.createElement('p'); text.textContent = collection.length ? '尝试更换关键词或筛选条件。' : activeLibrary === 'model' ? '导入 FBX 或 GLB 模型，开始下一次设计。' : '导入图片或材质包，也可以在材质编辑器中新建材质。';
-    empty.append(title, text); host.append(empty);
+    empty.append(title, text); appendCard(empty);
   }
   for (const asset of shown) {
-    const signature = [asset.updatedAt, asset.kind, typeof asset.preview === 'string' ? asset.preview : asset.preview?.size, asset.name, asset.description, asset.designInfo, asset.supplier, asset.category, asset.favorite, asset.children?.join(',')].join('|');
+    const signature = cardSignature(asset);
     const cached = asset.kind === 'folder' ? null : renderedCards.get(asset.id);
     if (cached?.signature === signature) {
       syncCardSelection(cached.card, cached.selectControl, selectedAssetIds.has(asset.id));
-      host.append(cached.card);
+      appendCard(cached.card);
       continue;
     }
     cardUrls.get(asset.id)?.forEach(url => URL.revokeObjectURL(url));
@@ -784,6 +829,78 @@ function render() {
       if (preview) { const img = document.createElement('img'); const url = imageUrl(preview); urls.push(url); img.src = url; img.alt = asset.name + ' 预览图'; if (asset.kind === 'material') fitMaterialPreview(img, asset.previewInfo); art.append(img); }
       else { const shape = document.createElement('div'); shape.className = 'sphere preview-missing'; shape.textContent = '无预览图'; art.append(shape); }
     }
+    if (asset.fabricVariants?.length) {
+      const variants = asset.fabricVariants, key = asset.fabricCardKey;
+      const totalPages = Math.ceil(variants.length / 8);
+      let pageIndex = Math.min(fabricColorPages.get(key) ?? Math.floor(variants.findIndex(variant => variant.id === asset.id) / 8), totalPages - 1);
+      const bar = document.createElement('div'); bar.className = 'asset-fabric-colors';
+      bar.setAttribute('role', 'group'); bar.setAttribute('aria-label', '面料色号');
+      let colorRequest = 0;
+      const switchColor = async variant => {
+        const request = ++colorRequest;
+        if (variant.id === asset.id) return;
+        const image = document.createElement('img');
+        let url = null;
+        try {
+          const cover = await getAsset(variant.id, { previewOnly: true });
+          if (request !== colorRequest || !card.isConnected) return;
+          if (!cover?.preview) throw new Error('未找到已保存的预览图');
+          const preview = cover.preview;
+          Object.assign(variant, { preview, previewInfo: cover.previewInfo });
+          url = imageUrl(preview);
+          if (url) { image.src = url; image.alt = variant.name + ' 预览图'; fitMaterialPreview(image, variant.previewInfo); await image.decode(); }
+          if (request !== colorRequest || !card.isConnected) { if (url) URL.revokeObjectURL(url); return; }
+          if (openMenu?.card === card) closeMenu();
+          const oldId = asset.id;
+          cardUrls.get(oldId)?.forEach(oldUrl => URL.revokeObjectURL(oldUrl));
+          cardUrls.delete(oldId); renderedCards.delete(oldId);
+          const { fabricCardKey, fabricVariants, updatedAt } = asset;
+          Object.assign(asset, variant, { fabricCardKey, fabricVariants, updatedAt });
+          selectedFabricColors.set(key, variant.id);
+          card.dataset.assetId = variant.id;
+          card.classList.toggle('is-favorite', !!variant.favorite);
+          card.style.setProperty('--favorite-color', variant.surface?.color || '#3978ed');
+          art.querySelectorAll(':scope > img,:scope > .preview-missing').forEach(element => element.remove());
+          if (url) { art.prepend(image); cardUrls.set(variant.id, [url]); }
+          else { const missing = document.createElement('div'); missing.className = 'sphere preview-missing'; missing.textContent = '无预览图'; art.prepend(missing); }
+          card.querySelectorAll(':scope > .asset-menu-trigger,:scope > .asset-menu').forEach(element => element.remove());
+          card.append(...createMenu(asset, card));
+          const selection = card.querySelector('.asset-select-control');
+          syncCardSelection(card, selection, selectedAssetIds.has(variant.id));
+          const editLink = card.querySelector('.asset-actions a');
+          if (editLink) editLink.href = './material-editor.html?asset=' + encodeURIComponent(variant.id);
+          const description = card.querySelector('.asset-description');
+          description.textContent = variant.description || '暂无简介'; description.title = variant.description || '';
+          bar.querySelectorAll('.asset-fabric-color').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.variantId === variant.id)));
+          renderedCards.set(variant.id, { signature: cardSignature(asset), card, selectControl: selection });
+        } catch (error) { if (url) URL.revokeObjectURL(url); if (request === colorRequest) status('色号预览加载失败：' + error.message); }
+      };
+      const renderColorPage = () => {
+      bar.replaceChildren();
+      for (const variant of variants.slice(pageIndex * 8, pageIndex * 8 + 8)) {
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'asset-fabric-color';
+        button.setAttribute('aria-label', '切换色号 ' + variant.fabricColorCode);
+        button.setAttribute('aria-pressed', String(variant.id === asset.id)); button.dataset.variantId = variant.id;
+        const ball = document.createElement('span'); ball.className = 'fabric-color-swatch';
+        const lines = document.createElement('span'); lines.className = 'fabric-color-swatch-lines'; lines.setAttribute('aria-hidden', 'true');
+        ball.append(lines); updateFabricColorSwatch(ball, variant.fabricColorCode);
+        ball.removeAttribute('title');
+        button.append(ball);
+        button.onclick = () => {
+          void switchColor(variant);
+        };
+        bar.append(button);
+      }
+      if (totalPages > 1) {
+        const next = document.createElement('button'); next.type = 'button'; next.className = 'asset-fabric-colors-next';
+        next.textContent = '›'; next.title = '切换更多色号'; next.setAttribute('aria-label', `更多色号，第 ${pageIndex + 1} / ${totalPages} 页`);
+        next.onclick = () => { pageIndex = (pageIndex + 1) % totalPages; fabricColorPages.set(key, pageIndex); renderColorPage(); const cached = renderedCards.get(asset.id); if (cached) cached.signature = cardSignature(asset); bar.querySelector('.asset-fabric-colors-next')?.focus({ preventScroll: true }); };
+        bar.append(next);
+      }
+      };
+      renderColorPage();
+      art.append(bar);
+    }
     if (urls.length) cardUrls.set(asset.id, urls);
     const info = document.createElement('div'); info.className = 'asset-info';
     const title = document.createElement('h2'); title.textContent = asset.name; title.title = asset.name;
@@ -794,23 +911,42 @@ function render() {
     const selectControl = asset.kind === 'folder' ? null : createSelectionControl(asset, card);
     if (selectControl) syncCardSelection(card, selectControl, selectedAssetIds.has(asset.id));
     card.append(art, info, ...(selectControl ? [selectControl] : []), ...createMenu(asset, card));
-    renderedCards.set(asset.id, { signature, card, selectControl }); host.append(card);
+    renderedCards.set(asset.id, { signature, card, selectControl }); appendCard(card);
+  }
+  if (background) {
+    let cursor = host.firstChild;
+    for (const card of nextCards) {
+      if (card === cursor) cursor = cursor.nextSibling;
+      else host.insertBefore(card, cursor);
+    }
+    while (cursor) { const next = cursor.nextSibling; cursor.remove(); cursor = next; }
+    if (openMenu && !openMenu.card.isConnected) closeMenu();
+    if (scroll) scroll.scrollTop = scrollTop;
   }
   requestAnimationFrame(() => syncAssetScrollbar());
-  if (!assetsLoading) void assetLoading.finish(loadingToken);
+  if (!background && !assetsLoading) void assetLoading.finish(loadingToken);
 }
-async function refresh() {
+async function refresh({ background = false } = {}) {
+  background = background && !assetsLoading;
   const version = ++renderVersion;
-  assetsLoading = true; assetLoading.begin();
+  if (!background) { assetsLoading = true; assetLoading.begin(); }
   const show = result => {
     if (version !== renderVersion) return;
+    result = result.filter(asset => !hiddenDeletedAssetIds.has(asset.id));
     const ids = new Set(result.map(asset => asset.id));
     for (const id of selectedAssetIds) if (!ids.has(id)) selectedAssetIds.delete(id);
     for (const id of renderedCards.keys()) if (!ids.has(id)) {
       cardUrls.get(id)?.forEach(url => URL.revokeObjectURL(url));
       cardUrls.delete(id); renderedCards.delete(id);
     }
-    assets = result.sort((a, b) => b.updatedAt - a.updatedAt); render();
+    if (background) {
+      const previous = new Map(assets.map(asset => [asset.id, asset]));
+      for (const asset of result) {
+        const existing = previous.get(asset.id);
+        if (existing?.updatedAt === asset.updatedAt && existing.preview) asset.preview = existing.preview;
+      }
+    }
+    assets = result.sort((a, b) => b.updatedAt - a.updatedAt); render({ background });
   };
   try {
     const result = await listAssets({ onProgress: (items, progress) => {
@@ -823,7 +959,7 @@ async function refresh() {
   }
   catch (error) {
     if (version !== renderVersion) return;
-    assetsLoading = false; status(error.message); render();
+    assetsLoading = false; status(error.message); if (!background) render();
   }
 }
 const tabs = [...document.querySelectorAll('[data-library]')];
@@ -1021,14 +1157,14 @@ new ResizeObserver(syncAssetScrollbar).observe(libraryScroll);
 syncAssetScrollbar();
 let assetsStale = false;
 window.addEventListener('storage', event => { if (event.key === 'spenic-assets-revision') assetsStale = true; });
-window.addEventListener('focus', () => { if (assetsStale && !$('assetDialog').open && !$('fabricPreviewDialog').open) { assetsStale = false; refresh(); } });
+window.addEventListener('focus', () => { if (assetsStale && !$('assetDialog').open && !$('fabricPreviewDialog').open) { assetsStale = false; void refresh({ background: true }); } });
 const initialLibrary = new URLSearchParams(location.search).get('library');
 let uploadRefreshTimer;
 mountUploadTasks({ button: $('uploadTasksButton'), badge: $('uploadTasksBadge'), panel: $('uploadTasksPanel'), list: $('uploadTasksList'), clear: $('clearCompletedUploads'), onComplete: () => {
   clearTimeout(uploadRefreshTimer);
   uploadRefreshTimer = setTimeout(() => {
     if ($('assetDialog').open || $('fabricPreviewDialog').open) assetsStale = true;
-    else void refresh();
+    else { assetsStale = false; void refresh({ background: true }); }
   }, 300);
 } });
 selectLibrary(Object.hasOwn(libraryNames, initialLibrary) ? initialLibrary : 'fabric', { updateUrl: !!initialLibrary });

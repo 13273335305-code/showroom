@@ -10,9 +10,13 @@ const texture = new Texture(); texture.repeat.set(2, 3); texture.offset.set(.2, 
 const asset = { name: '面料测试', kind: 'material', category: '面布', surface: readSurface(material), physical: { ...defaultPhysical(), sizeSource: 'manual', widthCm: 20 }, repeat: [2, 3], maps: { map: new File([new Uint8Array([1, 2, 3])], 'test.png', { type: 'image/png' }) }, legacyMaps: { map: readLegacyUV(texture) } };
 const restored = await unpackMaterial(new File([await packMaterial(asset)], 'test.formmat'));
 assert.equal(restored.name, asset.name);
-const withMetadata = { ...asset, description: '柔软编织面料', preview: new Blob([new Uint8Array([4, 5, 6])], { type: 'image/png' }) };
+const withMetadata = { ...asset, fabricColorCode: 'DBW', description: '柔软编织面料', preview: new Blob([new Uint8Array([4, 5, 6])], { type: 'image/png' }) };
 const restoredMetadata = await unpackMaterial(new File([await packMaterial(withMetadata)], 'preview.formmat'));
 assert.equal(restoredMetadata.description, withMetadata.description);
+assert.equal(restoredMetadata.fabricColorCode, 'DBW');
+const clearedColor = await unpackMaterial(new File([await packMaterial({ ...asset, fabricColorCode: '' })], 'cleared.formmat'));
+assert.equal(clearedColor.fabricColorCode, '');
+assert.equal(restored.fabricColorCode, undefined);
 assert.equal(restoredMetadata.preview.type, 'image/png');
 assert.deepEqual(new Uint8Array(await restoredMetadata.preview.arrayBuffer()), new Uint8Array([4, 5, 6]));
 assert.deepEqual(restored.surface, asset.surface);

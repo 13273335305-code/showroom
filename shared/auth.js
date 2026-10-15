@@ -1,5 +1,6 @@
 import { authConfig } from '../auth-config.js';
 import { authErrorMessage, createAuthService, createAuthStorage, isAuthSessionError, readAuthConfig, safeAuthTarget } from './auth-service.js';
+import { introHelloOpacity } from './login-intro.js';
 
 const appRoot = new URL('../', import.meta.url);
 const loginUrl = new URL('login.html', appRoot);
@@ -10,6 +11,40 @@ const passwordCallback = parameters.get('flow') === 'recovery' || ['recovery', '
 const callbackError = parameters.has('error') || callbackHash.has('error');
 let currentIdentity = null, servicePromise = null, authPromise = null, activeOverlay = null, accountCleanup = null;
 let lastFocusCheck = -Infinity, focusCheck = null, verificationNotice = null;
+const rememberedEmailKey = 'spenic-login-remembered-email-v1';
+
+function readRememberedEmail() {
+  try { return localStorage.getItem(rememberedEmailKey) || ''; } catch { return ''; }
+}
+
+async function restoreRememberedCredentials(overlay) {
+  const email = overlay.querySelector('#authEmail'), password = overlay.querySelector('#authPassword');
+  if (!email || !password) return;
+  const rememberedEmail = readRememberedEmail();
+  if (rememberedEmail && !email.value) email.value = rememberedEmail;
+  if (!navigator.credentials?.get) return;
+  try {
+    const credential = await navigator.credentials.get({ password: true, mediation: 'silent' });
+    if (!credential) return;
+    if (credential.id && !email.value) email.value = credential.id;
+    if (credential.password && !password.value) password.value = credential.password;
+  } catch {}
+}
+
+async function rememberCredentials(email, password, remember) {
+  try {
+    if (!remember) {
+      localStorage.removeItem(rememberedEmailKey);
+      await navigator.credentials?.preventSilentAccess?.();
+      return;
+    }
+    localStorage.setItem(rememberedEmailKey, email);
+    if (window.PasswordCredential && navigator.credentials?.store) {
+      const credential = new PasswordCredential({ id: email, password, name: 'Spenic' });
+      await navigator.credentials.store(credential);
+    }
+  } catch {}
+}
 
 function browserStorage(name) { try { return window[name]; } catch { return undefined; } }
 const storage = createAuthStorage(browserStorage('localStorage'), browserStorage('sessionStorage'));
@@ -133,53 +168,72 @@ function mountAccountAction() {
   if (placeholder) placeholder.replaceWith(account); else host.append(account);
 }
 
-const arrow = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13m-6-6 6 6-6 6"></path></svg>';
 function overlayMarkup() {
   const overlay = document.createElement('div');
-  overlay.id = 'authOverlay'; overlay.className = 'auth-overlay auth-overlay-checking';
+  overlay.id = 'authOverlay'; overlay.className = isLoginPage ? 'auth-overlay' : 'auth-overlay auth-overlay-checking';
   overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-labelledby', 'authTitle');
   overlay.innerHTML = `
+    <div class="auth-background" aria-hidden="true"><canvas class="auth-nebula"></canvas></div>
+    <div class="auth-intro-hello" aria-hidden="true">Hello</div>
+    <header class="auth-page-header">
+      <div class="auth-brand"><img src="assets/spenic-logo-login.png" alt="Spenic"></div>
+    </header>
     <div class="auth-shell">
-      <section class="auth-showcase" aria-label="Spenic 工作空间">
-        <div class="auth-brand"><img src="assets/spenic-logo.png" alt="Spenic"><span class="auth-brand-divider"></span><span>WORKSPACE</span></div>
-        <div class="auth-intro">
-          <span class="auth-eyebrow">A QUIET SPACE FOR MATERIALS</span>
-          <h1>把每一种质感，<br><em>变成可继续的灵感。</em></h1>
-          <p>从三维设计、材质编辑到资产整理，在一个轻盈的玻璃工作空间里继续你的创作。</p>
-          <div class="auth-feature-stack" aria-hidden="true">
-            <div class="auth-feature-card"><span class="auth-feature-icon">◇</span><span><strong>设计台</strong><small>三维预览 · 材质应用</small></span></div>
-            <div class="auth-feature-card"><span class="auth-feature-icon">✦</span><span><strong>材质编辑器</strong><small>PBR 细节 · 物理尺寸</small></span></div>
-            <div class="auth-feature-card"><span class="auth-feature-icon">□</span><span><strong>资产库</strong><small>面料 · 图案 · 模型</small></span></div>
-          </div>
-        </div>
-      </section>
+      <div class="auth-welcome">
+        <div class="auth-welcome-eyebrow">SPENIC <span aria-hidden="true">/</span> CREATIVE WORKSPACE</div>
+        <h1><span class="auth-welcome-line">让灵感发生，</span><span class="auth-welcome-line auth-welcome-line-warm">让质感成真。</span></h1>
+        <p class="auth-welcome-description">从一束灵感，到每一处细节。<br>在 Spenic，让设计、材质与创作自然相连。</p>
+      </div>
       <section class="auth-form-panel">
         <div class="auth-form-wrap">
-          <div class="auth-form-heading"><small>WELCOME BACK</small><h2 id="authTitle">登录工作空间</h2><p id="authSubtitle">使用你的邮箱账号继续工作。</p></div>
+          <div class="auth-form-heading"><h2 id="authTitle">登录工作空间</h2><p id="authSubtitle" class="sr-only"></p></div>
           <div id="authTabs" class="auth-tabs" role="tablist" aria-label="账号操作" hidden>
             <button type="button" id="authLoginTab" role="tab" aria-controls="authForm" aria-selected="true">登录</button>
             <button type="button" id="authRegisterTab" role="tab" aria-controls="authForm" aria-selected="false" tabindex="-1">注册</button>
           </div>
-          <form id="authForm" novalidate aria-labelledby="authTitle">
-            <label id="authEmailField" class="auth-field" for="authEmail"><span class="auth-field-label">邮箱</span><span class="auth-input-wrap"><input id="authEmail" name="email" type="email" autocomplete="username" inputmode="email" placeholder="name@example.com" maxlength="254" required aria-describedby="authError"></span></label>
-            <label id="authPasswordField" class="auth-field" for="authPassword"><span id="authPasswordLabel" class="auth-field-label">密码</span><span class="auth-input-wrap has-icon"><span class="auth-input-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"></path></svg></span><input id="authPassword" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required aria-describedby="authError"><button id="authToggle" class="auth-password-toggle" type="button" aria-label="显示密码" aria-pressed="false" data-visible="false"><svg class="eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.3-5 9-5 9 5 9 5-3.3 5-9 5-9-5-9-5Z"></path><circle cx="12" cy="12" r="2.2"></circle></svg><svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 16 16M10.6 7.2A9.8 9.8 0 0 1 12 7c5.7 0 9 5 9 5a16 16 0 0 1-3.1 3.3M6.2 6.8C4.1 8.2 3 10 3 12c0 0 3.3 5 9 5 1.4 0 2.6-.3 3.7-.8"></path></svg></button></span></label>
+        <form id="authForm" novalidate autocomplete="on" aria-labelledby="authTitle">
+            <label id="authEmailField" class="auth-field" for="authEmail"><span class="auth-field-label sr-only">邮箱</span><span class="auth-input-wrap has-icon"><span class="auth-input-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"></rect><path d="m3 7 9 6 9-6"></path></svg></span><input id="authEmail" name="email" type="email" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" placeholder="邮箱" maxlength="254" required aria-describedby="authError"></span></label>
+            <label id="authPasswordField" class="auth-field" for="authPassword"><span id="authPasswordLabel" class="auth-field-label sr-only">密码</span><span class="auth-input-wrap has-icon"><span class="auth-input-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"></path></svg></span><input id="authPassword" name="password" type="password" autocomplete="current-password" placeholder="密码" required aria-describedby="authError"><button id="authToggle" class="auth-password-toggle" type="button" aria-label="显示密码" aria-pressed="false" data-visible="false"><svg class="eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.3-5 9-5 9 5 9 5-3.3 5-9 5-9-5-9-5Z"></path><circle cx="12" cy="12" r="2.2"></circle></svg><svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 16 16M10.6 7.2A9.8 9.8 0 0 1 12 7c5.7 0 9 5 9 5a16 16 0 0 1-3.1 3.3M6.2 6.8C4.1 8.2 3 10 3 12c0 0 3.3 5 9 5 1.4 0 2.6-.3 3.7-.8"></path></svg></button></span></label>
             <label id="authConfirmField" class="auth-field" for="authConfirm" hidden><span class="auth-field-label">确认密码</span><span class="auth-input-wrap"><input id="authConfirm" name="confirmPassword" type="password" autocomplete="new-password" placeholder="再次输入密码" disabled aria-describedby="authError"></span></label>
-            <div id="authOptions" class="auth-options"><label class="auth-remember"><input id="authRemember" type="checkbox" checked> 记住此设备</label><button id="authForgot" class="auth-link" type="button">忘记密码？</button></div>
-            <button id="authSubmit" class="auth-submit" type="submit" disabled>正在连接…${arrow}</button>
+            <div id="authOptions" class="auth-options"><label class="auth-remember"><input id="authRemember" type="checkbox" checked> 记住账号密码</label><button id="authForgot" class="auth-link" type="button">忘记密码？</button></div>
+            <button id="authSubmit" class="auth-submit" type="submit" disabled>正在连接…</button>
             <p id="authError" class="auth-error" role="alert"></p>
             <p id="authMessage" class="auth-message" role="status"></p>
           </form>
           <button id="authRetry" class="auth-link auth-retry" type="button" hidden>重新连接</button>
           <button id="authBack" class="auth-link auth-back" type="button" hidden>返回登录</button>
-          <div class="auth-card-footer"><p id="authFooter">账号由管理员邀请开通。</p></div>
+          <p id="authFooter" class="sr-only"></p>
         </div>
       </section>
-    </div>`;
+    </div>
+    <footer class="auth-page-footer"><button class="auth-motion-toggle" type="button" aria-pressed="false" aria-label="暂停背景动画" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5v10M13 5v10"></path></svg><span>暂停动态</span></button></footer>`;
   return overlay;
 }
 
 function mountOverlay() {
   const overlay = overlayMarkup();
+  overlay.dataset.authIntro = 'pending';
+  const foreground = [...overlay.children].filter(element => !element.classList.contains('auth-background'));
+  // Leave the layout shell opaque: fading a parent of a backdrop-filter card
+  // changes its backdrop sampling boundary as opacity reaches 1.
+  const fadeTargets = [...overlay.querySelectorAll('.auth-page-header, .auth-welcome, .auth-form-panel, .auth-page-footer')];
+  const hello = overlay.querySelector('.auth-intro-hello');
+  hello.style.opacity = '1';
+  fadeTargets.forEach(element => { element.style.opacity = '0'; });
+  foreground.forEach(element => { element.inert = true; });
+  let foregroundVisible = false;
+  const revealForeground = (progress, elapsedMs = progress * 3500) => {
+    if (!foregroundVisible) {
+      hello.style.opacity = String(introHelloOpacity(elapsedMs));
+    }
+    if (foregroundVisible) return;
+    const revealProgress = Math.max(0, Math.min(1, (elapsedMs - 2200) / 1300));
+    const opacity = revealProgress >= .999 ? 1 : revealProgress;
+    fadeTargets.forEach(element => { element.style.opacity = String(opacity); });
+    const phase = opacity === 1 ? 'complete' : opacity > 0 ? 'revealing' : 'pending';
+    if (overlay.dataset.authIntro !== phase) overlay.dataset.authIntro = phase;
+    if (opacity === 1) { foregroundVisible = true; foreground.forEach(element => { element.inert = false; }); }
+  };
   const previousFocus = document.activeElement;
   const backgrounds = [...document.body.children].filter(element => !['SCRIPT', 'STYLE', 'LINK'].includes(element.tagName));
   const states = backgrounds.map(element => [element, element.inert]);
@@ -187,9 +241,21 @@ function mountOverlay() {
   const overflow = document.body.style.overflow;
   document.body.style.overflow = 'hidden';
   document.body.append(overlay); activeOverlay = overlay;
+  let background = null, closed = false;
+  // Start only when the gate is visible; verified users never allocate a scene.
+  const startBackground = () => {
+    if (overlay.classList.contains('auth-overlay-checking') || closed) return;
+    sceneObserver.disconnect();
+    import('./login-nebula.js').then(({ mountLoginNebula }) => {
+      if (!closed) background = mountLoginNebula(overlay.querySelector('.auth-nebula'), overlay.querySelector('.auth-motion-toggle'), { onIntroProgress: revealForeground });
+    }).catch(() => { if (!closed) { overlay.querySelector('.auth-motion-toggle').hidden = true; revealForeground(1); } });
+  };
+  const sceneObserver = new MutationObserver(startBackground);
+  sceneObserver.observe(overlay, { attributes: true, attributeFilter: ['class'] });
+  startBackground();
   const trap = event => {
     if (event.key !== 'Tab') return;
-    const elements = [...overlay.querySelectorAll('input, button, a[href]')].filter(element => !element.disabled && !element.closest('[hidden]') && element.tabIndex >= 0);
+    const elements = [...overlay.querySelectorAll('input, button, a[href]')].filter(element => !element.disabled && !element.closest('[hidden], [inert]') && element.tabIndex >= 0);
     const first = elements[0], last = elements.at(-1);
     if (!first) { event.preventDefault(); return; }
     if (event.shiftKey && (document.activeElement === first || !overlay.contains(document.activeElement))) { event.preventDefault(); last.focus(); }
@@ -197,6 +263,7 @@ function mountOverlay() {
   };
   overlay.addEventListener('keydown', trap);
   return { overlay, close() {
+    closed = true; sceneObserver.disconnect(); background?.dispose();
     overlay.removeEventListener('keydown', trap);
     states.forEach(([element, inert]) => { element.inert = inert; });
     document.body.style.overflow = overflow; overlay.remove(); activeOverlay = null;
@@ -212,7 +279,7 @@ function wireOverlay(view, resolve) {
   const renderBusy = () => {
     $('authForm').setAttribute('aria-busy', String(busy));
     for (const id of ['authSubmit', 'authLoginTab', 'authRegisterTab', 'authForgot', 'authBack', 'authToggle', 'authRemember', 'authRetry']) $(id).disabled = busy || !service;
-    $('authSubmit').innerHTML = (busy ? '请稍候…' : titles[mode][2]) + arrow;
+    $('authSubmit').textContent = busy ? '请稍候…' : titles[mode][2];
   };
   function setMode(next, focus = true) {
     mode = next; message();
@@ -251,12 +318,16 @@ function wireOverlay(view, resolve) {
         else { setMode('forgot'); message('邮件链接已失效，请在发起请求的浏览器中重新申请。', true); }
       } else if (identity) { await finish(identity); return; }
       else setMode('login');
+      void restoreRememberedCredentials(view.overlay);
       view.overlay.classList.remove('auth-overlay-checking');
       $('authFooter').textContent = authConfig.allowSignUp ? '新账号需通过邮件确认邮箱。' : '账号由管理员邀请开通。';
     } catch (error) {
       busy = false;
       view.overlay.classList.remove('auth-overlay-checking');
-      if (service) setMode(passwordCallback || callbackError ? 'forgot' : 'login');
+      if (service) {
+        setMode(passwordCallback || callbackError ? 'forgot' : 'login');
+        if (mode === 'login') void restoreRememberedCredentials(view.overlay);
+      }
       renderBusy(); message(authErrorMessage(error), true); $('authRetry').hidden = false; $('authRetry').disabled = false;
     }
   }
@@ -267,6 +338,9 @@ function wireOverlay(view, resolve) {
     $(mode === 'login' ? 'authLoginTab' : 'authRegisterTab').focus();
   });
   $('authForgot').onclick = () => setMode('forgot');
+  $('authRemember').addEventListener('change', () => {
+    if (!$('authRemember').checked) void rememberCredentials('', '', false);
+  });
   $('authBack').onclick = async () => {
     if (mode === 'password') {
       busy = true; renderBusy();
@@ -288,10 +362,17 @@ function wireOverlay(view, resolve) {
     if (['register', 'password'].includes(mode) && password !== $('authConfirm').value) { message('两次输入的密码不一致。', true); $('authConfirm').focus(); return; }
     busy = true; message(); renderBusy();
     try {
-      if (mode === 'login') await finish(await service.signIn(email, password, $('authRemember').checked));
+      if (mode === 'login') {
+        const identity = await service.signIn(email, password, $('authRemember').checked);
+        await rememberCredentials(email, password, $('authRemember').checked);
+        await finish(identity);
+      }
       else if (mode === 'register') {
         const identity = await service.signUp(email, password, $('authRemember').checked);
-        if (identity) await finish(identity);
+        if (identity) {
+          await rememberCredentials(email, password, $('authRemember').checked);
+          await finish(identity);
+        }
         else { setMode('login'); message('请查看邮件并确认邮箱，然后返回登录。'); }
       } else if (mode === 'forgot') {
         await service.requestReset(email); message('如果该邮箱已注册，你将收到重置邮件。请在此浏览器中打开链接。');

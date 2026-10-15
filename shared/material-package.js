@@ -20,7 +20,7 @@ export async function packMaterial(asset) {
     archive[path] = new Uint8Array(await file.arrayBuffer());
     maps[key] = { path, name: file.name, type: file.type };
   }
-  archive['material.json'] = strToU8(JSON.stringify({ format: 'SPENIC-MATERIAL', version: 1, name: asset.name, description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, preview, previewInfo: asset.previewInfo, materialType: asset.materialType || 'fabric', category: asset.category, surface: asset.surface, physical: asset.physical, repeat: asset.repeat, maps, placement: asset.placement, density: asset.density, legacyMaps: asset.legacyMaps }));
+  archive['material.json'] = strToU8(JSON.stringify({ format: 'SPENIC-MATERIAL', version: 1, name: asset.name, description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, preview, previewInfo: asset.previewInfo, materialType: asset.materialType || 'fabric', category: asset.category, fabricColorCode: asset.fabricColorCode, surface: asset.surface, physical: asset.physical, repeat: asset.repeat, maps, placement: asset.placement, density: asset.density, legacyMaps: asset.legacyMaps }));
   return new Blob([zipSync(archive, { level: 0 })], { type: 'application/zip' });
 }
 
@@ -48,5 +48,5 @@ export async function unpackMaterial(file) {
     if (!bytes || bytes.length > 16 * 1024 * 1024 || !/^image\/(png|jpeg|webp|bmp)$/.test(data.preview.type)) throw new Error('预览图缺失、格式无效或超过 16 MB');
     preview = new Blob([bytes], { type: data.preview.type });
   }
-  return { kind: 'material', description: typeof data.description === 'string' ? data.description : '', designInfo: typeof data.designInfo === 'string' ? data.designInfo : '', supplier: typeof data.supplier === 'string' ? data.supplier : '', preview, previewInfo: data.previewInfo || null, placement: data.placement, materialType: data.materialType === 'pattern' ? 'pattern' : 'fabric', name: data.name, category: data.category || '面布', surface: data.surface, physical: readPhysical(data.physical, true), repeat: data.repeat || [1, 1], maps, density: data.density || {}, legacyMaps: data.legacyMaps || {} };
+  return { kind: 'material', description: typeof data.description === 'string' ? data.description : '', designInfo: typeof data.designInfo === 'string' ? data.designInfo : '', supplier: typeof data.supplier === 'string' ? data.supplier : '', fabricColorCode: typeof data.fabricColorCode === 'string' ? data.fabricColorCode : undefined, preview, previewInfo: data.previewInfo || null, placement: data.placement, materialType: data.materialType === 'pattern' ? 'pattern' : 'fabric', name: data.name, category: data.category || '面布', surface: data.surface, physical: readPhysical(data.physical, true), repeat: data.repeat || [1, 1], maps, density: data.density || {}, legacyMaps: data.legacyMaps || {} };
 }

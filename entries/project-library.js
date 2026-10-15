@@ -2,9 +2,11 @@ import { deleteProject, listProjects, moveProject, renameProject, saveProjectFol
 import { requireAuth, authState } from '../shared/auth.js';
 import { createAssetLoading } from '../shared/asset-loading.js';
 import { assetPage } from '../shared/asset-metadata.js';
+import { mountToolSwitcher } from '../shared/navigation.js';
 
 const $ = id => document.getElementById(id);
 await requireAuth({ feature: 'projects' });
+mountToolSwitcher('projects');
 let projects = [], query = '', sort = 'recent';
 let view = new URLSearchParams(location.search).get('view') === 'public' ? 'public' : 'personal';
 let activeFolderId = null, openRenameId = null, movingProjectId = null, openProjectMenu = null;

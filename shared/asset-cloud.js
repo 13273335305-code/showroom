@@ -4,7 +4,7 @@ import { MATERIAL_MAPS } from './material-map-definitions.js';
 
 const TABLE = 'spenic_assets', FAVORITES = 'spenic_asset_favorites';
 const SUMMARY = 'id,owner_id,kind,name,category,library,parent_id,metadata,thumbnail_path,created_at,updated_at';
-const metadataFields = ['description', 'designInfo', 'supplier', 'materialType', 'surface', 'physical', 'repeat', 'density', 'legacyMaps', 'placement', 'previewInfo', 'partAssignments', 'uploadTaskId'];
+const metadataFields = ['description', 'designInfo', 'supplier', 'materialType', 'fabricColorCode', 'fabricGroupId', 'fabricDefaultColorCode', 'surface', 'physical', 'repeat', 'density', 'legacyMaps', 'placement', 'previewInfo', 'partAssignments', 'uploadTaskId'];
 const channels = new Set(MATERIAL_MAPS.map(([key]) => key));
 export const isCloudAssetId = id => /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(id || '');
 
@@ -67,12 +67,13 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
     const urls = await previewUrls(client, rows.map(row => row.thumbnail_path));
     return rows.map(row => summary(row, urls.get(row.thumbnail_path)));
   }
-  async function hydrate(row, runtime, texturePreview) {
+  async function hydrate(row, runtime, texturePreview, previewOnly) {
     const { client } = await access();
     const manifest = validateManifest(row.manifest), refs = manifest.files;
     const previewPath = refs[manifest.previewPath]?.path || row.thumbnail_path;
     const previews = await previewUrls(client, [previewPath]);
     const asset = { ...summary(row, previews.get(previewPath)), assetManifest: manifest, previewReference: refs[manifest.previewPath] || refs[manifest.thumbnailPath], previewExpiresAt: Date.now() + 3300000 };
+    if (previewOnly) return asset;
     if (row.kind === 'material') {
       const sourceRefs = Object.fromEntries(Object.entries(manifest.maps || {}).map(([key, path]) => [key, refs[path]]));
       asset.sourcePackage = { cloud: true, files: sourceRefs, version: row.updated_at, name: row.name };
@@ -107,12 +108,12 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
     }
     return asset;
   }
-  async function get(id, { runtime = false, texturePreview = false } = {}) {
+  async function get(id, { runtime = false, texturePreview = false, previewOnly = false } = {}) {
     const row = await read(id); if (!row) return null;
     if (row.kind === 'folder') return summary(row);
-    const key = id + ':' + row.updated_at + ':' + runtime + ':' + texturePreview;
+    const key = id + ':' + row.updated_at + ':' + runtime + ':' + texturePreview + ':' + previewOnly;
     for (const cached of loads.keys()) if (cached.startsWith(id + ':') && !cached.startsWith(id + ':' + row.updated_at + ':')) loads.delete(cached);
-    if (!loads.has(key)) loads.set(key, hydrate(row, runtime, texturePreview).catch(error => { loads.delete(key); throw error; }));
+    if (!loads.has(key)) loads.set(key, hydrate(row, runtime, texturePreview, previewOnly).catch(error => { loads.delete(key); throw error; }));
     const asset = await loads.get(key);
     if (asset.previewReference && Date.now() >= asset.previewExpiresAt) {
       const { client } = await access(), path = asset.previewReference.path;

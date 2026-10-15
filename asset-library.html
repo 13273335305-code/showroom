@@ -4,11 +4,14 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Spenic · 资产库</title>
   <link rel="icon" type="image/png" sizes="64x64" href="assets/spenic-favicon.png">
-  <link rel="stylesheet" href="workspace.css"><link rel="stylesheet" href="asset-library.css"><link rel="stylesheet" href="login.css">
+  <link rel="stylesheet" href="workspace.css?v=fabric-instant-delete-20261015"><link rel="stylesheet" href="asset-library.css?v=fabric-instant-delete-20261015"><link rel="stylesheet" href="login.css">
+  <link rel="stylesheet" href="header-brand.css">
+  <link rel="stylesheet" href="workspace-developer.css">
+  <script type="module" src="shared/workspace-developer.js"></script>
 </head>
 <body class="standalone asset-library-page">
   <header class="asset-topbar">
-    <a class="asset-brand" href="./index.html" aria-label="Spenic 工作空间首页"><img src="assets/spenic-logo.png" alt="Spenic"><span class="asset-brand-divider"></span><strong>资产库</strong></a>
+    <a class="asset-brand brand" href="./index.html" aria-label="Spenic 工作空间首页"><img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic"><span class="asset-brand-divider brand-divider"></span><strong class="brand-title">资产库</strong></a>
     <nav class="library-switcher" role="tablist" aria-label="资产库切换">
       <a id="modelTab" href="#assetPanel" role="tab" aria-selected="false" aria-controls="assetPanel" data-library="model" tabindex="-1">模型库</a>
       <a id="fabricTab" href="#assetPanel" role="tab" aria-selected="true" aria-controls="assetPanel" data-library="fabric">面料库</a>
@@ -137,6 +140,6 @@
     </div>
   </div>
   <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
-  <script type="module" src="entries/asset-library.js"></script>
+  <script type="module" src="entries/asset-library.js?v=fabric-instant-delete-20261015"></script>
 </body>
 </html>

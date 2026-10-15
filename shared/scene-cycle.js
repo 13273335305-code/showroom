@@ -47,7 +47,7 @@ export async function createSceneCycle({ button, read, apply, name, notify, save
   const paint = nextWeights => {
     weights = nextWeights;
     const [morning, evening, night] = weights;
-    const cx = 30 * morning + 32 * evening + 30 * night;
+    const cx = 32 * morning + 32 * evening + 32 * night;
     const cy = 24 * morning + 38 * evening + 25 * night;
     const radius = 11 * morning + 14 * evening + 14 * night;
     // One celestial body: it sinks below the horizon, then is carved into a crescent.

@@ -10,7 +10,10 @@
 <link rel="stylesheet" href="showroom.css">
 <link rel="stylesheet" href="developer.css">
 <link rel="stylesheet" href="login.css">
+<link rel="stylesheet" href="header-brand.css">
 <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
+  <link rel="stylesheet" href="workspace-developer.css">
+  <script type="module" src="shared/workspace-developer.js"></script>
 </head>
 <body>
 <div id="designLaunchLoading" class="design-launch-loading" role="status" aria-live="polite"><div class="design-launch-card"><div class="loading-228" aria-hidden="true"></div><strong><span>正</span><span>在</span><span>进</span><span>入</span><span>设</span><span>计</span><span>台</span></strong></div></div>
@@ -67,10 +70,10 @@
     <mask id="dayCrescent" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="56"><rect width="64" height="56" fill="white"/><circle data-day-cutout cx="70" cy="19" r="14" fill="black"/></mask>
     <linearGradient id="dayBody" x1="0" y1="0" x2="0" y2="1"><stop data-day-warm stop-color="#fff0ad"/><stop data-day-cool offset="1" stop-color="#edb34b"/></linearGradient>
    </defs>
-   <circle data-day-halo cx="30" cy="24" r="21" fill="#fff1be" opacity=".25"/>
+   <circle data-day-halo cx="32" cy="24" r="21" fill="#fff1be" opacity=".25"/>
    <g clip-path="url(#dayHorizon)">
     <g data-day-rays stroke="#d5a15b" stroke-width="1.5" stroke-linecap="round"><line/><line/><line/><line/><line/><line/><line/><line/></g>
-    <circle data-day-disc cx="30" cy="24" r="11" fill="url(#dayBody)" mask="url(#dayCrescent)"/>
+    <circle data-day-disc cx="32" cy="24" r="11" fill="url(#dayBody)" mask="url(#dayCrescent)"/>
    </g>
    <path data-day-horizon d="M10 47Q32 40 54 47" stroke="#8daabe" stroke-width="1.3" stroke-linecap="round" opacity=".7"/>
    <path data-day-ripples d="M21 44h22M26 49h12" stroke="#b77755" stroke-width="1.5" stroke-linecap="round" opacity="0"/>
@@ -84,14 +87,13 @@
 </section>
 <aside class="inspector" id="inspector" aria-hidden="true">
  <span class="inspector-morph-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="2.5" width="17" height="19" rx="3"/><path d="M11 7h5M11 12h5M11 17h5M7.5 7h.01M7.5 12h.01M7.5 17h.01"/></svg></span>
- <div class="inspector-title"><span id="inspectorHeading">属性编辑器</span><span class="mini-label">LIVE EDITOR</span><button class="collapse-inspector" id="collapseInspector" aria-label="折叠属性编辑器" title="折叠属性编辑器">−</button><button class="close-panel" id="closeInspector" aria-label="关闭编辑面板">×</button></div>
+ <div class="inspector-title"><span id="inspectorHeading">属性编辑器</span><button class="collapse-inspector" id="collapseInspector" aria-label="折叠属性编辑器" title="折叠属性编辑器">−</button><button class="close-panel" id="closeInspector" aria-label="关闭编辑面板">×</button></div>
  <div class="tabs" hidden role="tablist" aria-label="编辑面板"><button id="materialTab" role="tab" aria-selected="true" aria-controls="materialPanel" class="active">材质</button><button id="patternTab" role="tab" aria-selected="false" aria-controls="patternPanel">图案</button><button id="sceneTab" role="tab" aria-selected="false" aria-controls="scenePanel">场景与灯光</button></div>
  <div class="panel-scroll">
  <section id="annotationPanel" class="panel annotation-panel" hidden>
   <ol id="annotationList" class="annotation-list" aria-label="模型标记"></ol>
   <p id="annotationEmpty" class="annotation-help">尚无标记，点击模型表面即可添加。</p>
  </section>
- <button id="backToScene" class="text-button" hidden>← 场景与灯光</button>
  <section id="compactMaterialPanel" aria-label="材质参数" hidden></section>
  <div id="legacyMaterialControls" hidden inert>
   <section id="materialPanel" role="tabpanel" aria-labelledby="materialTab">
@@ -190,7 +192,8 @@
 <footer id="materialDock" class="material-dock opening-hidden" aria-hidden="true">
  <div class="dock-heading"><nav class="dock-tabs" aria-label="材质大类"><button id="fabricDockTab" class="active" aria-pressed="true">面料</button><button id="patternDockTab" aria-pressed="false">图案</button></nav><span id="materialCount" hidden>00</span><div class="dock-operations"><button id="dockUndo" class="text-button" disabled>撤销换材</button><button id="dockPatternPlace" class="text-button" hidden>放置图案</button></div></div>
  <div class="fabric-browser" id="fabricDock"><nav class="fabric-categories" aria-label="面料分类"><button data-fabric="面布" class="active" aria-pressed="true">面布</button><button data-fabric="边布" aria-pressed="false">边布</button><button data-fabric="包边条" aria-pressed="false">包边条</button><button data-fabric="其他" aria-pressed="false">其他</button></nav><div class="dock-carousel"><div class="material-list" id="materialList" aria-label="面料列表"><button id="addDockAsset" class="dock-add" aria-label="从资产库新增面料" title="新增面料"><span class="dock-add-icon" aria-hidden="true">＋</span></button></div><div id="fabricScrollbar" class="dock-scrollbar" aria-hidden="true"><span class="dock-scrollbar-thumb"></span></div></div></div>
- <div id="patternBrowser" class="dock-carousel" hidden><div class="material-list pattern-list" id="patternDock" aria-label="图案列表" hidden></div><div id="patternScrollbar" class="dock-scrollbar" aria-hidden="true"><span class="dock-scrollbar-thumb"></span></div></div>
+ <!-- Match the fabric flex wrapper so the list's negative top margin cannot lift the scrollbar. -->
+ <div id="patternBrowser" class="fabric-browser pattern-browser" hidden><div class="dock-carousel"><div class="material-list pattern-list" id="patternDock" aria-label="图案列表" hidden></div><div id="patternScrollbar" class="dock-scrollbar" aria-hidden="true"><span class="dock-scrollbar-thumb"></span></div></div></div>
  <div class="dock-delete-tools"><button id="dockTrash" class="dock-trash" aria-label="删除材质或图案" title="点击多选，或拖入删除；正在使用的面料不可删除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7"/></svg></button><div id="dockDeleteActions" hidden><button id="dockCancelDelete">取消</button><button id="dockDeleteSelected" disabled>删除</button></div></div>
 </footer>
 <dialog id="assetPicker" aria-label="材质库"><header><div class="picker-navigation"><button id="pickerBack" class="picker-circle-button picker-back" type="button" aria-label="返回上一层文件夹" title="已在根目录" disabled></button><div class="picker-category-shell"><button id="pickerCategory" class="picker-category" type="button" aria-label="筛选材质分类，当前：全部" title="当前分类：全部" aria-haspopup="menu" aria-expanded="false" aria-controls="pickerCategoryMenu"><span id="pickerCategoryLabel">全部</span><span class="picker-category-caret" aria-hidden="true"></span></button><div id="pickerCategoryMenu" class="picker-category-menu" role="menu" aria-label="材质分类" hidden><button type="button" role="menuitemradio" aria-checked="true" data-picker-category="all" tabindex="-1">全部</button><button type="button" role="menuitemradio" aria-checked="false" data-picker-category="面布" tabindex="-1">面布</button><button type="button" role="menuitemradio" aria-checked="false" data-picker-category="边布" tabindex="-1">边布</button><button type="button" role="menuitemradio" aria-checked="false" data-picker-category="包边条" tabindex="-1">包边条</button><button type="button" role="menuitemradio" aria-checked="false" data-picker-category="其他" tabindex="-1">其他</button></div></div></div><div class="picker-tools"><div class="picker-search"><input id="pickerSearch" type="search" aria-label="搜索库中材质" placeholder="搜索"><button type="button" aria-label="搜索"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="13.5" cy="13.5" r="8.5"></circle><path d="M20 20l8 8"></path></svg></button></div></div><button id="closeAssetPicker" class="picker-circle-button picker-close" type="button" aria-label="关闭材质库" title="关闭材质库"></button></header><div id="pickerLoading" class="asset-loading-indicator" role="status" aria-label="正在加载材质" hidden><div class="asset-grid-loader" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></div><div id="pickerGrid" class="asset-loading-content"></div><div id="pickerScrollbar" class="picker-scrollbar" aria-hidden="true"><span class="picker-scrollbar-thumb"></span></div><button id="confirmAssetPicker" class="picker-circle-button picker-confirm" type="button" aria-label="请先选择材质" title="请先选择材质" disabled><span class="picker-confirm-count" aria-hidden="true"></span><span class="picker-confirm-icon picker-check" aria-hidden="true"></span></button></dialog>

@@ -2,6 +2,9 @@ import { listAssets, getAsset } from './shared/asset-store.js';
 import { materialType } from './shared/material-placement.js';
 import { createAssetLoading } from './shared/asset-loading.js';
 import { fitMaterialPreview, assetImageUrl } from './shared/material-preview.js';
+import { groupFabricCards } from './shared/fabric-card-groups.js';
+import { mountPickerFabricColors } from './shared/picker-fabric-colors.js';
+import { renderFabricColorList } from './shared/fabric-color-swatch.js';
 
 const $ = id => document.getElementById(id);
 export function createDesignWorkspace(api) {
@@ -114,14 +117,18 @@ export function createDesignWorkspace(api) {
     scrollbar.addEventListener('pointercancel', () => { draggingScrollbar = null; });
   }
   const panel = $('compactMaterialPanel');
-  panel.innerHTML = `<div class="compact-preview"><div id="compactSwatch"></div><strong id="compactName"></strong></div>
+  panel.innerHTML = `<div class="compact-preview"><div id="compactSwatch"></div><div id="compactFabricColors" class="compact-fabric-colors" role="group" aria-label="全部面料色号" hidden></div></div>
     <label class="color-row">基础颜色<input id="compactColor" type="color" aria-label="基础颜色"></label>
     <div class="section-heading"><h2>UV 偏移</h2></div><div class="uv-row"><label>U<input id="compactOffsetU" type="number" step="0.01" min="-100" max="100" value="0"></label><label>V<input id="compactOffsetV" type="number" step="0.01" min="-100" max="100" value="0"></label></div>
     <label class="range-row">角度<output id="compactAngleValue">0°</output><input id="compactAngle" type="range" min="-180" max="180" step="1" value="0"></label>`;
   function sync() {
     if (!target) return;
     const data = api.read(target);
-    $('compactName').textContent = data.name;
+    const currentTarget = target;
+    renderFabricColorList($('compactFabricColors'), data.fabricColorCodes || [], {
+      active: data.fabricColorCode, pending: data.fabricColorPending,
+      onSelect: data.fabricVariants?.length ? code => api.switchFabricColor(currentTarget, code) : null,
+    });
     $('compactColor').value = data.color;
     $('compactOffsetU').value = data.offset[0]; $('compactOffsetV').value = data.offset[1];
     $('compactAngle').value = data.angle; $('compactAngleValue').textContent = data.angle + '°';
@@ -140,7 +147,6 @@ export function createDesignWorkspace(api) {
     syncDock();
   }
   for (const [id, value] of [['fabricDockTab', 'fabric'], ['patternDockTab', 'pattern']]) $(id).onclick = () => { api.cancelPlacement(); setType(value); };
-  $('backToScene').onclick = api.showScene;
   $('compactColor').oninput = () => { if (!target) return; api.color(target, $('compactColor').value); sync(); };
   for (const id of ['compactOffsetU', 'compactOffsetV', 'compactAngle']) $(id).addEventListener(id === 'compactAngle' ? 'input' : 'change', () => {
     if (!target) return;
@@ -154,6 +160,7 @@ export function createDesignWorkspace(api) {
   const pickerCategoryMenu = $('pickerCategoryMenu');
   const pickerCategoryOptions = [...pickerCategoryMenu.querySelectorAll('[data-picker-category]')];
   const pickerSelected = new Map(), pickerConfirm = $('confirmAssetPicker');
+  let pickerColorCleanups = [];
   const pickerCount = pickerConfirm.querySelector('.picker-confirm-count');
   let pickerAdding = false, pickerCategoryValue = 'all';
   const pickerGrid = $('pickerGrid'), pickerScrollbar = $('pickerScrollbar');
@@ -227,11 +234,14 @@ export function createDesignWorkspace(api) {
   }
   function syncPickerSelection() {
     for (const card of pickerGrid.querySelectorAll('.picker-card')) {
-      card.disabled = pickerAdding;
+      card.inert = pickerAdding;
+      card.setAttribute('aria-disabled', String(pickerAdding));
+      const select = card.querySelector('.picker-card-select');
+      select.disabled = pickerAdding;
       if (card.classList.contains('picker-folder')) continue;
       const selected = pickerSelected.has(card.dataset.assetId);
       card.classList.toggle('picker-selected', selected);
-      card.setAttribute('aria-pressed', String(selected));
+      select.setAttribute('aria-pressed', String(selected));
     }
     const count = pickerSelected.size;
     pickerCount.textContent = count ? String(count) : '';
@@ -255,7 +265,7 @@ export function createDesignWorkspace(api) {
     renderPicker();
     $('pickerGrid').scrollTop = 0;
   }
-  function release() { urls.forEach(url => URL.revokeObjectURL(url)); urls = []; }
+  function release() { pickerColorCleanups.forEach(cleanup => cleanup()); pickerColorCleanups = []; urls.forEach(url => URL.revokeObjectURL(url)); urls = []; }
   function renderPicker() {
     const loadingToken = pickerLoading.begin();
     release(); const grid = $('pickerGrid'); grid.replaceChildren();
@@ -264,29 +274,33 @@ export function createDesignWorkspace(api) {
     syncPickerCategory();
     $('pickerBack').disabled = pickerFolderId === null;
     $('pickerBack').title = pickerFolderId === null ? '已在根目录' : '返回上一层文件夹';
-    const shown = assets.filter(asset => pickerLibrary(asset) === type && (asset.parentId || null) === pickerFolderId && asset.name.toLocaleLowerCase().includes(query)
+    const collection = assets.filter(asset => pickerLibrary(asset) === type && (asset.parentId || null) === pickerFolderId);
+    const shown = (type === 'fabric' ? groupFabricCards(collection) : collection).filter(asset => asset.name.toLocaleLowerCase().includes(query)
       && (asset.kind === 'folder' || pickerCategoryValue === 'all' || (asset.category || '其他') === pickerCategoryValue));
     for (const asset of shown) {
       const isFolder = asset.kind === 'folder';
-      const card = document.createElement('button'); card.type = 'button'; card.className = 'picker-card' + (isFolder ? ' picker-folder' : ''); card.dataset.assetId = asset.id;
-      if (isFolder) card.setAttribute('aria-label', '打开文件夹：' + asset.name);
-      else if (pickerSelected.has(asset.id)) pickerSelected.set(asset.id, asset);
+      const card = document.createElement('div'); card.className = 'picker-card' + (isFolder ? ' picker-folder' : ''); card.dataset.assetId = asset.id;
+      const select = document.createElement('button'); select.type = 'button'; select.className = 'picker-card-select';
+      select.setAttribute('aria-label', (isFolder ? '打开文件夹：' : '选择材质：') + asset.name);
+      if (!isFolder && pickerSelected.has(asset.id)) pickerSelected.set(asset.id, asset);
       const art = document.createElement('div'); art.className = 'picker-preview';
       if (isFolder) {
         const icon = document.createElement('span'); icon.className = 'picker-folder-icon'; icon.setAttribute('aria-hidden', 'true'); art.append(icon);
       }
       else if (asset.preview) { const img = document.createElement('img'); img.alt = ''; img.src = assetImageUrl(asset.preview); fitMaterialPreview(img, asset.previewInfo); art.style.position = 'relative'; urls.push(img.src); art.append(img); }
       else { const empty = document.createElement('span'); empty.className = 'picker-preview-empty'; empty.textContent = '无预览图'; art.append(empty); }
+      if (asset.fabricVariants?.length) {
+        const bar = document.createElement('div'); bar.className = 'picker-fabric-colors';
+        art.append(bar);
+      }
       const info = document.createElement('div'); info.className = 'picker-card-info';
       const name = document.createElement('span'); name.className = 'picker-card-name'; name.textContent = asset.name; name.title = asset.name;
-      info.append(name); card.append(art, info); grid.append(card);
-      card.addEventListener('pointerleave', () => card.classList.remove('picker-clicked'));
+      info.append(name); card.append(art, info, select); grid.append(card);
+      const colors = art.querySelector('.picker-fabric-colors');
+      if (colors) pickerColorCleanups.push(mountPickerFabricColors(colors, asset, () => pickerAdding));
       card.onclick = () => {
         if (pickerAdding) return;
         if (isFolder) { navigatePicker(asset.id); return; }
-        card.classList.remove('picker-clicked');
-        void card.offsetWidth;
-        card.classList.add('picker-clicked');
         if (pickerSelected.has(asset.id)) pickerSelected.delete(asset.id); else pickerSelected.set(asset.id, asset);
         syncPickerSelection();
       };
@@ -347,7 +361,7 @@ export function createDesignWorkspace(api) {
     try {
       for (const [id, asset] of [...pickerSelected]) {
         const full = await getAsset(id, { runtime: true }); if (!full) throw new Error('资产已被删除');
-        await api.add(full);
+        await api.add({ ...full, fabricVariants: asset.fabricVariants?.map(({ id, fabricColorCode }) => ({ id, fabricColorCode })), fabricColorCodes: asset.fabricVariants?.map(variant => variant.fabricColorCode) || (full.fabricColorCode ? [full.fabricColorCode] : []) });
         pickerSelected.delete(id);
       }
       dialog.close();

@@ -10,6 +10,9 @@
   <link rel="stylesheet" href="header.css">
   <link rel="stylesheet" href="home.css">
   <link rel="stylesheet" href="login.css?v=20261008-circle-centered">
+  <link rel="stylesheet" href="header-brand.css">
+  <link rel="stylesheet" href="workspace-developer.css">
+  <script type="module" src="shared/workspace-developer.js"></script>
 </head>
 <body class="home-page">
   <header class="topbar">
@@ -30,12 +33,13 @@
 
   <main class="home-main">
     <section class="home-hero" aria-labelledby="workspaceTitle">
+      <button id="workspaceDeveloper" class="workspace-developer-entry" type="button" aria-haspopup="dialog" aria-controls="workspaceDeveloperDialog"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 16"/></svg><span>开发者</span><i aria-hidden="true"></i></button>
       <div class="home-eyebrow">SPENIC WORKSPACE</div>
       <h1 id="workspaceTitle">欢迎来到工作空间</h1>
       <p>从设计、材质到资产，把每一次灵感整理成可继续的工作。</p>
     </section>
     <section class="workspace-cards" aria-label="工作空间模块">
-      <a class="workspace-card design-card" href="./design.html">
+      <a class="workspace-card design-card" href="./design.html?new=1">
         <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M9 34 28 15l6 6-19 19H9v-6Z"/><path d="m29 14 3-3a4.2 4.2 0 0 1 6 6l-3 3M14 40h25"/></svg></span>
         <span class="card-copy"><strong>设计台</strong><span>进入三维设计台，预览模型并应用材质。</span></span>
       </a>
