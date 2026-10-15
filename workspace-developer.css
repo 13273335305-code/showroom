@@ -1,4 +1,4 @@
-.home-page .home-hero{max-width:none;padding-right:150px}
+.workspace-developer-entry[hidden]{display:none}
 .workspace-developer-entry{position:absolute;right:30px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:48px;padding:0 20px;border:1px solid #ffffffdf;border-radius:15px;background:linear-gradient(135deg,#ffffffce,#edf4ffad);box-shadow:0 9px 26px #315b8d12,inset 0 1px #fff;color:#59799f;font:600 14px "Microsoft YaHei","Segoe UI",sans-serif;cursor:pointer}
 .workspace-developer-entry svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 .workspace-developer-entry:hover{background:#fff;color:#286ad0;border-color:#c3d8f5}
@@ -34,4 +34,4 @@ dialog.workspace-developer-dialog{box-sizing:border-box;width:min(520px,calc(100
 .workspace-log-indicator{position:fixed;right:24px;bottom:24px;z-index:100;display:flex;align-items:center;gap:8px;min-height:40px;padding:0 15px;border:1px solid #d1dfef;border-radius:999px;background:#f9fcffed;box-shadow:0 5px 24px #294c7522;color:#527297;font:12px "Microsoft YaHei",sans-serif;cursor:pointer}
 .workspace-log-indicator[hidden]{display:none}
 .workspace-log-indicator[data-recording=true]::before{content:"";width:7px;height:7px;border-radius:50%;background:#d95162}
-@media(max-width:800px){.home-page .home-hero{padding-right:0;padding-top:66px}.workspace-developer-entry{top:0;right:0;transform:none;min-height:40px;padding:0 15px;font-size:12px}.workspace-developer-dialog header{padding:20px}.workspace-dev-body{padding:20px}.workspace-log-indicator{right:14px;bottom:14px}}
+@media(max-width:800px){.workspace-developer-entry{top:0;right:0;transform:none;min-height:40px;padding:0 15px;font-size:12px}.workspace-developer-dialog header{padding:20px}.workspace-dev-body{padding:20px}.workspace-log-indicator{right:14px;bottom:14px}}

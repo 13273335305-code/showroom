@@ -1,10 +1,15 @@
 ﻿<!doctype html>
-<html lang="zh-CN" class="home-page-root">
+<html lang="zh-CN" class="home-page-root auth-pending">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#eef4fb">
   <title>Spenic · 工作空间</title>
+  <style>
+    html.auth-pending, html.auth-pending body { background: #080a11 !important; }
+    html.auth-pending body > :not(#authOverlay),
+    html.auth-pending body::before, html.auth-pending body::after { visibility: hidden !important; }
+  </style>
   <link rel="icon" type="image/png" sizes="64x64" href="assets/spenic-favicon.png">
   <link rel="stylesheet" href="workspace.css">
   <link rel="stylesheet" href="header.css">
@@ -33,7 +38,7 @@
 
   <main class="home-main">
     <section class="home-hero" aria-labelledby="workspaceTitle">
-      <button id="workspaceDeveloper" class="workspace-developer-entry" type="button" aria-haspopup="dialog" aria-controls="workspaceDeveloperDialog"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 16"/></svg><span>开发者</span><i aria-hidden="true"></i></button>
+      <button id="workspaceDeveloper" class="workspace-developer-entry" type="button" aria-haspopup="dialog" aria-controls="workspaceDeveloperDialog" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 16"/></svg><span>开发者</span><i aria-hidden="true"></i></button>
       <div class="home-eyebrow">SPENIC WORKSPACE</div>
       <h1 id="workspaceTitle">欢迎来到工作空间</h1>
       <p>从设计、材质到资产，把每一次灵感整理成可继续的工作。</p>

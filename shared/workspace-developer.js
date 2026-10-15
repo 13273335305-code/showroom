@@ -30,7 +30,7 @@ function error(message) { $('workspaceLogError').hidden = !message; $('workspace
 function render() {
   const current = recorder.snapshot(), recording = !!current.session?.recording;
   entry?.setAttribute('data-recording', String(recording));
-  indicator.hidden = !!entry || !current.session; indicator.dataset.recording = String(recording);
+  indicator.hidden = true; indicator.dataset.recording = String(recording);
   indicator.textContent = recording ? '日志记录中 · 开发者' : '开发者日志 · 已结束';
   $('workspaceLogStatus').dataset.recording = String(recording);
   $('workspaceLogStatus').textContent = recording ? '记录中' : current.session ? '已结束记录' : '未开始记录';

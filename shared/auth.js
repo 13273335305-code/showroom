@@ -303,7 +303,9 @@ function wireOverlay(view, resolve) {
   async function finish(identity) {
     currentIdentity = identity;
     if (isLoginPage) { location.replace(safeAuthTarget(parameters.get('next'), appRoot)); return; }
-    mountAccountAction(); view.close(); resolve({ ...authState(), allowed: true });
+    mountAccountAction(); view.close();
+    document.documentElement.classList.remove('auth-pending');
+    resolve({ ...authState(), allowed: true });
     void import('./upload-queue.js').then(module => module.startUploadQueue()).catch(() => {});
   }
   async function initialize() {
