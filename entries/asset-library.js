@@ -9,6 +9,8 @@ import { compressImageFile } from '../shared/asset-thumbnail.js';
 import { mountUploadTasks } from '../shared/upload-tasks-ui.js';
 import { groupFabricCards } from '../shared/fabric-card-groups.js';
 import { updateFabricColorSwatch } from '../shared/fabric-color-swatch.js';
+import { fetchFabricColorPreview } from '../shared/fabric-color-preview.js';
+import { syncFabricColorProgress } from '../shared/fabric-color-progress.js';
 const $ = id => document.getElementById(id);
 await requireAuth({ feature: 'assets' });
 mountToolSwitcher('assets');
@@ -835,10 +837,25 @@ function render({ background = false } = {}) {
       let pageIndex = Math.min(fabricColorPages.get(key) ?? Math.floor(variants.findIndex(variant => variant.id === asset.id) / 8), totalPages - 1);
       const bar = document.createElement('div'); bar.className = 'asset-fabric-colors';
       bar.setAttribute('role', 'group'); bar.setAttribute('aria-label', '面料色号');
-      let colorRequest = 0;
+      let colorRequest = 0, pendingColor = null, colorProgress = 0, colorController = null, progressTimer;
+      const syncColorProgress = () => {
+        bar.querySelectorAll('.asset-fabric-color').forEach(button => {
+          syncFabricColorProgress(button, { pending: button.dataset.variantId === pendingColor, progress: colorProgress });
+        });
+      };
       const switchColor = async variant => {
+        if (variant.id === pendingColor && colorProgress < 100) return;
         const request = ++colorRequest;
-        if (variant.id === asset.id) return;
+        colorController?.abort(); clearTimeout(progressTimer);
+        pendingColor = null;
+        if (variant.id === asset.id) { syncColorProgress(); return; }
+        const controller = colorController = new AbortController();
+        const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]);
+        pendingColor = variant.id; colorProgress = 0; syncColorProgress();
+        const report = value => {
+          if (request !== colorRequest || !card.isConnected) return;
+          colorProgress = Math.max(colorProgress, Math.round(value)); syncColorProgress();
+        };
         const image = document.createElement('img');
         let url = null;
         try {
@@ -847,7 +864,19 @@ function render({ background = false } = {}) {
           if (!cover?.preview) throw new Error('未找到已保存的预览图');
           const preview = cover.preview;
           Object.assign(variant, { preview, previewInfo: cover.previewInfo });
-          url = imageUrl(preview);
+          report(5);
+          try {
+            const blob = await fetchFabricColorPreview(preview, {
+              size: cover.previewReference?.size, signal,
+              onProgress: value => report(5 + value * 90),
+            });
+            if (request !== colorRequest || !card.isConnected) return;
+            url = imageUrl(blob);
+          } catch (error) {
+            if (error.name === 'AbortError' || error.name === 'TimeoutError') throw error;
+            // Some storage deployments allow <img> but block fetch CORS reads.
+            report(60); url = preview;
+          }
           if (url) { image.src = url; image.alt = variant.name + ' 预览图'; fitMaterialPreview(image, variant.previewInfo); await image.decode(); }
           if (request !== colorRequest || !card.isConnected) { if (url) URL.revokeObjectURL(url); return; }
           if (openMenu?.card === card) closeMenu();
@@ -873,7 +902,17 @@ function render({ background = false } = {}) {
           description.textContent = variant.description || '暂无简介'; description.title = variant.description || '';
           bar.querySelectorAll('.asset-fabric-color').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.variantId === variant.id)));
           renderedCards.set(variant.id, { signature: cardSignature(asset), card, selectControl: selection });
-        } catch (error) { if (url) URL.revokeObjectURL(url); if (request === colorRequest) status('色号预览加载失败：' + error.message); }
+          report(100);
+          progressTimer = setTimeout(() => {
+            if (request === colorRequest) { pendingColor = null; syncColorProgress(); }
+          }, 300);
+        } catch (error) {
+          if (url) URL.revokeObjectURL(url);
+          if (request === colorRequest) {
+            pendingColor = null; syncColorProgress();
+            status('色号预览加载失败：' + (error.name === 'TimeoutError' ? '加载超时，请重试' : error.message));
+          }
+        }
       };
       const renderColorPage = () => {
       bar.replaceChildren();
@@ -897,6 +936,7 @@ function render({ background = false } = {}) {
         next.onclick = () => { pageIndex = (pageIndex + 1) % totalPages; fabricColorPages.set(key, pageIndex); renderColorPage(); const cached = renderedCards.get(asset.id); if (cached) cached.signature = cardSignature(asset); bar.querySelector('.asset-fabric-colors-next')?.focus({ preventScroll: true }); };
         bar.append(next);
       }
+      syncColorProgress();
       };
       renderColorPage();
       art.append(bar);

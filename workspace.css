@@ -107,17 +107,25 @@ body:not(.standalone) .topbar{z-index:30}.header-actions .button{white-space:now
 .compact-fabric-colors[hidden]{display:none}
 .compact-fabric-colors .fabric-color-swatch{width:min(32px,100%);height:auto;aspect-ratio:1;flex:0 0 auto}
 .compact-fabric-color{display:grid;place-items:center;width:100%;min-width:0;aspect-ratio:1;padding:3px;border:0;border-radius:50%;background:transparent;cursor:pointer}
-.compact-fabric-color[aria-pressed=true] .fabric-color-swatch,.compact-fabric-color:focus-visible .fabric-color-swatch{outline:2px solid var(--blue,#3978ed);outline-offset:1px}
+.compact-fabric-color[aria-pressed=true] .fabric-color-swatch,.compact-fabric-color:focus-visible .fabric-color-swatch{outline:2px solid var(--blue,#3978ed);outline-offset:2px}
 .compact-fabric-color:focus-visible{outline:none}
 .compact-fabric-color{position:relative}
 .compact-fabric-color[aria-busy=true]{cursor:progress}
-.compact-fabric-progress{position:absolute;inset:0;border:2px solid #3978ed30;border-top-color:var(--blue,#3978ed);border-right-color:var(--blue,#3978ed);border-radius:50%;pointer-events:none;animation:fabric-color-progress 800ms linear infinite}
-@keyframes fabric-color-progress{to{transform:rotate(360deg)}}
+.fabric-color-progress{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;place-items:center;width:32px;height:32px;pointer-events:none}
+.fabric-color-progress svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;transform:rotate(-90deg)}
+.fabric-color-progress circle{fill:none;stroke-width:2}
+.color-progress-track{stroke:#ffffffc9}
+.color-progress-value{stroke:var(--blue,#3978ed);stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round}
+.color-progress-label{position:relative;display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#182c44c9;color:#fff;font:600 8px/1 "Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+.compact-fabric-color .fabric-color-progress{width:42.6667px;height:42.6667px}
+.compact-fabric-color .fabric-color-progress svg{transform:rotate(-90deg)}
+.compact-fabric-color .fabric-color-progress circle{stroke-width:1.5}
+.compact-fabric-color .color-progress-label{width:32px;height:32px}
 #compactSwatch .fabric-preview-image{opacity:1;filter:blur(0);transition:filter 220ms cubic-bezier(.23,1,.32,1),opacity 220ms cubic-bezier(.23,1,.32,1)}
 #compactSwatch.fabric-preview-loading .fabric-preview-image{filter:blur(6px)}
 #compactSwatch .fabric-preview-incoming{opacity:0;filter:blur(6px)}
 #compactSwatch .fabric-preview-leaving{opacity:0;filter:blur(6px)}
-@media(prefers-reduced-motion:reduce){.compact-fabric-progress{animation:none;border-right-color:transparent}#compactSwatch .fabric-preview-image{transition:opacity 125ms ease;filter:none!important}}
+@media(prefers-reduced-motion:reduce){#compactSwatch .fabric-preview-image{transition:opacity 125ms ease;filter:none!important}}
 
 /* Material editor: type, identity, sizing, then paired PBR channels. */
 .editor-panel .material-type-tabs{display:flex;gap:3px;padding:4px;border:1px solid #ffffff70;border-radius:13px;background:linear-gradient(120deg,#ffffff72,#eaf3ff5e 55%,#ffffff6a);box-shadow:0 2px 10px #1c3c5a0b;backdrop-filter:blur(16px) saturate(125%);-webkit-backdrop-filter:blur(16px) saturate(125%);margin-bottom:22px}

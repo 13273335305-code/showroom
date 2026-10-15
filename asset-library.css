@@ -7,6 +7,7 @@
 .asset-fabric-colors{position:absolute;inset:auto 0 0;z-index:2;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:4px;min-height:40px;padding:3px 8px;border-top:1px solid #ffffff8c;background:linear-gradient(120deg,#ffffff52,#e7eef63d);backdrop-filter:blur(14px) saturate(135%);-webkit-backdrop-filter:blur(14px) saturate(135%);box-shadow:0 -3px 16px #20324610}
 .standalone .asset-fabric-color{display:flex;flex:1 1 26px;align-items:center;justify-content:center;min-width:26px;max-width:40px;height:34px;padding:3px 0;border:0;border-radius:50%;background:transparent;color:#314963;line-height:1;cursor:pointer}
 .asset-fabric-color .fabric-color-swatch{width:24px;height:24px;flex:0 0 24px;box-shadow:inset 0 0 0 1px #25324620}
+.asset-fabric-color{position:relative}
 .standalone .asset-fabric-color:hover,.standalone .asset-fabric-color[aria-pressed=true]{background:transparent}.asset-fabric-color[aria-pressed=true] .fabric-color-swatch,.asset-fabric-color:focus-visible .fabric-color-swatch{outline:2px solid var(--blue,#3978ed);outline-offset:2px}.asset-fabric-color:focus-visible{outline:none}.asset-fabric-colors-next:focus-visible{outline:2px solid #3978ed;outline-offset:1px}
 .standalone .asset-fabric-colors-next{flex:0 0 16px;width:16px;height:36px;padding:0;border:0;border-radius:6px;background:#ffffff80;color:#314963;font-size:22px;cursor:pointer}
 .asset-art .sphere{width:80px;height:80px;max-height:85%;aspect-ratio:1}

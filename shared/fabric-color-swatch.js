@@ -1,4 +1,5 @@
 import { fabricVariantGroupKey } from './fabric-info.js';
+import { syncFabricColorProgress } from './fabric-color-progress.js';
 
 const fabricColorRules = {
   WBK: { base: '#f6f6f6', line: '#080808' },
@@ -23,7 +24,7 @@ export function updateFabricColorSwatch(element, colorCode = '') {
   element.title = description;
 }
 
-export function renderFabricColorList(container, codes, { active, pending, onSelect = null } = {}) {
+export function renderFabricColorList(container, codes, { active, pending, progress = null, onSelect = null } = {}) {
   const document = container.ownerDocument;
   const unique = [...new Set(codes.map(code => String(code).trim().toUpperCase()).filter(Boolean))];
   container.replaceChildren(...unique.map(code => {
@@ -35,13 +36,8 @@ export function renderFabricColorList(container, codes, { active, pending, onSel
     const button = document.createElement('button'); button.type = 'button'; button.className = 'compact-fabric-color';
     button.setAttribute('aria-label', '切换色号 ' + code);
     button.setAttribute('aria-pressed', String(code === active?.trim().toUpperCase()));
-    button.setAttribute('aria-busy', String(code === pending?.trim().toUpperCase()));
     button.onclick = () => onSelect(code); button.append(ball);
-    if (code === pending?.trim().toUpperCase()) {
-      const progress = document.createElement('span'); progress.className = 'compact-fabric-progress';
-      progress.setAttribute('role', 'progressbar'); progress.setAttribute('aria-label', '正在加载色号 ' + code);
-      button.append(progress);
-    }
+    syncFabricColorProgress(button, { pending: code === pending?.trim().toUpperCase(), progress });
     return button;
   }));
   container.hidden = unique.length === 0;

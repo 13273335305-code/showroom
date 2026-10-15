@@ -14,7 +14,11 @@ test('inspector lists all colors without folding, names or switching controls', 
 });
 
 test('interactive inspector balls switch only on click and expose active and loading states', () => {
-  const document = { createElement(tagName) { return { tagName, children: [], dataset: {}, style: { setProperty() {} }, setAttribute(key, value) { this[key] = value; }, removeAttribute(key) { delete this[key]; }, append(...children) { this.children.push(...children); } }; } };
+  const document = { createElement(tagName) { return { tagName, ownerDocument: document, children: [], dataset: {}, style: { setProperty() {} },
+    setAttribute(key, value) { this[key] = value; }, getAttribute(key) { return this[key]; }, removeAttribute(key) { delete this[key]; },
+    querySelector(selector) { return this.children.find(child => '.' + child.className === selector); },
+    set innerHTML(value) { this.children = ['color-progress-value', 'color-progress-label'].map(className => ({ className, style: {} })); },
+    append(...children) { this.children.push(...children); } }; } };
   const host = { ownerDocument: document, replaceChildren(...children) { this.children = children; } }, calls = [];
   renderFabricColorList(host, ['WBR', 'DBW'], { active: 'wbr', pending: 'dbw', onSelect: code => calls.push(code) });
   assert.deepEqual(calls, []);
@@ -23,8 +27,15 @@ test('interactive inspector balls switch only on click and expose active and loa
   assert.equal(host.children[1]['aria-busy'], 'true');
   assert.equal(host.children[0].children.length, 1);
   assert.equal(host.children[1].children[1].role, 'progressbar');
-  assert.equal(host.children[1].children[1]['aria-valuenow'], undefined);
+  assert.equal(host.children[1].children[1]['aria-valuenow'], '0');
+  assert.equal(host.children[1].children[1].className, 'fabric-color-progress');
   host.children[1].onclick(); assert.deepEqual(calls, ['DBW']);
+  renderFabricColorList(host, ['WBR', 'DBW'], { active: 'DBW', pending: 'DBW', progress: 100, onSelect: code => calls.push(code) });
+  const completed = host.children[1];
+  assert.equal(completed['aria-pressed'], 'true');
+  assert.equal(completed['aria-busy'], 'false');
+  assert.equal(completed.children[1]['aria-valuenow'], '100');
+  assert.equal(completed.children[1].querySelector('.color-progress-label').textContent, '100%');
 });
 
 test('default color picker shows only balls and selects one color per fabric group', () => {

@@ -126,7 +126,7 @@ export function createDesignWorkspace(api) {
     const data = api.read(target);
     const currentTarget = target;
     renderFabricColorList($('compactFabricColors'), data.fabricColorCodes || [], {
-      active: data.fabricColorCode, pending: data.fabricColorPending,
+      active: data.fabricColorCode, pending: data.fabricColorPending || data.fabricColorCompleted, progress: data.fabricColorProgress,
       onSelect: data.fabricVariants?.length ? code => api.switchFabricColor(currentTarget, code) : null,
     });
     $('compactColor').value = data.color;

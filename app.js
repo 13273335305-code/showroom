@@ -651,16 +651,22 @@ async function switchFabricColor(entry,code){
  const variant=entry.fabricVariants?.find(item=>item.fabricColorCode.trim().toUpperCase()===code.trim().toUpperCase());
  if(!variant||entry.removed||!entries.includes(entry))return;
  const token=entry.fabricColorRequest=(entry.fabricColorRequest||0)+1,generation=modelGeneration;
+ if(typeof clearTimeout==='function')clearTimeout(entry.fabricColorProgressTimer);
+ entry.fabricColorCompleted=null;
  entry.fabricColorPending=variant.id===entry.assetId?null:code;
+ entry.fabricColorProgress=entry.fabricColorPending?0:null;
  if(selected===entry)designUI?.sync();
  if(variant.id===entry.assetId)return;
- let prepared;
+ const setColorProgress=value=>{if(token===entry.fabricColorRequest&&generation===modelGeneration&&!entry.removed){entry.fabricColorProgress=value;if(selected===entry)designUI?.sync();}};
+ let prepared,switched=false;
  try{
-  const [loaded,preview]=await Promise.all([getAsset(variant.id),readAsset(variant.id,{previewOnly:true}).then(async asset=>{if(asset?.preview)await preloadFabricPreview(asset.preview);return asset;})]);
+  const [loaded,preview]=await Promise.all([getAsset(variant.id),readAsset(variant.id,{previewOnly:true}).then(async asset=>{setColorProgress(30);if(asset?.preview){await preloadFabricPreview(asset.preview);setColorProgress(55);}return asset;})]);
   if(token!==entry.fabricColorRequest||generation!==modelGeneration||entry.removed)return;
   if(!loaded)throw new Error('该色号已被删除');
   const asset=preview?.preview?{...loaded,preview:preview.preview}:loaded;
+  setColorProgress(65);
   prepared=await prepareFabricEntry({...asset,fabricVariants:entry.fabricVariants,fabricColorCodes:entry.fabricColorCodes},entry.id);
+  setColorProgress(90);
   if(token!==entry.fabricColorRequest||generation!==modelGeneration||entry.removed||!entries.includes(entry)){disposePreparedFabric(prepared);prepared=null;return;}
   const previousMaps=MAPS.map(([key])=>[key,entry.material[key]]),previousUploads=entry.uploads,previousPreview=entry.previewUrl;
   finishReveal();
@@ -673,8 +679,15 @@ async function switchFabricColor(entry,code){
   for(const[key,texture]of previousMaps)if(texture&&texture!==entry.baseline[key])texture.dispose();
   Object.values(previousUploads).forEach(upload=>URL.revokeObjectURL(upload.preview));if(previousPreview)URL.revokeObjectURL(previousPreview);
   if(selected===entry)selectEntry(entry);else renderMaterials();
+  switched=true;
  }catch(error){if(prepared)disposePreparedFabric(prepared);if(token===entry.fabricColorRequest)notify('色号切换失败：'+error.message,5000);}
- finally{if(token===entry.fabricColorRequest){entry.fabricColorPending=null;if(generation===modelGeneration&&selected===entry)designUI?.sync();}}
+ finally{if(token===entry.fabricColorRequest){
+  if(switched){
+   entry.fabricColorPending=null;entry.fabricColorCompleted=code;setColorProgress(100);
+   if(typeof setTimeout==='function')entry.fabricColorProgressTimer=setTimeout(()=>{if(token!==entry.fabricColorRequest)return;entry.fabricColorProgress=null;entry.fabricColorCompleted=null;if(generation===modelGeneration&&selected===entry)designUI?.sync();},300);
+   else{entry.fabricColorProgress=null;entry.fabricColorCompleted=null;}
+  }else{entry.fabricColorProgress=null;entry.fabricColorPending=null;entry.fabricColorCompleted=null;if(generation===modelGeneration&&selected===entry)designUI?.sync();}
+ }}
 }
 async function saveSelectedToLibrary(){
  const entry=selected;if(!entry||loadingModel)return notify('请先完成模型载入并选择材质');
@@ -1316,7 +1329,7 @@ function removeUnusedDockItems(items){
 }
 function bindDesignWorkspace(){
  designUI=createDesignWorkspace({notify,canRemove:canRemoveDockItem,prepareRemoval,removeUnused:removeUnusedDockItems,undo:undoMaterialAssignment,cancelPlacement:()=>setPatternMode(false),showScene:()=>{setPatternMode(false);showPanel('scene');},add:addDesignAsset,
-  read:t=>({name:(t.entry||t.source||t.pattern).name,fabricColorCodes:t.entry?.fabricColorCodes||[],fabricVariants:t.entry?.fabricVariants,fabricColorCode:t.entry?.fabricColorCode,fabricColorPending:t.entry?.fabricColorPending,color:'#'+designMaterial(t).color.getHexString(),...designPlacement(t)}),
+ read:t=>({name:(t.entry||t.source||t.pattern).name,fabricColorCodes:t.entry?.fabricColorCodes||[],fabricVariants:t.entry?.fabricVariants,fabricColorCode:t.entry?.fabricColorCode,fabricColorPending:t.entry?.fabricColorPending,fabricColorCompleted:t.entry?.fabricColorCompleted,fabricColorProgress:t.entry?.fabricColorProgress,color:'#'+designMaterial(t).color.getHexString(),...designPlacement(t)}),
   switchFabricColor:(t,code)=>t.entry?switchFabricColor(t.entry,code):Promise.resolve(),
   preview:(el,t)=>{if(t.entry){decorateSwatch(el,t.entry);return;}const m=designMaterial(t);decorateSwatch(el,{material:m,uploads:{},thumbnails:{map:designPreview(m.map)}});},
   color:(t,color)=>{finishPatternReveals();designMaterial(t).color.set(color);if(t.kind==='fabric')renderMaterials();else renderDesignPatterns();},
