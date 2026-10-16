@@ -219,7 +219,7 @@ html.auth-login-document body.auth-login-page { min-height: 100dvh; }
 }
 .auth-overlay[data-auth-intro]:not([data-auth-intro="complete"]) > :not(.auth-background) { pointer-events: none; }
 .auth-intro-hello {
-  position: fixed; top: 50%; left: 50%; z-index: 1; display: grid; place-items: center;
+  position: fixed; top: 50%; left: 50%; z-index: 11; display: grid; place-items: center;
   color: transparent; background: linear-gradient(112deg, #fffffff5 0%, #ffffffd6 30%, #ffffffe9 54%, #f5f8ffdc 78%, #fffffff8 100%);
   background-size: 220% 100%; background-position: 0% 50%;
   -webkit-background-clip: text; background-clip: text;

@@ -5,10 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#080a11">
   <title>Spenic · 登录</title>
+  <style>
+    /* Keep the first loading frame independent of module downloads. */
+    .auth-boot-loading { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: #000; pointer-events: none; transition: opacity 200ms cubic-bezier(.23, 1, .32, 1); }
+    .auth-boot-loading[data-ready] { opacity: 0; }
+    /* Match the intro greeting even before login.css has downloaded. */
+    .auth-boot-loading .auth-intro-hello {
+      position: fixed; top: 50%; left: 50%; display: grid; place-items: center;
+      color: transparent; background: linear-gradient(112deg, #fffffff5 0%, #ffffffd6 30%, #ffffffe9 54%, #f5f8ffdc 78%, #fffffff8 100%);
+      background-size: 220% 100%; background-position: 0% 50%;
+      -webkit-background-clip: text; background-clip: text; -webkit-text-stroke: 1px #ffffff32;
+      transform: translate(-50%, -50%); font: 500 clamp(30px, 4vw, 58px) -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif;
+      letter-spacing: .08em; text-shadow: 0 0 5px #ffffff45, 0 0 16px #c8d9ff24, 0 2px 12px #000;
+      pointer-events: none; user-select: none;
+    }
+    @media (prefers-reduced-transparency: reduce) { .auth-boot-loading .auth-intro-hello { color: #eef3ff; background: none; -webkit-text-stroke: 0; text-shadow: 0 0 18px #9cb8ff66; } }
+    @media (forced-colors: active) { .auth-boot-loading { background: Canvas; } .auth-boot-loading .auth-intro-hello { color: CanvasText; background: none; -webkit-text-stroke: 0; text-shadow: none; } }
+  </style>
   <link rel="icon" type="image/png" sizes="64x64" href="assets/spenic-favicon.png">
   <link rel="stylesheet" href="login.css">
 </head>
 <body class="auth-login-page">
+  <div id="authBootLoading" class="auth-boot-loading" role="status" aria-label="正在载入...">
+    <span class="auth-intro-hello" aria-hidden="true">Hello</span>
+  </div>
   <script type="module" src="shared/auth.js"></script>
 </body>
 </html>

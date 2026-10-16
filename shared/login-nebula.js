@@ -59,7 +59,7 @@ var NEBULA_DIFFUSE_FRAGMENT = [
   'vec4 diffuseColor = vec4(vColor, smoothstep(0.5, 0.1, particleDistance));',
 ].join('\n');
 
-export function mountLoginNebula(canvas, toggle, { onIntroProgress = () => {} } = {}) {
+export function mountLoginNebula(canvas, toggle, { onIntroProgress = () => {}, onReady = () => {} } = {}) {
   const motion = matchMedia('(prefers-reduced-motion: reduce)');
   const compact = matchMedia('(max-width: 850px)');
   let renderer;
@@ -68,6 +68,7 @@ export function mountLoginNebula(canvas, toggle, { onIntroProgress = () => {} } 
   } catch {
     toggle.hidden = true;
     onIntroProgress(1, 3500);
+    onReady();
     return { dispose() {} };
   }
   const scene = new THREE.Scene();
@@ -182,7 +183,7 @@ export function mountLoginNebula(canvas, toggle, { onIntroProgress = () => {} } 
   document.addEventListener('visibilitychange', onVisibility);
   window.addEventListener('pagehide', onPageHide); window.addEventListener('pageshow', onPageShow);
   canvas.addEventListener('webglcontextlost', onContextLost); canvas.addEventListener('webglcontextrestored', onContextRestored);
-  applyIntroState(); resize(); updateToggle(); wake();
+  applyIntroState(); resize(); onReady(); updateToggle(); wake();
   return { dispose() {
     disposed = true; stop(); observer.disconnect();
     toggle.removeEventListener('click', onToggle); motion.removeEventListener('change', onMotion);

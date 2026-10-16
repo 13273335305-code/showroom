@@ -237,7 +237,15 @@ function mountOverlay() {
     if (opacity === 1) { foregroundVisible = true; foreground.forEach(element => { element.inert = false; }); }
   };
   const previousFocus = document.activeElement;
-  const backgrounds = [...document.body.children].filter(element => !['SCRIPT', 'STYLE', 'LINK'].includes(element.tagName));
+  const loading = isLoginPage ? document.getElementById('authBootLoading') : null;
+  let loadingTimer;
+  const finishLoading = () => {
+    if (!loading || loading.hasAttribute('data-ready')) return;
+    loading.setAttribute('data-ready', '');
+    loading.setAttribute('aria-hidden', 'true');
+    loadingTimer = setTimeout(() => loading.remove(), 200);
+  };
+  const backgrounds = [...document.body.children].filter(element => element !== loading && !['SCRIPT', 'STYLE', 'LINK'].includes(element.tagName));
   const states = backgrounds.map(element => [element, element.inert]);
   backgrounds.forEach(element => { element.inert = true; });
   const overflow = document.body.style.overflow;
@@ -249,8 +257,12 @@ function mountOverlay() {
     if (overlay.classList.contains('auth-overlay-checking') || closed) return;
     sceneObserver.disconnect();
     import('./login-nebula.js').then(({ mountLoginNebula }) => {
-      if (!closed) background = mountLoginNebula(overlay.querySelector('.auth-nebula'), overlay.querySelector('.auth-motion-toggle'), { onIntroProgress: revealForeground });
-    }).catch(() => { if (!closed) { overlay.querySelector('.auth-motion-toggle').hidden = true; revealForeground(1); } });
+      if (!closed) background = mountLoginNebula(overlay.querySelector('.auth-nebula'), overlay.querySelector('.auth-motion-toggle'), {
+        onIntroProgress: revealForeground,
+        // The matching intro Hello stays above the opening blackout during handoff.
+        onReady: finishLoading,
+      });
+    }).catch(() => { if (!closed) { overlay.querySelector('.auth-motion-toggle').hidden = true; revealForeground(1); finishLoading(); } });
   };
   const sceneObserver = new MutationObserver(startBackground);
   sceneObserver.observe(overlay, { attributes: true, attributeFilter: ['class'] });
@@ -266,6 +278,7 @@ function mountOverlay() {
   overlay.addEventListener('keydown', trap);
   return { overlay, close() {
     closed = true; sceneObserver.disconnect(); background?.dispose();
+    clearTimeout(loadingTimer); loading?.remove();
     overlay.removeEventListener('keydown', trap);
     states.forEach(([element, inert]) => { element.inert = inert; });
     document.body.style.overflow = overflow; overlay.remove(); activeOverlay = null;
