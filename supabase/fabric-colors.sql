@@ -6,7 +6,7 @@ as $$
 declare item jsonb; codes text[] := '{}'; code text;
 begin
   if jsonb_typeof(value) is distinct from 'array' then return false; end if;
-  if jsonb_array_length(value) < 1 or jsonb_array_length(value) > 500 then return false; end if;
+  if jsonb_array_length(value) > 500 then return false; end if;
   for item in select jsonb_array_elements(value) loop
     if jsonb_typeof(item) is distinct from 'object'
       or jsonb_typeof(item->'code') is distinct from 'string'

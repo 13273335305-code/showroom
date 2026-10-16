@@ -10,7 +10,7 @@ export const DEFAULT_FABRIC_COLORS = Object.freeze([
 ].map(Object.freeze));
 
 export function readFabricColors(value) {
-  if (!Array.isArray(value) || !value.length || value.length > 500) throw new Error('请配置 1–500 个色号球');
+  if (!Array.isArray(value) || value.length > 500) throw new Error('色号球配置须为列表，最多 500 个');
   const codes = new Set();
   return value.map((item, index) => {
     const code = String(item?.code ?? '').trim().toUpperCase();
@@ -41,11 +41,21 @@ export function createFabricColorStore({ access, fetch: request = globalThis.fet
   async function save(value) {
     const colors = readFabricColors(value);
     if (local) {
-      const response = await request('./__form_fabric_colors', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(colors),
-      });
+      let response;
+      try {
+        response = await request('./__form_fabric_colors', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(colors),
+        });
+      } catch { throw new Error('无法连接本地服务，请确认服务窗口仍在运行后重试'); }
       const result = await response.json().catch(() => null);
-      if (!response.ok || result?.saved !== true) throw new Error('色号配置未保存，请重新启动最新版本地服务后重试');
+      if (!response.ok) {
+        if (response.status === 400) throw new Error('色号配置未保存：本地服务校验未通过，请确认已更新服务并检查色号与颜色');
+        if (response.status === 403) throw new Error('色号配置未保存：本地服务拒绝了请求，请从启动器打开的本地地址访问');
+        if ([404, 405].includes(response.status)) throw new Error('当前服务不支持色号保存，请关闭旧服务后通过“启动编辑器”重新打开');
+        if (response.status >= 500) throw new Error('色号配置未保存：无法写入配置文件，请检查文件是否只读或被其他程序占用');
+        throw new Error('色号配置未保存，请检查本地服务后重试');
+      }
+      if (result?.saved !== true) throw new Error('色号配置未保存：本地服务没有返回保存确认，请重试');
       return colors;
     }
     const { client } = await access();

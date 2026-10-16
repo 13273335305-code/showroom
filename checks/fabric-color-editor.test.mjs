@@ -54,3 +54,36 @@ test('pending saves cannot be cancelled or changed, and failures retain edits fo
   assert.equal(editor.colors[0].line, '#123456'); assert.equal(editor.editing, null);
   assert.deepEqual(editor.colors.slice(1), DEFAULT_FABRIC_COLORS.slice(1));
 });
+
+test('delete removes the original row, ignoring unsaved renames and invalid draft values', async () => {
+  const writes = [], editor = createFabricColorEditor(async value => { writes.push(value); return value; });
+  editor.reset(DEFAULT_FABRIC_COLORS); editor.begin(2);
+  editor.update('code', 'WBK'); editor.update('line', 'invalid');
+  const result = await editor.remove();
+  assert.deepEqual(result, DEFAULT_FABRIC_COLORS.filter((_, index) => index !== 2));
+  assert.deepEqual(writes, [result]); assert.equal(editor.editing, null);
+});
+
+test('delete failures preserve the row and draft, pending deletes block other actions, and retry can remove the last row', async () => {
+  let complete;
+  const editor = createFabricColorEditor(value => new Promise((resolve, reject) => { complete = { resolve: () => resolve(value), reject }; }));
+  editor.reset([DEFAULT_FABRIC_COLORS[0]]); editor.begin(0); editor.update('code', 'ABC');
+  const failing = editor.remove();
+  editor.cancel(); editor.update('code', 'XYZ'); editor.reset(DEFAULT_FABRIC_COLORS);
+  assert.equal(editor.add(), false); assert.equal(editor.begin(0), false);
+  await assert.rejects(editor.remove(), /请先选择/); await assert.rejects(editor.commit(), /请先选择/);
+  complete.reject(new Error('Delete failed')); await assert.rejects(failing, /Delete failed/);
+  assert.deepEqual(editor.colors, [DEFAULT_FABRIC_COLORS[0]]); assert.equal(editor.editing.value.code, 'ABC');
+  const retry = editor.remove(); complete.resolve(); assert.deepEqual(await retry, []);
+  assert.equal(editor.editing, null); assert.deepEqual(editor.colors, []);
+  assert.equal(editor.add(), true); editor.update('code', 'XYZ');
+  const added = editor.commit(); complete.resolve(); assert.equal((await added)[0].code, 'XYZ');
+});
+
+test('minus on an unsaved new row only removes the draft without publishing', async () => {
+  const editor = createFabricColorEditor(() => { throw new Error('Unexpected save'); });
+  editor.reset(DEFAULT_FABRIC_COLORS); editor.add();
+  assert.deepEqual(await editor.remove(), DEFAULT_FABRIC_COLORS);
+  assert.equal(editor.editing, null); assert.equal(editor.dirty, false);
+  await assert.rejects(editor.remove(), /请先选择/);
+});

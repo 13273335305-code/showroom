@@ -5,6 +5,7 @@ const path = require('node:path');
 
 (async () => {
   const root = path.resolve(__dirname, '..');
+  const { DEFAULT_FABRIC_COLORS } = await import('../shared/fabric-color-config.js');
   const html = (await fs.readFile(path.join(root, 'index.html'), 'utf8')).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').replace('home-page-root auth-pending', 'home-page-root').replace(/<div id="authBootLoading"[^>]*><\/div>/, '')
     .replace('</body>', '<script type="module" src="shared/system-config.js"></script></body>');
   let saved = null, failSave = false;
@@ -16,6 +17,7 @@ const path = require('node:path');
       await context.route('http://settings.test/**', async route => {
         const name = new URL(route.request().url()).pathname.slice(1);
         if (!name || name === 'index.html') return route.fulfill({ contentType: 'text/html', body: html });
+        if (name === 'fabric-colors.json') return route.fulfill({ json: DEFAULT_FABRIC_COLORS });
         if (name === 'shared/auth.js') return route.fulfill({ contentType: 'text/javascript', body: `export async function workspaceClient(){return {client:{from(){let value;return {select(){return this},eq(){return this},upsert(row){value=row.colors;return this},async maybeSingle(){return (await fetch('/__colors')).json()},async single(){return (await fetch('/__colors',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)})).json()}}}}}}` });
         if (name === '__colors') {
           if (route.request().method() === 'POST') {
@@ -104,7 +106,44 @@ const path = require('node:path');
         await page.mouse.click(track.x + track.width / 2, track.y + track.height - 8);
         assert.ok(await page.locator('#systemConfigScroll').evaluate(element => element.scrollTop > 0));
       }
+      await page.getByRole('button', { name: '编辑色号 XYZ', exact: true }).click();
+      const buttons = page.locator('.system-color-row[data-editing=true] .system-color-action');
+      assert.equal(await buttons.count(), 3);
+      const boxes = await buttons.evaluateAll(elements => elements.map(element => {
+        const rect = element.getBoundingClientRect(); return { left: rect.left, right: rect.right };
+      }));
+      assert.ok(boxes.every((box, index) => index === 0 || box.left >= boxes[index - 1].right), 'Delete, cancel and save do not overlap');
+      assert.equal(await page.locator('#systemConfigDialog').evaluate(el => el.scrollWidth <= el.clientWidth), true);
+      await page.locator('.system-color-cancel').click();
     }
+    await page.getByRole('button', { name: '编辑色号 ABC', exact: true }).click();
+    await page.getByRole('textbox', { name: '第 9 行色号', exact: true }).fill('BAD');
+    failSave = true; await page.locator('.system-color-delete').click();
+    await page.getByText(/当前账号没有修改全站配置/).waitFor();
+    assert.equal(saved.some(item => item.code === 'ABC'), true);
+    assert.equal(await page.getByRole('textbox', { name: '第 9 行色号', exact: true }).inputValue(), 'BAD');
+    failSave = false; await page.locator('.system-color-delete').click();
+    await page.getByText('已删除 ABC，全站色号球已更新', { exact: true }).waitFor();
+    assert.equal(saved.some(item => item.code === 'ABC'), false);
+    assert.equal(saved.some(item => item.code === 'BAD'), false);
+    await consumer.waitForFunction(() => document.getElementById('consumerSwatch').dataset.configured === 'false');
+    await other.reload(); await open(other);
+    assert.equal(await other.getByRole('button', { name: '编辑色号 ABC', exact: true }).count(), 0);
+    while (saved.length) {
+      await page.locator('.system-color-edit').first().click();
+      await page.locator('.system-color-delete').click();
+      await page.getByText(/已删除 .+，全站色号球已更新/).waitFor();
+      await page.locator('#systemColorAdd:not(:disabled)').waitFor();
+    }
+    assert.equal(await page.locator('.system-color-row').count(), 0);
+    await page.locator('#systemColorAdd').click(); await page.locator('.system-color-delete').click();
+    await page.getByText('已移除新增草稿', { exact: true }).waitFor();
+    assert.deepEqual(saved, []);
+    await other.reload(); await open(other); assert.equal(await other.locator('.system-color-row').count(), 0);
+    await page.locator('#systemColorAdd').click();
+    await page.getByRole('textbox', { name: '第 1 行色号', exact: true }).fill('NEW');
+    await page.locator('.system-color-confirm').click();
+    await page.getByText('已保存 NEW，全站色号球已更新', { exact: true }).waitFor();
     await page.locator('#systemConfigBack').click(); await page.screenshot({ path: 'checks/system-config-menu.png' });
     assert.deepEqual(errors, []);
     console.log('System configuration workflow passed: nine slots, configured rows without placeholders, live preview, validation, confirmed global save, cross-tab update, independent browser persistence, unsaved changes, ten colors and responsive layout.');

@@ -88,6 +88,12 @@ for (let i = 1; i < 9; i++) {
   slot.setAttribute('aria-label', `预留配置 ${i + 1}`); slot.innerHTML = '<span aria-hidden="true">＋</span>'; $('systemConfigMenu').append(slot);
 }
 function preview(element, value) {
+  if (!value) {
+    element.style.setProperty('--fabric-swatch-base', '#f0f3f7');
+    element.style.setProperty('--fabric-swatch-line', 'transparent');
+    element.setAttribute('aria-label', '暂无色号球');
+    return;
+  }
   element.style.setProperty('--fabric-swatch-base', value.base);
   element.style.setProperty('--fabric-swatch-line', value.line);
   element.setAttribute('aria-label', `${value.code || '新色号'}，底色 ${value.base}，线色 ${value.line}`);
@@ -142,12 +148,12 @@ function renderRows() {
     }
     const actions = document.createElement('div'); actions.className = 'system-color-actions';
     if (active) {
-      actions.append(actionButton('system-color-cancel', '取消编辑色号 ' + (item.code || '新色号'), 'm6 6 12 12M18 6 6 18', () => {
+      actions.append(actionButton('system-color-delete', '删除色号 ' + (item.code || '新色号'), 'M6 12h12', deleteRow), actionButton('system-color-cancel', '取消编辑色号 ' + (item.code || '新色号'), 'm6 6 12 12M18 6 6 18', () => {
         editor.cancel(); renderRows(); status('已取消修改'); if (editing.isNew) $('systemColorAdd').focus({ preventScroll: true }); else focusRow(index);
       }), actionButton('system-color-confirm', '保存色号 ' + (item.code || '新色号'), 'm5 12 4 4L19 6', saveRow));
     } else actions.append(actionButton('system-color-edit', '编辑色号 ' + item.code, null, () => {
       if (!editor.begin(index)) return;
-      renderRows(); status('编辑后点击 √ 保存，或点击 × 取消。'); focusRow(index, 'input');
+      renderRows(); status('编辑后点击 √ 保存、× 取消，或点击 − 删除。'); focusRow(index, 'input');
     }));
     row.append(actions);
     rows.append(row);
@@ -164,6 +170,23 @@ async function saveRow() {
     status(`已保存 ${result[editing.index].code}，全站色号球已更新`);
   } catch (error) { status(error.message, true); }
   finally { busy = false; syncBusy(); if (!editor.editing) focusRow(editing.index); }
+}
+async function deleteRow() {
+  const editing = editor.editing;
+  if (!editing || busy || !loaded) return;
+  const code = editor.colors[editing.index]?.code;
+  busy = true; syncBusy(); status('正在删除色号球…'); $('systemConfigDiscard').hidden = true;
+  try {
+    const result = await editor.remove(); renderRows(); preview(menuBall, result[0]);
+    status(editing.isNew ? '已移除新增草稿' : `已删除 ${code}，全站色号球已更新`);
+  } catch (error) { status(error.message, true); }
+  finally {
+    busy = false; syncBusy();
+    if (!editor.editing) {
+      if (editing.isNew || !editor.colors.length) $('systemColorAdd').focus({ preventScroll: true });
+      else focusRow(Math.min(editing.index, editor.colors.length - 1));
+    }
+  }
 }
 async function openColors() {
   colorsPage = true; $('systemConfigMenu').hidden = true; $('systemConfigColors').hidden = false; $('systemConfigBack').hidden = false;

@@ -23,6 +23,17 @@ export function createFabricColorEditor(save) {
       if (!saving && editing && ['code', 'base', 'line'].includes(key)) editing.value[key] = value;
     },
     cancel() { if (!saving) editing = null; },
+    async remove() {
+      if (saving || !editing) throw new Error('请先选择要编辑的色号');
+      if (editing.index === colors.length) { editing = null; return colors.map(copy); }
+      const next = colors.filter((_, index) => index !== editing.index).map(copy);
+      saving = true;
+      try {
+        colors = readFabricColors(await save(next));
+        editing = null;
+        return colors.map(copy);
+      } finally { saving = false; }
+    },
     async commit() {
       if (saving || !editing) throw new Error('请先选择要编辑的色号');
       const next = colors.map(copy); next[editing.index] = copy(editing.value);

@@ -6,8 +6,11 @@ $designViewFile=Join-Path $root 'design-default-view.json'
 $fabricColorsFile=Join-Path $root 'fabric-colors.json'
 function Read-FabricColors([string]$json){
  if(-not $json.TrimStart().StartsWith('[')){throw 'Invalid color list'}
- $value=@($json | ConvertFrom-Json)
- if($value.Count -lt 1 -or $value.Count -gt 500){throw 'Invalid color list'}
+ # Validate standalone JSON, then preserve arrays as a property on both PS versions.
+ $null=ConvertFrom-Json -InputObject $json
+ $value=(ConvertFrom-Json -InputObject ('{"colors":'+$json+'}')).colors
+ if($value -isnot [Array]){throw 'Invalid color list'}
+ if($value.Count -gt 500){throw 'Invalid color list'}
  $seen=@{};$result=@()
  foreach($item in $value){
   if($item.code -isnot [string] -or $item.code -cnotmatch '^[A-Z]{3}$' -or $seen.ContainsKey($item.code)){throw 'Invalid or duplicate color code'}
@@ -15,6 +18,33 @@ function Read-FabricColors([string]$json){
   $seen[$item.code]=$true;$result+=@{code=$item.code;base=$item.base.ToLowerInvariant();line=$item.line.ToLowerInvariant()}
  }
  return ,$result
+}
+function Save-FabricColors($value){
+ $content=[Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $value -Depth 5))
+ $temporary=$fabricColorsFile+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
+ try{
+  [IO.File]::WriteAllBytes($temporary,$content)
+  if(-not [IO.File]::Exists($fabricColorsFile)){[IO.File]::Move($temporary,$fabricColorsFile);return}
+  try{[IO.File]::Replace($temporary,$fabricColorsFile,[NullString]::Value);return}
+  catch [UnauthorizedAccessException],[IO.IOException]{
+   # Some Windows folders allow writing the file but deny replacing its metadata.
+   # Preserve that file's identity and permissions, and lock it during the update.
+   $target=$null;$previous=$null
+   try{
+    $target=[IO.File]::Open($fabricColorsFile,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+    $previous=New-Object byte[] ([int]$target.Length)
+    $offset=0
+    while($offset -lt $previous.Length){$count=$target.Read($previous,$offset,$previous.Length-$offset);if($count -le 0){throw 'Incomplete configuration backup'};$offset+=$count}
+    try{
+     $target.Position=0;$target.Write($content,0,$content.Length);$target.SetLength($content.Length);$target.Flush($true)
+    }catch{
+     $failure=$_
+     $target.Position=0;$target.Write($previous,0,$previous.Length);$target.SetLength($previous.Length);$target.Flush($true)
+     throw $failure
+    }
+   }finally{if($target){$target.Dispose()}}
+  }
+ }finally{if([IO.File]::Exists($temporary)){[IO.File]::Delete($temporary)}}
 }
 function Read-PartsView($value){
  if($value.format -cne 'SPENIC-MODEL-VIEW' -or $value.version -ne 1){throw 'Invalid view file format'}
@@ -161,13 +191,10 @@ try{
        $value=Read-FabricColors $text
       }catch{$status='400 Bad Request';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Invalid fabric colors"}')}
       if(-not $bytes){
-       $temporary=$fabricColorsFile+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
        try{
-        [IO.File]::WriteAllText($temporary,(ConvertTo-Json -InputObject $value -Depth 5),[Text.UTF8Encoding]::new($false))
-        if([IO.File]::Exists($fabricColorsFile)){[IO.File]::Replace($temporary,$fabricColorsFile,[NullString]::Value)}else{[IO.File]::Move($temporary,$fabricColorsFile)}
+        Save-FabricColors $value
         $bytes=[Text.Encoding]::UTF8.GetBytes('{"saved":true,"file":"fabric-colors.json"}')
        }catch{$status='500 Internal Server Error';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Cannot write fabric colors"}')}
-       finally{if([IO.File]::Exists($temporary)){[IO.File]::Delete($temporary)}}
       }
      }
     }else{$status='405 Method Not Allowed';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Method not allowed"}')}

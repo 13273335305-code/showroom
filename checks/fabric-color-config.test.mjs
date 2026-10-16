@@ -6,7 +6,8 @@ import { DEFAULT_FABRIC_COLORS, readFabricColors, createFabricColorStore } from 
 
 test('color codes normalize, duplicates and malformed color definitions are rejected', () => {
   assert.deepEqual(readFabricColors([{ code: ' abc ', base: '#AABBCC', line: '#001122' }]), [{ code: 'ABC', base: '#aabbcc', line: '#001122' }]);
-  for (const colors of [[], null, [{ code: 'AB', base: '#123456', line: '#123456' }],
+  assert.deepEqual(readFabricColors([]), []);
+  for (const colors of [null, [{ code: 'AB', base: '#123456', line: '#123456' }],
     [...DEFAULT_FABRIC_COLORS, { ...DEFAULT_FABRIC_COLORS[0], code: 'wbk' }],
     [{ code: 'ABC', base: '#fff', line: '#123456' }], [{ code: 'ABC', base: '#123456', line: 'red' }]]) assert.throws(() => readFabricColors(colors));
 });
@@ -24,6 +25,20 @@ test('local save requires server confirmation and never stores failed changes', 
   assert.deepEqual(await store.save(DEFAULT_FABRIC_COLORS), DEFAULT_FABRIC_COLORS);
   assert.equal(calls.at(-1).url, './__form_fabric_colors');
   assert.deepEqual(JSON.parse(calls.at(-1).options.body), DEFAULT_FABRIC_COLORS);
+  assert.deepEqual(await store.save([]), []);
+  assert.equal(calls.at(-1).options.body, '[]');
+});
+
+test('local failures distinguish invalid input, old servers, write errors and disconnections', async () => {
+  let status = 400, disconnected = false;
+  const store = createFabricColorStore({ location: { hostname: 'localhost' }, fetch: async () => {
+    if (disconnected) throw new TypeError('fetch failed');
+    return { ok: false, status, json: async () => ({ error: 'Failure' }) };
+  } });
+  await assert.rejects(store.save(DEFAULT_FABRIC_COLORS), /校验未通过/);
+  status = 404; await assert.rejects(store.save(DEFAULT_FABRIC_COLORS), /不支持色号保存/);
+  status = 500; await assert.rejects(store.save(DEFAULT_FABRIC_COLORS), /无法写入配置文件/);
+  disconnected = true; await assert.rejects(store.save(DEFAULT_FABRIC_COLORS), /无法连接本地服务/);
 });
 
 test('cloud overrides deployed colors and read/write failures cannot report a successful save', async () => {
@@ -36,6 +51,8 @@ test('cloud overrides deployed colors and read/write failures cannot report a su
   assert.deepEqual(await store.load(), DEFAULT_FABRIC_COLORS);
   data = { colors: cloudColors }; assert.deepEqual(await store.load(), cloudColors); assert.equal(fileReads, 1);
   assert.deepEqual(await store.save(cloudColors), cloudColors);
+  data = { colors: [] }; assert.deepEqual(await store.save([]), []);
+  assert.deepEqual(await store.load(), []); assert.equal(fileReads, 1);
   data = null; await assert.rejects(store.save(cloudColors), /保存确认/);
   error = { code: '42501' }; await assert.rejects(store.save(cloudColors), /权限/); await assert.rejects(store.load(), /读取失败/);
   error = { code: 'PGRST205' }; assert.deepEqual(await store.load(), DEFAULT_FABRIC_COLORS); await assert.rejects(store.save(cloudColors), /尚未初始化/);
@@ -82,11 +99,15 @@ test('site colors are shared across readers, validated in SQL and only writable 
     assert.deepEqual((await save(DEFAULT_FABRIC_COLORS)).rows[0].colors, DEFAULT_FABRIC_COLORS);
     const next = [...DEFAULT_FABRIC_COLORS, { code: 'ABC', base: '#123456', line: '#abcdef' }];
     assert.deepEqual((await save(next)).rows[0].colors, next);
-    for (const invalid of [[], {}, [{ code: 'ab', base: '#123456', line: '#123456' }],
+    for (const invalid of [{}, [{ code: 'ab', base: '#123456', line: '#123456' }],
       [...next, next[0]], [{ code: 'ABC', base: '#fff', line: '#123456' }], [{ code: 'ABC', base: '#123456' }]]) await assert.rejects(save(invalid), /check constraint/);
     await login('anon'); assert.deepEqual((await db.query('select colors from spenic_fabric_colors')).rows[0].colors, next);
     await assert.rejects(save(next), /permission denied/);
     await login('authenticated'); assert.deepEqual((await db.query('select colors from spenic_fabric_colors')).rows[0].colors, next);
     await assert.rejects(save(next), /row-level security/);
+    await assert.rejects(save([]), /row-level security/);
+    await login('authenticated', { app_metadata: { spenic_developer: true } });
+    assert.deepEqual((await save([])).rows[0].colors, []);
+    await login('anon'); assert.deepEqual((await db.query('select colors from spenic_fabric_colors')).rows[0].colors, []);
   } finally { await db.close(); }
 });
