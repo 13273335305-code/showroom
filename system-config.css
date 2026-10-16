@@ -1,0 +1,63 @@
+.home-page .home-hero{max-width:none;padding-right:100px;box-sizing:border-box;min-height:76px}
+.system-config-entry{position:absolute;right:0;top:50%;transform:translateY(-50%);display:grid;place-items:center;box-sizing:border-box;width:76px;height:76px;padding:10px;border:1px solid #ffffffdf;border-radius:18px;background:linear-gradient(135deg,#ffffffce,#edf4ffad);box-shadow:0 9px 26px #315b8d12,inset 0 1px #fff;color:#59799f;cursor:pointer}
+.system-config-entry svg{width:34px;height:34px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.system-config-entry:hover{background:#fff;color:#286ad0;border-color:#c3d8f5}
+.system-config-entry:focus-visible{outline:3px solid #77a9f7;outline-offset:3px}
+@media(max-width:800px){.home-page .home-hero{padding-top:80px;padding-right:0}.system-config-entry{top:0;transform:none;width:64px;height:64px;border-radius:16px}.system-config-entry svg{width:28px;height:28px}}
+.system-config-dialog{box-sizing:border-box;width:min(680px,calc(100vw - 32px));max-height:calc(100dvh - 40px);padding:0;border:1px solid #ffffffc9;border-radius:24px;color:#26354b;background:#f7faff;box-shadow:0 30px 100px #253f6738;font:14px/1.5 "Microsoft YaHei","Segoe UI",sans-serif;overflow:hidden}
+.system-config-scroll{max-height:calc(100dvh - 42px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
+.system-config-scroll::-webkit-scrollbar{display:none;width:0;height:0}
+.system-config-scrollbar{position:absolute;top:16px;right:2px;bottom:16px;z-index:3;width:10px;border-radius:999px;background:#ffffff70;cursor:pointer;touch-action:none;user-select:none}
+.system-config-scrollbar-thumb{position:absolute;top:0;right:0;width:10px;border-radius:999px;background:#98a2ae;box-shadow:0 1px 1px #73809126;cursor:grab;touch-action:none}
+.system-config-scrollbar-thumb:active{cursor:grabbing}
+@media(max-width:540px){.system-config-scroll{max-height:calc(100dvh - 22px)}}
+.system-config-dialog::backdrop{background:#172b484d;backdrop-filter:blur(6px)}
+.system-config-dialog [hidden]{display:none!important}
+.system-config-dialog button,.system-config-dialog input{font:inherit;box-sizing:border-box}
+.system-config-dialog button{cursor:pointer}
+.system-config-dialog button:disabled{cursor:default;opacity:.55}
+.system-config-dialog :is(button,input):focus-visible{outline:2px solid #397bea;outline-offset:3px}
+.system-config-header{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:14px;padding:24px 26px 18px;border-bottom:1px solid #e3eaf3;background:#f7faff}
+.system-config-header h2{margin:0;font-size:22px;letter-spacing:-.03em}
+.system-config-eyebrow{font-size:10px;letter-spacing:.16em;color:#7b91b0}
+.system-config-icon-button{flex:0 0 34px;display:grid;place-items:center;width:34px;height:34px;padding:0;border:1px solid #dce5f1;border-radius:50%;background:white;color:#60738d;line-height:0}
+.system-config-close{margin-left:auto}
+.system-config-icon-button svg{display:block;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.system-config-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:24px}
+.system-config-slot{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:13px;min-height:126px;border:1px solid #dce7f6;border-radius:16px;background:white;color:#405e8b;font-weight:600!important}
+.system-config-slot:not(:disabled):hover{border-color:#94b8ec;background:#edf4ff}
+.system-config-slot:disabled{border-style:dashed;background:#f1f5fb;color:#a9b7cb;opacity:1!important}
+.system-config-slot:disabled span{font-size:23px;font-weight:300}
+.system-config-slot .fabric-color-swatch{width:40px;height:40px;flex-basis:40px}
+.system-config-body{padding:18px 24px 0}
+.system-color-head,.system-color-row{display:grid;grid-template-columns:42px 64px minmax(0,1fr) minmax(0,1fr) 72px;align-items:center;gap:12px}
+.system-color-head{padding:0 0 10px;color:#8a9ab0;font-size:11px}
+.system-color-row{min-height:49px;border-top:1px solid #e4ebf5}
+.system-color-row[data-editing=true]{background:#edf4ff66}
+.system-color-row .fabric-color-swatch{width:30px;height:30px;flex-basis:30px}
+.system-color-code{display:flex;align-items:center;box-sizing:border-box;width:100%;min-width:0;height:32px;padding:4px 8px;border:1px solid transparent;border-radius:7px;color:#2f415c;text-transform:uppercase;font:600 12px/1.4 Consolas,monospace!important;letter-spacing:.05em}
+input.system-color-code{border-color:#dce5f0;background:white}
+.system-color-value{display:flex;align-items:center;gap:7px;min-width:0}
+.system-color-chip,.system-color-value input[type=color]{display:block;flex:0 0 28px;box-sizing:border-box;width:28px;min-width:28px;height:22px;padding:0;border:0;border-radius:6px;box-shadow:inset 0 0 0 1px #25324626}
+.system-color-value input[type=color]{appearance:none;-webkit-appearance:none;background:transparent;cursor:pointer;overflow:hidden;box-shadow:none}
+.system-color-value input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+.system-color-value input[type=color]::-webkit-color-swatch{border:1px solid #25324626;border-radius:6px}
+.system-color-value input[type=color]::-moz-color-swatch{border:1px solid #25324626;border-radius:6px}
+.system-color-hex{display:flex;align-items:center;box-sizing:border-box;width:100%;min-width:0;height:30px;padding:4px 5px;border:1px solid transparent;border-radius:6px;background:transparent;color:#526783;font:12px/1.4 Consolas,monospace!important}
+input.system-color-hex:hover,input.system-color-hex:focus{background:white;border-color:#dce5f0}
+.system-color-hex[aria-invalid=true],.system-color-code[aria-invalid=true]{border-color:#d97272}
+.system-color-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px}
+.system-color-action{display:grid;place-items:center;flex:0 0 30px;width:30px;height:30px;padding:0;border:1px solid #dce5f1;border-radius:8px;background:white;color:#60738d;line-height:0}
+.system-color-action svg{display:block;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.system-color-edit{flex:0 0 auto;width:auto;min-width:48px;padding:0 9px;font-size:12px!important;line-height:1.4}
+.system-color-confirm{background:#edf4ff;border-color:#bcd1f1;color:#397bea}
+.system-color-action:not(:disabled):hover{border-color:#94b8ec;background:#edf4ff;color:#397bea}
+.system-config-add{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:40px;margin:12px 0;border:1px dashed #b9cce6;border-radius:10px;background:#eff5ff;color:#4d78b5;font-size:12px!important}
+.system-config-add span{font-size:22px;line-height:1}
+.system-config-feedback{position:sticky;bottom:0;z-index:2;padding:12px 24px;background:#f7faff;box-sizing:border-box}
+.system-config-status{margin:0;font-size:12px;color:#7c8fa8;overflow-wrap:anywhere}
+.system-config-status[data-error=true]{color:#bb4e4e}
+.system-config-discard{margin:0 24px 18px;padding:14px;border:1px solid #e6d8b8;border-radius:12px;background:#fff9ec;color:#80682d;font-size:12px}
+.system-config-discard p{margin:0 0 10px}.system-config-discard button,.system-config-retry{padding:6px 12px;border:1px solid #cbd9ec;border-radius:7px;background:white;color:#526b91}.system-config-discard button+button{margin-left:8px}
+.system-config-retry{margin-top:6px}
+@media(max-width:540px){.system-config-dialog{width:calc(100vw - 20px);max-height:calc(100dvh - 20px);border-radius:18px}.system-config-header{padding:18px 14px 14px}.system-config-grid{gap:8px;padding:14px}.system-config-slot{min-height:104px;font-size:12px!important}.system-config-body{padding:14px 12px 0}.system-color-head,.system-color-row{grid-template-columns:30px 42px minmax(0,1fr) minmax(0,1fr) 58px;gap:6px}.system-color-value{gap:4px}.system-color-chip,.system-color-value input[type=color]{flex-basis:22px;width:22px;min-width:22px;height:20px}.system-color-hex{font-size:10px!important;padding-inline:0}.system-color-code{padding-inline:4px;font-size:11px!important}.system-color-action{flex-basis:26px;width:26px;height:28px}.system-color-edit{flex-basis:auto;width:auto;min-width:44px;padding-inline:7px}.system-config-feedback{padding:12px}.system-config-discard{margin-inline:12px}}

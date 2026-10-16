@@ -1,0 +1,10 @@
+[
+  { "code": "WBK", "base": "#f6f6f6", "line": "#080808" },
+  { "code": "WLG", "base": "#f6f6f6", "line": "#989898" },
+  { "code": "WBR", "base": "#f6f6f6", "line": "#4e4124" },
+  { "code": "WWW", "base": "#f6f6f6", "line": "#ededed" },
+  { "code": "ZGW", "base": "#4a4f55", "line": "#f6f6f6" },
+  { "code": "DBW", "base": "#4e4124", "line": "#f6f6f6" },
+  { "code": "GWW", "base": "#8c8c8c", "line": "#f6f6f6" },
+  { "code": "KGW", "base": "#bdb285", "line": "#f6f6f6" }
+]

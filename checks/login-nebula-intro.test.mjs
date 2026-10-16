@@ -105,6 +105,47 @@ test('Hello stays visible through 1.2s and fades completely by 2s', () => {
   assert.equal(introHelloOpacity(-1), 1);
 });
 
+test('workspace verification skips the login intro and uncovers it only for a guest', () => {
+  const auth = fs.readFileSync(new URL('../shared/auth.js', import.meta.url), 'utf8');
+  const begin = auth.indexOf('function mountOverlay()');
+  const end = auth.indexOf('function wireOverlay(', begin);
+  const source = auth.slice(begin, end).replace("import('./login-nebula.js')", 'loadScene()');
+  for (const guest of [false, true]) {
+    let checking = true, observerCallback, sceneLoads = 0, removed = false;
+    const element = () => ({ style: {}, inert: false, classList: { contains: () => false } });
+    const hello = element(), card = element(), shell = element();
+    const background = element(); background.classList.contains = name => name === 'auth-background';
+    const overlay = { dataset: {}, children: [background, hello, shell],
+      classList: { contains: () => checking }, querySelector: () => hello, querySelectorAll: () => [card],
+      addEventListener() {}, removeEventListener() {}, remove() {} };
+    const loading = { querySelector: () => null, hasAttribute: () => false, setAttribute() {}, remove() { removed = true; } };
+    const document = { activeElement: null, getElementById: () => loading,
+      body: { children: [loading], style: {}, append() {} } };
+    const timers = new Map(); let serial = 0;
+    const mount = new Function('overlayMarkup', 'introHelloOpacity', 'document', 'MutationObserver', 'setTimeout', 'clearTimeout', 'loadScene',
+      'let activeOverlay; ' + source + '; return mountOverlay;')(
+      () => overlay, introHelloOpacity, document,
+      class { constructor(callback) { observerCallback = callback; } observe() {} disconnect() {} },
+      (callback, delay) => { timers.set(++serial, { callback, delay }); return serial; }, id => timers.delete(id),
+      () => { sceneLoads++; return new Promise(() => {}); });
+    const view = mount();
+    assert.equal(sceneLoads, 0, 'Verification never downloads or starts the login scene');
+    assert.equal(removed, false, 'Neutral cover stays until verification decides the outcome');
+    assert.equal(timers.size, 0, 'A valid session does not wait for a login intro timer');
+    if (guest) {
+      checking = false; observerCallback();
+      assert.equal(removed, true, 'Guest login is uncovered even without a boot greeting to transfer');
+      assert.equal(sceneLoads, 1);
+      const deadline = [...timers.values()].find(timer => timer.delay === 8000);
+      assert.ok(deadline); deadline.callback();
+      assert.equal(card.style.opacity, '1', 'Guest form remains accessible if the scene never loads');
+    }
+    view.close();
+    assert.equal(removed, true, 'Verified workspace removes the neutral cover immediately');
+    assert.equal(timers.size, 0);
+  }
+});
+
 test('a stalled nebula cannot trap login behind Hello, and late readiness cannot hide it again', async () => {
   const auth = fs.readFileSync(new URL('../shared/auth.js', import.meta.url), 'utf8');
   const begin = auth.indexOf('function mountOverlay()');

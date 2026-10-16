@@ -12,14 +12,16 @@ test('all protected pages block their initial content before external styles or 
     const head = html.slice(html.indexOf('<head>'), html.indexOf('</head>'));
     const guard = head.slice(head.indexOf('<style>'), head.indexOf('</style>'));
     assert.match(guard, /html\.auth-pending body > :not\(#authOverlay\):not\(#authBootLoading\)\s*\{\s*display: none !important;/, file);
-    assert.match(html, /id="authBootLoading"[^>]*>[\s\S]*?<span class="auth-intro-hello"[^>]*><span>H<\/span><span>e<\/span><span>l<\/span><span>l<\/span><span>o<\/span><\/span>/, file);
+    assert.ok(!html.includes('auth-intro-hello'), file + ': no login greeting during workspace verification');
+    assert.ok(html.includes('aria-label="正在验证登录..."></div>'), file + ': session cover contains no greeting');
+    assert.ok(guard.includes('background: var(--auth-boot-background)'), file + ': cover follows the workspace theme');
     assert.doesNotMatch(guard, /html\.auth-pending::after/, file + ': no separate pseudo-element greeting');
     assert.ok(head.indexOf('<style>') < head.indexOf('<link'), file + ': guard precedes external styles');
     assert.match(html, /href="login\.css(?:\?[^\"]*)?"/, file + ': overlay stylesheet exists');
   }
 });
 
-test('every initial Hello uses identical plain typography and a reduced-motion-aware thinking wave', () => {
+test('the login page Hello uses identical plain typography and a reduced-motion-aware thinking wave', () => {
   const css = fs.readFileSync(new URL('../login.css', import.meta.url), 'utf8');
   const block = (source, selector) => {
     const begin = source.indexOf(selector + ' {');
@@ -35,7 +37,7 @@ test('every initial Hello uses identical plain typography and a reduced-motion-a
   const waveform = source => source.slice(source.indexOf('@keyframes auth-hello-thinking'), source.indexOf('@keyframes auth-hello-thinking') + 180).match(/@keyframes auth-hello-thinking\s*\{[\s\S]*?\n\s*\}/)?.[0].replace(/\s+/g, ' ');
   assert.equal(sharedSweep.animation, 'auth-hello-thinking 1.8s linear infinite');
   assert.equal(sharedSweep.opacity, '.45');
-  for (const file of ['login.html', ...files]) {
+  for (const file of ['login.html']) {
     const html = fs.readFileSync(new URL('../' + file, import.meta.url), 'utf8');
     const initialType = properties(block(html, '.auth-intro-hello'));
     for (const key of ['position', 'top', 'left', 'transform', 'font', 'letter-spacing', 'color', 'background']) {

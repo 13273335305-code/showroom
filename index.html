@@ -6,30 +6,12 @@
   <meta name="theme-color" content="#eef4fb">
   <title>Spenic · 工作空间</title>
   <style>
-    html.auth-pending, html.auth-pending body { background: #000 !important; }
+    html.auth-pending, html.auth-pending body { background: var(--auth-boot-background) !important; }
     html.auth-pending body > :not(#authOverlay):not(#authBootLoading) { display: none !important; }
     html.auth-pending body::before, html.auth-pending body::after { display: none !important; }
-    .auth-boot-loading { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: #000; pointer-events: none; }
-    /* The same plain greeting renders before any external downloads. */
-    .auth-intro-hello {
-      position: fixed; top: 50%; left: 50%; z-index: 11; display: block;
-      color: #e5e5e5; background: none; transform: translate(-50%, -50%);
-      font: 500 clamp(30px, 4vw, 58px)/1.2 -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif;
-      letter-spacing: .08em;
-      pointer-events: none; user-select: none;
-    }
-    .auth-intro-hello > span { display: inline-block; opacity: .45; animation: auth-hello-thinking 1.8s linear infinite; }
-    .auth-intro-hello > span:nth-child(2) { animation-delay: -1.68s; }
-    .auth-intro-hello > span:nth-child(3) { animation-delay: -1.56s; }
-    .auth-intro-hello > span:nth-child(4) { animation-delay: -1.44s; }
-    .auth-intro-hello > span:nth-child(5) { animation-delay: -1.32s; }
-    @keyframes auth-hello-thinking {
-      0%, 30%, 100% { opacity: .45; }
-      55% { opacity: 1; }
-      80% { opacity: .45; }
-    }
-    @media (prefers-reduced-motion: reduce) { .auth-intro-hello > span { animation: none; opacity: .8; } }
-    @media (forced-colors: active) { .auth-boot-loading { background: Canvas; } .auth-intro-hello { color: CanvasText; } .auth-intro-hello > span { animation: none; opacity: 1; } }
+    :root { --auth-boot-background: #eef4fb; }
+    /* Session checks use a quiet page cover; Hello belongs to the login intro. */
+    .auth-boot-loading { position: fixed; inset: 0; z-index: 1000; background: var(--auth-boot-background); pointer-events: none; }
   </style>
   <link rel="icon" type="image/png" sizes="64x64" href="assets/spenic-favicon.png">
   <link rel="stylesheet" href="workspace.css">
@@ -38,12 +20,12 @@
   <link rel="stylesheet" href="login.css?v=20261016-auth-controls">
   <link rel="stylesheet" href="header-brand.css">
   <link rel="stylesheet" href="workspace-developer.css">
+  <link rel="stylesheet" href="system-config.css">
   <script type="module" src="shared/workspace-developer.js"></script>
+  <script type="module" src="shared/system-config.js"></script>
 </head>
 <body class="home-page">
-  <div id="authBootLoading" class="auth-boot-loading" role="status" aria-label="正在载入...">
-    <span class="auth-intro-hello" aria-hidden="true"><span>H</span><span>e</span><span>l</span><span>l</span><span>o</span></span>
-  </div>
+  <div id="authBootLoading" class="auth-boot-loading" role="status" aria-label="正在验证登录..."></div>
   <header class="topbar">
     <a class="brand" href="./index.html" aria-label="Spenic 工作空间首页">
       <img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic">
@@ -63,6 +45,9 @@
   <main class="home-main">
     <section class="home-hero" aria-labelledby="workspaceTitle">
       <button id="workspaceDeveloper" class="workspace-developer-entry" type="button" aria-haspopup="dialog" aria-controls="workspaceDeveloperDialog" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 16"/></svg><span>开发者</span><i aria-hidden="true"></i></button>
+      <button class="system-config-entry" id="systemConfigEntry" type="button" aria-label="系统配置" aria-haspopup="dialog" aria-controls="systemConfigDialog">
+        <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M38.419 19.865 42.711 20.701 42.711 27.299 38.419 28.135 37.119 31.272 39.564 34.898 34.898 39.564 31.272 37.119 28.135 38.419 27.299 42.711 20.701 42.711 19.865 38.419 16.728 37.119 13.102 39.564 8.436 34.898 10.881 31.272 9.581 28.135 5.289 27.299 5.289 20.701 9.581 19.865 10.881 16.728 8.436 13.102 13.102 8.436 16.728 10.881 19.865 9.581 20.701 5.289 27.299 5.289 28.135 9.581 31.272 10.881 34.898 8.436 39.564 13.102 37.119 16.728Z"/><circle cx="24" cy="24" r="6.5"/></svg>
+      </button>
       <div class="home-eyebrow">SPENIC WORKSPACE</div>
       <h1 id="workspaceTitle">欢迎来到工作空间</h1>
       <p>从设计、材质到资产，把每一次灵感整理成可继续的工作。</p>

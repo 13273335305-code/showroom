@@ -3,30 +3,12 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
-    html.auth-pending, html.auth-pending body { background: #000 !important; }
+    html.auth-pending, html.auth-pending body { background: var(--auth-boot-background) !important; }
     html.auth-pending body > :not(#authOverlay):not(#authBootLoading) { display: none !important; }
     html.auth-pending body::before, html.auth-pending body::after { display: none !important; }
-    .auth-boot-loading { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: #000; pointer-events: none; }
-    /* The same plain greeting renders before any external downloads. */
-    .auth-intro-hello {
-      position: fixed; top: 50%; left: 50%; z-index: 11; display: block;
-      color: #e5e5e5; background: none; transform: translate(-50%, -50%);
-      font: 500 clamp(30px, 4vw, 58px)/1.2 -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif;
-      letter-spacing: .08em;
-      pointer-events: none; user-select: none;
-    }
-    .auth-intro-hello > span { display: inline-block; opacity: .45; animation: auth-hello-thinking 1.8s linear infinite; }
-    .auth-intro-hello > span:nth-child(2) { animation-delay: -1.68s; }
-    .auth-intro-hello > span:nth-child(3) { animation-delay: -1.56s; }
-    .auth-intro-hello > span:nth-child(4) { animation-delay: -1.44s; }
-    .auth-intro-hello > span:nth-child(5) { animation-delay: -1.32s; }
-    @keyframes auth-hello-thinking {
-      0%, 30%, 100% { opacity: .45; }
-      55% { opacity: 1; }
-      80% { opacity: .45; }
-    }
-    @media (prefers-reduced-motion: reduce) { .auth-intro-hello > span { animation: none; opacity: .8; } }
-    @media (forced-colors: active) { .auth-boot-loading { background: Canvas; } .auth-intro-hello { color: CanvasText; } .auth-intro-hello > span { animation: none; opacity: 1; } }
+    :root { --auth-boot-background: #f5f6f8; }
+    /* Session checks use a quiet page cover; Hello belongs to the login intro. */
+    .auth-boot-loading { position: fixed; inset: 0; z-index: 1000; background: var(--auth-boot-background); pointer-events: none; }
   </style>
 <meta name="theme-color" content="#f5f6f8"><title>Spenic · 设计台</title>
 <link rel="icon" type="image/png" sizes="64x64" href="assets/spenic-favicon.png">
@@ -42,9 +24,7 @@
   <script type="module" src="shared/workspace-developer.js"></script>
 </head>
 <body>
-  <div id="authBootLoading" class="auth-boot-loading" role="status" aria-label="正在载入...">
-    <span class="auth-intro-hello" aria-hidden="true"><span>H</span><span>e</span><span>l</span><span>l</span><span>o</span></span>
-  </div>
+  <div id="authBootLoading" class="auth-boot-loading" role="status" aria-label="正在验证登录..."></div>
 <div id="designLaunchLoading" class="design-launch-loading" role="status" aria-live="polite"><div class="design-launch-card"><div class="loading-228" aria-hidden="true"></div><strong><span>正</span><span>在</span><span>进</span><span>入</span><span>设</span><span>计</span><span>台</span></strong></div></div>
 <header class="topbar">
  <a class="brand" href="./index.html" aria-label="Spenic 工作空间首页"><img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic"><span class="brand-divider"></span><strong class="brand-title">设计台</strong></a>
@@ -64,7 +44,7 @@
    <fieldset id="developerSceneControls"><div class="dev-phase-row"><label for="developerPhase">保存时段</label><select id="developerPhase"><option value="morning">清晨</option><option value="evening">黄昏</option><option value="night">夜晚</option></select><button id="developerLoadPhase" type="button">载入</button></div><div id="developerLighting"></div><button id="developerSavePhase" type="button" class="dev-primary dev-full">将当前灯光保存到所选时段</button></fieldset>
   </section>
   <section class="dev-section" aria-labelledby="developerTimingTitle"><h3 id="developerTimingTitle">展厅模式 · 日光时间</h3><form id="developerTimingForm"><div class="dev-time-inputs"><label>过渡时长 / 秒<input id="developerTransition" type="number" min="0.1" max="120" step="0.1" required value="5"></label><label>停留时长 / 秒<input id="developerHold" type="number" min="0" max="600" step="0.1" required value="3"></label></div><p class="dev-note">按清晨 → 黄昏 → 夜晚循环，每次过渡和停留使用以上时长。减少动态效果开启时直接切换。</p><button class="dev-full" type="submit">保存展厅时间</button></form></section>
-  <section class="dev-section" aria-labelledby="developerViewTitle"><h3 id="developerViewTitle">默认视角 · 展台比例</h3><form id="developerViewForm"><label class="dev-range">水平角度<output data-dev-view-output="azimuth"></output><input id="developerAzimuth" type="range" min="-180" max="180" step="1"></label><label class="dev-range">俯视角<output data-dev-view-output="elevation"></output><input id="developerElevation" type="range" min="0" max="89" step="1"></label><label class="dev-range">构图距离<output data-dev-view-output="framing"></output><input id="developerFraming" type="range" min=".5" max="3" step=".01"></label><label class="dev-range">展台大小比例<output data-dev-view-output="showroomScale"></output><input id="developerShowroomScale" type="range" min=".5" max="2" step=".01"></label><p id="developerCameraStatus" class="dev-note">当前视角：等待模型</p><button id="developerUseCurrentView" type="button" class="dev-secondary dev-full">读取当前视角</button><p class="dev-note">默认视角用于适应模型；展台比例应用于设计台和展厅。</p><button class="dev-full" type="submit">保存默认视角</button><button id="developerSaveShowroomScale" class="dev-secondary dev-full" type="button">单独保存展台比例</button></form></section>
+  <section class="dev-section" aria-labelledby="developerViewTitle"><h3 id="developerViewTitle">默认视角 · 展台比例</h3><form id="developerViewForm"><label class="dev-range">水平角度<output data-dev-view-output="azimuth"></output><input id="developerAzimuth" type="range" min="-180" max="180" step="1"></label><label class="dev-range">俯视角<output data-dev-view-output="elevation"></output><input id="developerElevation" type="range" min="0" max="89" step="1"></label><label class="dev-range">构图距离<output data-dev-view-output="framing"></output><input id="developerFraming" type="range" min=".5" max="3" step=".01"></label><label class="dev-range">展台大小比例<output data-dev-view-output="showroomScale"></output><input id="developerShowroomScale" type="range" min=".5" max="2" step=".01"></label><p id="developerCameraStatus" class="dev-note">当前视角：等待模型</p><button id="developerUseCurrentView" type="button" class="dev-secondary dev-full">读取当前视角</button><p class="dev-note">默认视角对所有访问者生效；线上保存需开发者权限，本地保存后需发布。展台比例应用于设计台和展厅。</p><button class="dev-full" type="submit">保存默认视角</button><button id="developerSaveShowroomScale" class="dev-secondary dev-full" type="button">单独保存展台比例</button></form></section>
   <section class="dev-section"><h3>配置文件</h3><div class="dev-file-actions"><button id="developerExport" type="button">导出配置</button><button id="developerImport" type="button">导入配置</button></div><p class="dev-note">导出已保存的三个时段与展厅时间，可在其他浏览器导入使用。</p><p id="developerSaveStatus" class="dev-note" role="status"></p><input id="developerFile" type="file" accept=".json,application/json" hidden></section>
   <section class="dev-section" aria-labelledby="developerLogTitle"><h3 id="developerLogTitle">操作日志 <span id="developerLogStatus">未开始</span></h3><div class="dev-file-actions"><button id="developerLogToggle" type="button" class="dev-primary">开始记录</button><button id="developerLogExport" type="button" disabled>导出日志</button></div><p class="dev-note">记录时间、用户操作、帧率、内存、CPU、GPU 和页面网速。导出为 CSV，可直接用 Excel 打开。</p></section>
  </div>

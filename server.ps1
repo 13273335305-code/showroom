@@ -3,6 +3,19 @@ $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath($PSScriptRoot)
 $partsViewFile=Join-Path $root 'parts-default-view.json'
 $designViewFile=Join-Path $root 'design-default-view.json'
+$fabricColorsFile=Join-Path $root 'fabric-colors.json'
+function Read-FabricColors([string]$json){
+ if(-not $json.TrimStart().StartsWith('[')){throw 'Invalid color list'}
+ $value=@($json | ConvertFrom-Json)
+ if($value.Count -lt 1 -or $value.Count -gt 500){throw 'Invalid color list'}
+ $seen=@{};$result=@()
+ foreach($item in $value){
+  if($item.code -isnot [string] -or $item.code -cnotmatch '^[A-Z]{3}$' -or $seen.ContainsKey($item.code)){throw 'Invalid or duplicate color code'}
+  if($item.base -isnot [string] -or $item.base -notmatch '^#[0-9a-f]{6}$' -or $item.line -isnot [string] -or $item.line -notmatch '^#[0-9a-f]{6}$'){throw 'Invalid HEX color'}
+  $seen[$item.code]=$true;$result+=@{code=$item.code;base=$item.base.ToLowerInvariant();line=$item.line.ToLowerInvariant()}
+ }
+ return ,$result
+}
 function Read-PartsView($value){
  if($value.format -cne 'SPENIC-MODEL-VIEW' -or $value.version -ne 1){throw 'Invalid view file format'}
  $view=$value.view
@@ -41,7 +54,8 @@ for($candidate=$Port;$candidate -lt $Port+20;$candidate++){
   if($probe.Content -eq $root){
    $viewProbe=Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$candidate/__form_parts_view" -TimeoutSec 1
    $designViewProbe=Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$candidate/__form_design_view" -TimeoutSec 1
-   if($viewProbe.StatusCode -eq 200 -and $designViewProbe.StatusCode -eq 200){if(-not $NoBrowser){Start-Process "http://127.0.0.1:$candidate/"};exit 0}
+   $colorsProbe=Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$candidate/__form_fabric_colors" -TimeoutSec 1
+   if($viewProbe.StatusCode -eq 200 -and $designViewProbe.StatusCode -eq 200 -and $colorsProbe.StatusCode -eq 200){if(-not $NoBrowser){Start-Process "http://127.0.0.1:$candidate/"};exit 0}
   }
  }catch{}
  try{$listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$candidate);$listener.Start();$Port=$candidate;break}catch{$listener=$null}
@@ -123,6 +137,36 @@ try{
         if([IO.File]::Exists($designViewFile)){[IO.File]::Replace($temporary,$designViewFile,[NullString]::Value)}else{[IO.File]::Move($temporary,$designViewFile)}
         $bytes=[Text.Encoding]::UTF8.GetBytes('{"saved":true,"file":"design-default-view.json"}')
        }catch{$status='500 Internal Server Error';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Cannot write design-default-view.json"}')}
+       finally{if([IO.File]::Exists($temporary)){[IO.File]::Delete($temporary)}}
+      }
+     }
+    }else{$status='405 Method Not Allowed';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Method not allowed"}')}
+   }
+   elseif($path -eq '/__form_fabric_colors'){
+    $type='application/json; charset=utf-8'
+    if($method -in @('GET','HEAD')){
+     try{$value=Read-FabricColors ([IO.File]::ReadAllText($fabricColorsFile,[Text.Encoding]::UTF8));$bytes=[Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $value -Depth 5 -Compress))}
+     catch{$status='500 Internal Server Error';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Cannot read fabric colors"}')}
+    }elseif($method -eq 'POST'){
+     $bodyLength=0;$validLength=[int]::TryParse($headers['Content-Length'],[ref]$bodyLength);$allowedOrigin=$true
+     if($headers['Origin']){try{$origin=[Uri]$headers['Origin'];$allowedOrigin=$origin.Scheme -eq 'http' -and $origin.Authority -eq $headers['Host']}catch{$allowedOrigin=$false}}
+     if(-not $allowedOrigin){$status='403 Forbidden';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Origin not allowed"}')}
+     elseif($headers['Content-Type'] -notmatch '^application/json(?:\s*;|$)'){$status='415 Unsupported Media Type';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"JSON required"}')}
+     elseif(-not $validLength -or $bodyLength -le 0 -or $bodyLength -gt 98304 -or $headers['Transfer-Encoding']){$status='400 Bad Request';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Invalid request size"}')}
+     else{
+      try{
+       $body=New-Object char[] $bodyLength;$read=0
+       while($read -lt $bodyLength){$count=$reader.Read($body,$read,$bodyLength-$read);if($count -le 0){throw 'Incomplete request body'};$read+=$count}
+       $text=[Text.Encoding]::UTF8.GetString($wireEncoding.GetBytes((-join $body)))
+       $value=Read-FabricColors $text
+      }catch{$status='400 Bad Request';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Invalid fabric colors"}')}
+      if(-not $bytes){
+       $temporary=$fabricColorsFile+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
+       try{
+        [IO.File]::WriteAllText($temporary,(ConvertTo-Json -InputObject $value -Depth 5),[Text.UTF8Encoding]::new($false))
+        if([IO.File]::Exists($fabricColorsFile)){[IO.File]::Replace($temporary,$fabricColorsFile,[NullString]::Value)}else{[IO.File]::Move($temporary,$fabricColorsFile)}
+        $bytes=[Text.Encoding]::UTF8.GetBytes('{"saved":true,"file":"fabric-colors.json"}')
+       }catch{$status='500 Internal Server Error';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Cannot write fabric colors"}')}
        finally{if([IO.File]::Exists($temporary)){[IO.File]::Delete($temporary)}}
       }
      }

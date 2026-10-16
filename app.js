@@ -34,6 +34,8 @@ import { renderFabricPreview, preloadFabricPreview } from './shared/fabric-previ
 import { createDeveloperPanel } from './shared/developer-panel.js';
 import { gltfCentimetersPerUnit } from './shared/model-units.js';
 import { loadDeveloperSettings, defaultDeveloperSettings, readDefaultView } from './shared/developer-settings.js';
+import { workspaceClient } from './shared/auth.js';
+import { createDefaultCameraStore } from './shared/default-camera-store.js';
 let developerPanel = null, developerSettings = defaultDeveloperSettings();
 let designDefaultView = developerSettings.defaultView;
 let designLaunchLoading = true, designLaunchLoadingTimer = null;
@@ -107,12 +109,11 @@ function readStoredDesignView(value){
  if(!value||value.format!=='SPENIC-DESIGN-VIEW'||value.version!==1)throw new Error('不是有效的设计台默认视角文件');
  return readDefaultView(value.view);
 }
+const defaultCameraStore=createDefaultCameraStore({access:workspaceClient,validate:readStoredDesignView});
 async function loadDesignDefaultView(){
  try{
-  const response=await fetch('./__form_design_view',{cache:'no-store'});
-  if(!response.ok)throw new Error('设计台默认视角文件不可读取');
-  const value=await response.json();
-  if(value)designDefaultView=readStoredDesignView(value);
+  const result=await defaultCameraStore.load('design');
+  if(result)designDefaultView=result.view;
  }catch(error){
   designDefaultView=developerSettings.defaultView;
   console.warn('设计台默认视角读取失败，使用兼容配置',error);
@@ -120,9 +121,11 @@ async function loadDesignDefaultView(){
 }
 async function saveDesignDefaultView(value){
  const checked=readDefaultView(value),payload={format:'SPENIC-DESIGN-VIEW',version:1,view:checked};
- const response=await fetch('./__form_design_view',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}),result=await response.json().catch(()=>null);
- if(!response.ok||result?.saved!==true)throw new Error('本地文件未能保存，请确认已启动最新版本地服务');
- designDefaultView=checked;
+ const result=await defaultCameraStore.save('design',payload);
+ designDefaultView=result.view;
+ developerSettings={...developerSettings,defaultView:result.view};
+ fit('perspective',{immediate:true});
+ return result.source==='cloud'?'已保存全站默认视角；所有访问者下次打开时生效':'已保存到 design-default-view.json；发布网站后对所有访问者生效';
 }
 function setOpeningDockHidden(hidden){const dock=$('materialDock');if(!dock)return;dock.classList.toggle('opening-hidden',hidden);dock.inert=hidden;dock.setAttribute('aria-hidden',String(hidden));}
 function setOpeningDayHidden(hidden){const button=$('dayCycle');if(!button)return;button.classList.toggle('opening-hidden',hidden);button.inert=hidden;}

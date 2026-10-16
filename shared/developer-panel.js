@@ -145,13 +145,19 @@ export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, s
   });
   $('developerViewForm').onsubmit = async event => {
     event.preventDefault();
+    const button = $('developerViewForm').querySelector('button[type="submit"]');
+    if (button.disabled) return;
+    button.disabled = true;
     try {
       const base = pendingView || getDefaultView?.() || getSettings().defaultView;
-      const defaultView = readDefaultView({ ...base, azimuth: $('developerAzimuth').valueAsNumber, elevation: $('developerElevation').valueAsNumber, framing: $('developerFraming').valueAsNumber });
-      if (saveDefaultView) await saveDefaultView(defaultView);
+      const framing = $('developerFraming').valueAsNumber;
+      const defaultView = readDefaultView({ ...base, azimuth: $('developerAzimuth').valueAsNumber, elevation: $('developerElevation').valueAsNumber, framing, distance: framing === base.framing ? base.distance : null });
+      let savedMessage;
+      if (saveDefaultView) savedMessage = await saveDefaultView(defaultView);
       else commit({ ...getSettings(), defaultView }, '已保存默认视角');
-      pendingView = null; syncView(); $('developerSaveStatus').textContent = '已保存默认视角'; notify('已保存默认视角');
+      pendingView = null; syncView(); const message = savedMessage || '已保存默认视角'; $('developerSaveStatus').textContent = message; notify(message);
     } catch (error) { notify('保存失败：' + error.message); }
+    finally { button.disabled = false; }
   };
   $('developerSaveShowroomScale').onclick = () => {
     try {

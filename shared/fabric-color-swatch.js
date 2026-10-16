@@ -1,20 +1,20 @@
 import { fabricVariantGroupKey } from './fabric-info.js';
 import { syncFabricColorProgress } from './fabric-color-progress.js';
+import { fabricColor, subscribeFabricColors } from './fabric-color-store.js';
 
-const fabricColorRules = {
-  WBK: { base: '#f6f6f6', line: '#080808' },
-  WLG: { base: '#f6f6f6', line: '#989898' },
-  WBR: { base: '#f6f6f6', line: '#4e4124' },
-  WWW: { base: '#f6f6f6', line: '#ededed' },
-  ZGW: { base: '#4a4f55', line: '#f6f6f6' },
-  DBW: { base: '#4e4124', line: '#f6f6f6' },
-  GWW: { base: '#8c8c8c', line: '#f6f6f6' },
-  KGW: { base: '#bdb285', line: '#f6f6f6' },
-};
+subscribeFabricColors(() => {
+  if (typeof document === 'undefined') return;
+  document.querySelectorAll('[data-fabric-color-code]').forEach(element => {
+    const hadTitle = element.hasAttribute('title');
+    updateFabricColorSwatch(element, element.dataset.fabricColorCode);
+    if (!hadTitle) element.removeAttribute('title');
+  });
+});
 
 export function updateFabricColorSwatch(element, colorCode = '') {
   const code = colorCode.trim().toUpperCase();
-  const colors = Object.hasOwn(fabricColorRules, code) ? fabricColorRules[code] : null;
+  const colors = fabricColor(code);
+  element.dataset.fabricColorCode = code;
   element.style.setProperty('--fabric-swatch-base', colors?.base || '#f0f3f7');
   element.style.setProperty('--fabric-swatch-line', colors?.line || 'transparent');
   element.dataset.configured = String(!!colors);

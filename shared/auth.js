@@ -265,8 +265,10 @@ function mountOverlay() {
     if (bootHello) {
       hello.replaceWith(bootHello);
       hello = bootHello;
-      loading.remove();
     }
+    // A workspace session check has no greeting; uncover the login intro only
+    // after verification decides that the user needs the login form.
+    loading?.remove();
     // The visual background must never block access to the login form.
     introTimeout = setTimeout(finishIntro, 8000);
     import('./login-nebula.js').then(({ mountLoginNebula }) => {

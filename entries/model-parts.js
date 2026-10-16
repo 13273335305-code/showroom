@@ -4,7 +4,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { getAsset } from '../shared/asset-store.js';
-import { requireAuth } from '../shared/auth.js';
+import { requireAuth, workspaceClient } from '../shared/auth.js';
+import { createDefaultCameraStore } from '../shared/default-camera-store.js';
 import { cloneSourceModel, prepareModelRuntime } from '../shared/model-runtime.js';
 import { gltfCentimetersPerUnit } from '../shared/model-units.js';
 import { enqueueMaterialUpload, getUpload, startUploadQueue, subscribeUploads } from '../shared/upload-queue.js';
@@ -32,6 +33,7 @@ function validateCameraView(value){
  if(!view||!Number.isFinite(view.azimuth)||view.azimuth<-180||view.azimuth>180||!Number.isFinite(view.elevation)||view.elevation<0||view.elevation>90||!Number.isFinite(view.framing)||view.framing<=0||view.framing>1000||!Array.isArray(view.offset)||view.offset.length!==3||!view.offset.every(Number.isFinite)||view.offset.some(number=>Math.abs(number)>1000))throw new Error('视角参数超出范围');
  return {azimuth:view.azimuth,elevation:view.elevation,framing:view.framing,offset:[...view.offset]};
 }
+const defaultCameraStore=createDefaultCameraStore({access:workspaceClient,validate:validateCameraView});
 function applyCameraView(view){
  if(!root||!controls)throw new Error('模型载入完成后才能读取视角');
  root.updateMatrixWorld(true);
@@ -47,18 +49,16 @@ async function saveDefaultCameraView(){
  try{
   const view=readCurrentCameraView();if(!view)throw new Error('模型载入完成后才能保存视角');
   const value={format:'SPENIC-MODEL-VIEW',version:1,view:{azimuth:view.azimuth,elevation:view.elevation,framing:view.framing,offset:view.offset}};validateCameraView(value);
-  const response=await fetch('./__form_parts_view',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)}),result=await response.json().catch(()=>null);
-  if(!response.ok||result?.saved!==true)throw new Error('本地文件未能保存，请确认已启动最新版本地服务');
-  savedCameraView=validateCameraView(value);
-  $('partsViewStatus').textContent='已保存到 parts-default-view.json';
+  const result=await defaultCameraStore.save('parts',value);
+  savedCameraView=result.view;
+  $('partsViewStatus').textContent=result.source==='cloud'?'已保存全站默认视角；所有访问者下次打开时生效':'已保存到 parts-default-view.json；发布网站后对所有访问者生效';
  }catch(error){$('partsViewStatus').textContent='保存失败：'+error.message;}
  finally{button.disabled=false;}
 }
 async function loadSavedCameraView(){
  try{
-  const response=await fetch('./__form_parts_view',{cache:'no-store'});if(!response.ok)throw new Error('请确认已启动最新版本地服务');
-  const value=await response.json();if(!value)return false;
-  savedCameraView=validateCameraView(value);applyCameraView(savedCameraView);$('partsViewStatus').textContent='已自动读取本地默认视角';return true;
+  const result=await defaultCameraStore.load('parts');if(!result)return false;
+  savedCameraView=result.view;applyCameraView(savedCameraView);$('partsViewStatus').textContent=result.source==='cloud'?'已读取全站默认视角':'已读取发布配置中的默认视角';return true;
  }catch(error){$('partsViewStatus').textContent='默认视角读取失败：'+error.message;return false;}
 }
 function fit(){if(!root)return;root.updateMatrixWorld(true);const box=new THREE.Box3().setFromObject(root),sphere=box.getBoundingSphere(new THREE.Sphere()),vfov=THREE.MathUtils.degToRad(camera.fov),hfov=2*Math.atan(Math.tan(vfov/2)*camera.aspect),view={azimuth:40,elevation:26,framing:1.18},distance=sphere.radius/Math.sin(Math.min(vfov,hfov)/2)*view.framing,azimuth=THREE.MathUtils.degToRad(view.azimuth),elevation=THREE.MathUtils.degToRad(view.elevation),direction=new THREE.Vector3(Math.sin(azimuth)*Math.cos(elevation),Math.sin(elevation),Math.cos(azimuth)*Math.cos(elevation)),target=sphere.center.clone();camera.position.copy(target).addScaledVector(direction.normalize(),distance);controls.target.copy(target);controls.update();viewportOffset=0;alignToViewport();}

@@ -3,30 +3,12 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
-    html.auth-pending, html.auth-pending body { background: #000 !important; }
+    html.auth-pending, html.auth-pending body { background: var(--auth-boot-background) !important; }
     html.auth-pending body > :not(#authOverlay):not(#authBootLoading) { display: none !important; }
     html.auth-pending body::before, html.auth-pending body::after { display: none !important; }
-    .auth-boot-loading { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: #000; pointer-events: none; }
-    /* The same plain greeting renders before any external downloads. */
-    .auth-intro-hello {
-      position: fixed; top: 50%; left: 50%; z-index: 11; display: block;
-      color: #e5e5e5; background: none; transform: translate(-50%, -50%);
-      font: 500 clamp(30px, 4vw, 58px)/1.2 -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif;
-      letter-spacing: .08em;
-      pointer-events: none; user-select: none;
-    }
-    .auth-intro-hello > span { display: inline-block; opacity: .45; animation: auth-hello-thinking 1.8s linear infinite; }
-    .auth-intro-hello > span:nth-child(2) { animation-delay: -1.68s; }
-    .auth-intro-hello > span:nth-child(3) { animation-delay: -1.56s; }
-    .auth-intro-hello > span:nth-child(4) { animation-delay: -1.44s; }
-    .auth-intro-hello > span:nth-child(5) { animation-delay: -1.32s; }
-    @keyframes auth-hello-thinking {
-      0%, 30%, 100% { opacity: .45; }
-      55% { opacity: 1; }
-      80% { opacity: .45; }
-    }
-    @media (prefers-reduced-motion: reduce) { .auth-intro-hello > span { animation: none; opacity: .8; } }
-    @media (forced-colors: active) { .auth-boot-loading { background: Canvas; } .auth-intro-hello { color: CanvasText; } .auth-intro-hello > span { animation: none; opacity: 1; } }
+    :root { --auth-boot-background: #eef2f6; }
+    /* Session checks use a quiet page cover; Hello belongs to the login intro. */
+    .auth-boot-loading { position: fixed; inset: 0; z-index: 1000; background: var(--auth-boot-background); pointer-events: none; }
   </style>
   <title>Spenic · 资产库</title>
   <link rel="icon" type="image/png" sizes="64x64" href="assets/spenic-favicon.png">
@@ -36,9 +18,7 @@
   <script type="module" src="shared/workspace-developer.js"></script>
 </head>
 <body class="standalone asset-library-page">
-  <div id="authBootLoading" class="auth-boot-loading" role="status" aria-label="正在载入...">
-    <span class="auth-intro-hello" aria-hidden="true"><span>H</span><span>e</span><span>l</span><span>l</span><span>o</span></span>
-  </div>
+  <div id="authBootLoading" class="auth-boot-loading" role="status" aria-label="正在验证登录..."></div>
   <header class="asset-topbar">
     <a class="asset-brand brand" href="./index.html" aria-label="Spenic 工作空间首页"><img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic"><span class="asset-brand-divider brand-divider"></span><strong class="brand-title">资产库</strong></a>
     <nav class="library-switcher" role="tablist" aria-label="资产库切换">
