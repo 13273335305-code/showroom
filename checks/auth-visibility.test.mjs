@@ -12,14 +12,14 @@ test('all protected pages block their initial content before external styles or 
     const head = html.slice(html.indexOf('<head>'), html.indexOf('</head>'));
     const guard = head.slice(head.indexOf('<style>'), head.indexOf('</style>'));
     assert.match(guard, /html\.auth-pending body > :not\(#authOverlay\):not\(#authBootLoading\)\s*\{\s*display: none !important;/, file);
-    assert.match(html, /id="authBootLoading"[^>]*>[\s\S]*?<span class="auth-intro-hello"[^>]*>Hello<\/span>/, file);
+    assert.match(html, /id="authBootLoading"[^>]*>[\s\S]*?<span class="auth-intro-hello"[^>]*><span>H<\/span><span>e<\/span><span>l<\/span><span>l<\/span><span>o<\/span><\/span>/, file);
     assert.doesNotMatch(guard, /html\.auth-pending::after/, file + ': no separate pseudo-element greeting');
     assert.ok(head.indexOf('<style>') < head.indexOf('<link'), file + ': guard precedes external styles');
     assert.match(html, /href="login\.css(?:\?[^\"]*)?"/, file + ': overlay stylesheet exists');
   }
 });
 
-test('every initial Hello uses identical plain typography and a reduced-motion-aware sweep', () => {
+test('every initial Hello uses identical plain typography and a reduced-motion-aware thinking wave', () => {
   const css = fs.readFileSync(new URL('../login.css', import.meta.url), 'utf8');
   const block = (source, selector) => {
     const begin = source.indexOf(selector + ' {');
@@ -31,17 +31,27 @@ test('every initial Hello uses identical plain typography and a reduced-motion-a
     return [value.slice(0, colon).trim(), value.slice(colon + 1).replace(/\s+/g, ' ').trim()];
   }));
   const sharedType = properties(block(css, '.auth-intro-hello'));
-  const sharedSweep = properties(block(css, '.auth-intro-hello::after'));
+  const sharedSweep = properties(block(css, '.auth-intro-hello > span'));
+  const waveform = source => source.slice(source.indexOf('@keyframes auth-hello-thinking'), source.indexOf('@keyframes auth-hello-thinking') + 180).match(/@keyframes auth-hello-thinking\s*\{[\s\S]*?\n\s*\}/)?.[0].replace(/\s+/g, ' ');
+  assert.equal(sharedSweep.animation, 'auth-hello-thinking 1.8s linear infinite');
+  assert.equal(sharedSweep.opacity, '.45');
   for (const file of ['login.html', ...files]) {
     const html = fs.readFileSync(new URL('../' + file, import.meta.url), 'utf8');
     const initialType = properties(block(html, '.auth-intro-hello'));
     for (const key of ['position', 'top', 'left', 'transform', 'font', 'letter-spacing', 'color', 'background']) {
       assert.equal(initialType[key], sharedType[key], file + ': ' + key + ' stays unchanged during handoff');
     }
-    assert.deepEqual(properties(block(html, '.auth-intro-hello::after')), sharedSweep, file + ': sweep uses the same styles');
-    assert.match(html, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.auth-intro-hello::after\s*\{\s*animation: none;/);
+    assert.deepEqual(properties(block(html, '.auth-intro-hello > span')), sharedSweep, file + ': thinking wave uses the same styles');
+    for (let letter = 2; letter <= 5; letter++) {
+      const selector = '.auth-intro-hello > span:nth-child(' + letter + ')';
+      assert.deepEqual(properties(block(html, selector)), properties(block(css, selector)), file + ': letter timing matches');
+    }
+    assert.equal(waveform(html), waveform(css), file + ': waveform stays unchanged');
+    assert.match(html, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.auth-intro-hello > span\s*\{\s*animation: none;/);
     assert.doesNotMatch(block(html, '.auth-intro-hello'), /text-shadow|text-stroke|linear-gradient/);
+    assert.doesNotMatch(html, /auth-hello-sweep|\.auth-intro-hello::after|clip-path: polygon/);
   }
+  assert.match(auth, /class="auth-intro-hello"[^>]*><span>H<\/span><span>e<\/span><span>l<\/span><span>l<\/span><span>o<\/span><\/div>/);
 });
 
 test('starting auth keeps protected content hidden and does not cover a verified session', async () => {

@@ -175,7 +175,7 @@ function overlayMarkup() {
   overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-labelledby', 'authTitle');
   overlay.innerHTML = `
     <div class="auth-background" aria-hidden="true"><canvas class="auth-nebula"></canvas></div>
-    <div class="auth-intro-hello" aria-hidden="true">Hello</div>
+    <div class="auth-intro-hello" aria-hidden="true"><span>H</span><span>e</span><span>l</span><span>l</span><span>o</span></div>
     <header class="auth-page-header">
       <div class="auth-brand"><img src="assets/spenic-logo-login.png" alt="Spenic"></div>
     </header>
