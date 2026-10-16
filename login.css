@@ -220,20 +220,28 @@ html.auth-login-document body.auth-login-page { min-height: 100dvh; }
 .auth-overlay[data-auth-intro]:not([data-auth-intro="complete"]) > :not(.auth-background) { pointer-events: none; }
 .auth-intro-hello {
   position: fixed; top: 50%; left: 50%; z-index: 11; display: grid; place-items: center;
-  color: transparent; background: linear-gradient(112deg, #fffffff5 0%, #ffffffd6 30%, #ffffffe9 54%, #f5f8ffdc 78%, #fffffff8 100%);
-  background-size: 220% 100%; background-position: 0% 50%;
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-stroke: 1px #ffffff32;
-  transform: translate(-50%, -50%); font-size: clamp(30px, 4vw, 58px); font-weight: 500;
-  letter-spacing: .08em; text-shadow: 0 0 5px #ffffff45, 0 0 16px #c8d9ff24, 0 2px 12px #000;
+  color: #c6c6ce; background: none;
+  transform: translate(-50%, -50%);
+  font: 500 clamp(30px, 4vw, 58px)/1.2 -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif;
+  letter-spacing: .08em;
   pointer-events: none; user-select: none; will-change: opacity;
 }
+.auth-intro-hello::after {
+  content: 'Hello'; position: absolute; inset: 0; color: #fff;
+  clip-path: polygon(-60% 0, -30% 0, -60% 100%, -90% 100%);
+  animation: auth-hello-sweep 1800ms linear infinite;
+}
+@keyframes auth-hello-sweep {
+  0% { clip-path: polygon(-60% 0, -30% 0, -60% 100%, -90% 100%); }
+  75%, 100% { clip-path: polygon(190% 0, 220% 0, 190% 100%, 160% 100%); }
+}
 .auth-overlay[data-auth-intro="complete"] .auth-intro-hello { visibility: hidden; }
-@media (prefers-reduced-transparency: reduce) {
-  .auth-intro-hello { color: #eef3ff; background: none; -webkit-text-stroke: 0; text-shadow: 0 0 18px #9cb8ff66; }
+@media (prefers-reduced-motion: reduce) {
+  .auth-intro-hello::after { animation: none; }
 }
 @media (forced-colors: active) {
-  .auth-intro-hello { color: CanvasText; background: none; -webkit-text-stroke: 0; text-shadow: none; }
+  .auth-intro-hello { color: CanvasText; }
+  .auth-intro-hello::after { display: none; }
 }
 .auth-brand { gap: 0; }
 .auth-brand img { width: 130px; height: 34px; }

@@ -93,6 +93,7 @@ test('foreground opacity advances from 2.2s to 3.5s without fading the glass par
   }
   assert.equal(overlay.dataset.authIntro, 'complete');
   reveal(.7, 2450); assert.equal(card.style.opacity, '1', 'Later updates cannot hide a revealed form');
+  reveal(0, 0); assert.equal(overlay.dataset.authBlackout, 'complete', 'A late scene load cannot restore the blackout after the fallback reveals login');
 });
 
 test('Hello stays visible through 1.2s and fades completely by 2s', () => {
@@ -102,4 +103,48 @@ test('Hello stays visible through 1.2s and fades completely by 2s', () => {
   assert.equal(introHelloOpacity(2000), 0);
   assert.equal(introHelloOpacity(3500), 0);
   assert.equal(introHelloOpacity(-1), 1);
+});
+
+test('a stalled nebula cannot trap login behind Hello, and late readiness cannot hide it again', async () => {
+  const auth = fs.readFileSync(new URL('../shared/auth.js', import.meta.url), 'utf8');
+  const begin = auth.indexOf('function mountOverlay()');
+  const end = auth.indexOf('\nfunction wireOverlay(', begin);
+  const source = auth.slice(begin, end).replace("import('./login-nebula.js')", 'loadScene()');
+  const element = () => ({ style: {}, inert: false, classList: { contains: () => false } });
+  const hello = element(), card = element(), shell = element();
+  const canvas = element(), toggle = element();
+  const background = element(); background.classList.contains = name => name === 'auth-background';
+  const overlay = {
+    dataset: {}, children: [background, hello, shell], classList: { contains: () => false },
+    querySelector: key => ({ '.auth-intro-hello': hello, '.auth-nebula': canvas, '.auth-motion-toggle': toggle })[key],
+    querySelectorAll: () => [card], addEventListener() {}, removeEventListener() {}, remove() {},
+  };
+  const loading = { ready: false, removed: false, hasAttribute() { return this.ready; },
+    setAttribute(key) { if (key === 'data-ready') this.ready = true; }, remove() { this.removed = true; } };
+  const bootHello = element(); bootHello.style.opacity = '1';
+  loading.querySelector = () => bootHello;
+  hello.replaceWith = replacement => { assert.equal(replacement, bootHello); };
+  const document = { activeElement: null, getElementById: () => loading,
+    body: { children: [loading], style: {}, append() {} } };
+  const timers = new Map(); let serial = 0, resolveScene, callbacks;
+  const scenePromise = new Promise(resolve => { resolveScene = resolve; });
+  const mount = new Function('overlayMarkup', 'introHelloOpacity', 'document', 'isLoginPage', 'MutationObserver', 'setTimeout', 'clearTimeout', 'loadScene',
+    'let activeOverlay; ' + source + '\nreturn mountOverlay;')(
+    () => overlay, introHelloOpacity, document, true,
+    class { observe() {} disconnect() {} },
+    (callback, delay) => { timers.set(++serial, { callback, delay }); return serial; }, id => timers.delete(id), () => scenePromise);
+  const view = mount();
+  assert.equal(loading.removed, true, 'Greeting transfers to the overlay immediately');
+  assert.equal(hello.style.opacity, '1'); assert.equal(card.style.opacity, '0');
+  assert.equal(loading.ready, false);
+  const deadline = [...timers.values()].find(timer => timer.delay === 8000);
+  assert.ok(deadline, 'Stalled imports have a finite deadline'); deadline.callback();
+  assert.equal(card.style.opacity, '1'); assert.equal(shell.inert, false);
+  assert.equal(loading.ready, true); assert.equal(overlay.dataset.authBlackout, 'complete');
+  resolveScene({ mountLoginNebula(_canvas, _toggle, options) { callbacks = options; options.onIntroProgress(0, 0); options.onReady(); return { dispose() {} }; } });
+  await Promise.resolve(); await Promise.resolve();
+  assert.ok(callbacks, 'The late scene may still initialize');
+  assert.equal(card.style.opacity, '1'); assert.equal(bootHello.style.opacity, '0');
+  assert.equal(overlay.dataset.authBlackout, 'complete');
+  view.close(); assert.equal(timers.size, 0); assert.equal(loading.removed, true);
 });

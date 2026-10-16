@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN" class="home-page-root auth-pending">
 <head>
   <meta charset="UTF-8">
@@ -6,9 +6,29 @@
   <meta name="theme-color" content="#eef4fb">
   <title>Spenic · 工作空间</title>
   <style>
-    html.auth-pending, html.auth-pending body { background: #080a11 !important; }
-    html.auth-pending body > :not(#authOverlay),
-    html.auth-pending body::before, html.auth-pending body::after { visibility: hidden !important; }
+    html.auth-pending, html.auth-pending body { background: #000 !important; }
+    html.auth-pending body > :not(#authOverlay):not(#authBootLoading) { display: none !important; }
+    html.auth-pending body::before, html.auth-pending body::after { display: none !important; }
+    .auth-boot-loading { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: #000; pointer-events: none; }
+    /* The same plain greeting renders before any external downloads. */
+    .auth-intro-hello {
+      position: fixed; top: 50%; left: 50%; z-index: 11; display: grid; place-items: center;
+      color: #c6c6ce; background: none; transform: translate(-50%, -50%);
+      font: 500 clamp(30px, 4vw, 58px)/1.2 -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif;
+      letter-spacing: .08em;
+      pointer-events: none; user-select: none;
+    }
+    .auth-intro-hello::after {
+      content: 'Hello'; position: absolute; inset: 0; color: #fff;
+      clip-path: polygon(-60% 0, -30% 0, -60% 100%, -90% 100%);
+      animation: auth-hello-sweep 1800ms linear infinite;
+    }
+    @keyframes auth-hello-sweep {
+      0% { clip-path: polygon(-60% 0, -30% 0, -60% 100%, -90% 100%); }
+      75%, 100% { clip-path: polygon(190% 0, 220% 0, 190% 100%, 160% 100%); }
+    }
+    @media (prefers-reduced-motion: reduce) { .auth-intro-hello::after { animation: none; } }
+    @media (forced-colors: active) { .auth-boot-loading { background: Canvas; } .auth-intro-hello { color: CanvasText; } .auth-intro-hello::after { display: none; } }
   </style>
   <link rel="icon" type="image/png" sizes="64x64" href="assets/spenic-favicon.png">
   <link rel="stylesheet" href="workspace.css">
@@ -20,6 +40,9 @@
   <script type="module" src="shared/workspace-developer.js"></script>
 </head>
 <body class="home-page">
+  <div id="authBootLoading" class="auth-boot-loading" role="status" aria-label="正在载入...">
+    <span class="auth-intro-hello" aria-hidden="true">Hello</span>
+  </div>
   <header class="topbar">
     <a class="brand" href="./index.html" aria-label="Spenic 工作空间首页">
       <img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic">

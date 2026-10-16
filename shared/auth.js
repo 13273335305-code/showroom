@@ -64,6 +64,7 @@ export async function workspaceClient() {
 }
 
 function returnToLogin() {
+  document.documentElement.classList.add('auth-pending');
   const url = new URL(loginUrl);
   if (!isLoginPage) url.searchParams.set('next', location.pathname + location.search + location.hash);
   location.replace(url.href);
@@ -217,18 +218,16 @@ function mountOverlay() {
   // Leave the layout shell opaque: fading a parent of a backdrop-filter card
   // changes its backdrop sampling boundary as opacity reaches 1.
   const fadeTargets = [...overlay.querySelectorAll('.auth-page-header, .auth-welcome, .auth-form-panel, .auth-page-footer')];
-  const hello = overlay.querySelector('.auth-intro-hello');
+  let hello = overlay.querySelector('.auth-intro-hello');
   hello.style.opacity = '1';
   fadeTargets.forEach(element => { element.style.opacity = '0'; });
   foreground.forEach(element => { element.inert = true; });
   let foregroundVisible = false;
   const revealForeground = (progress, elapsedMs = progress * 3500) => {
+    if (foregroundVisible) return;
     const blackoutPhase = elapsedMs >= 1200 ? 'complete' : 'fading';
     if (overlay.dataset.authBlackout !== blackoutPhase) overlay.dataset.authBlackout = blackoutPhase;
-    if (!foregroundVisible) {
-      hello.style.opacity = String(introHelloOpacity(elapsedMs));
-    }
-    if (foregroundVisible) return;
+    hello.style.opacity = String(introHelloOpacity(elapsedMs));
     const revealProgress = Math.max(0, Math.min(1, (elapsedMs - 2200) / 1300));
     const opacity = revealProgress >= .999 ? 1 : revealProgress;
     fadeTargets.forEach(element => { element.style.opacity = String(opacity); });
@@ -237,8 +236,8 @@ function mountOverlay() {
     if (opacity === 1) { foregroundVisible = true; foreground.forEach(element => { element.inert = false; }); }
   };
   const previousFocus = document.activeElement;
-  const loading = isLoginPage ? document.getElementById('authBootLoading') : null;
-  let loadingTimer;
+  const loading = document.getElementById('authBootLoading');
+  let loadingTimer, introTimeout;
   const finishLoading = () => {
     if (!loading || loading.hasAttribute('data-ready')) return;
     loading.setAttribute('data-ready', '');
@@ -252,17 +251,31 @@ function mountOverlay() {
   document.body.style.overflow = 'hidden';
   document.body.append(overlay); activeOverlay = overlay;
   let background = null, closed = false;
+  const finishIntro = () => {
+    if (closed) return;
+    revealForeground(1);
+    finishLoading();
+  };
   // Start only when the gate is visible; verified users never allocate a scene.
   const startBackground = () => {
     if (overlay.classList.contains('auth-overlay-checking') || closed) return;
     sceneObserver.disconnect();
+    // Reuse the first painted greeting instead of swapping to a second rendering.
+    const bootHello = loading?.querySelector?.('.auth-intro-hello');
+    if (bootHello) {
+      hello.replaceWith(bootHello);
+      hello = bootHello;
+      loading.remove();
+    }
+    // The visual background must never block access to the login form.
+    introTimeout = setTimeout(finishIntro, 8000);
     import('./login-nebula.js').then(({ mountLoginNebula }) => {
       if (!closed) background = mountLoginNebula(overlay.querySelector('.auth-nebula'), overlay.querySelector('.auth-motion-toggle'), {
         onIntroProgress: revealForeground,
         // The matching intro Hello stays above the opening blackout during handoff.
         onReady: finishLoading,
       });
-    }).catch(() => { if (!closed) { overlay.querySelector('.auth-motion-toggle').hidden = true; revealForeground(1); finishLoading(); } });
+    }).catch(() => { if (!closed) { overlay.querySelector('.auth-motion-toggle').hidden = true; finishIntro(); } });
   };
   const sceneObserver = new MutationObserver(startBackground);
   sceneObserver.observe(overlay, { attributes: true, attributeFilter: ['class'] });
@@ -278,7 +291,7 @@ function mountOverlay() {
   overlay.addEventListener('keydown', trap);
   return { overlay, close() {
     closed = true; sceneObserver.disconnect(); background?.dispose();
-    clearTimeout(loadingTimer); loading?.remove();
+    clearTimeout(loadingTimer); clearTimeout(introTimeout); loading?.remove();
     overlay.removeEventListener('keydown', trap);
     states.forEach(([element, inert]) => { element.inert = inert; });
     document.body.style.overflow = overflow; overlay.remove(); activeOverlay = null;
@@ -404,10 +417,15 @@ function wireOverlay(view, resolve) {
 }
 
 export async function requireAuth() {
+  if (!isLoginPage && !currentIdentity) document.documentElement.classList.add('auth-pending');
   if (!authPromise) authPromise = new Promise(resolve => { wireOverlay(mountOverlay(), resolve); });
   return authPromise;
 }
 
+// Hide protected content before a refresh/navigation snapshot can be reused.
+window.addEventListener('pagehide', () => {
+  if (!isLoginPage) document.documentElement.classList.add('auth-pending');
+});
 window.addEventListener('pageshow', event => { if (event.persisted) location.reload(); });
 function showVerificationRetry() {
   if (verificationNotice) return;
