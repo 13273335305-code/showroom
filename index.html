@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="workspace.css">
   <link rel="stylesheet" href="header.css">
   <link rel="stylesheet" href="home.css">
-  <link rel="stylesheet" href="login.css?v=20261016-auth-controls">
+  <link rel="stylesheet" href="login.css?v=20261016-uiverse-login-4">
   <link rel="stylesheet" href="header-brand.css">
   <link rel="stylesheet" href="workspace-developer.css">
   <link rel="stylesheet" href="system-config.css">
@@ -71,9 +71,7 @@
       </a>
     </section>
   </main>
-  <footer class="home-footer"><span>本地优先 · 数据保存在当前浏览器</span><span>Spenic showroom</span></footer>
-  <div class="home-scrollbar" aria-hidden="true"><span class="home-scrollbar-thumb"></span></div>
-  <script src="home-scrollbar.js" defer></script>
+  <script type="module" src="home-cards-3d.js"></script>
   <script type="module">
     import { requireAuth } from './shared/auth.js';
     await requireAuth({ feature: 'workspace' });

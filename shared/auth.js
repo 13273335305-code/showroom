@@ -197,7 +197,7 @@ function overlayMarkup() {
             <label id="authPasswordField" class="auth-field" for="authPassword"><span id="authPasswordLabel" class="auth-field-label sr-only">密码</span><span class="auth-input-wrap has-icon"><span class="auth-input-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"></path></svg></span><input id="authPassword" name="password" type="password" autocomplete="current-password" placeholder="密码" required aria-describedby="authError"><button id="authToggle" class="auth-password-toggle" type="button" aria-label="显示密码" aria-pressed="false" data-visible="false"><svg class="eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.3-5 9-5 9 5 9 5-3.3 5-9 5-9-5-9-5Z"></path><circle cx="12" cy="12" r="2.2"></circle></svg><svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 16 16M10.6 7.2A9.8 9.8 0 0 1 12 7c5.7 0 9 5 9 5a16 16 0 0 1-3.1 3.3M6.2 6.8C4.1 8.2 3 10 3 12c0 0 3.3 5 9 5 1.4 0 2.6-.3 3.7-.8"></path></svg></button></span></label>
             <label id="authConfirmField" class="auth-field" for="authConfirm" hidden><span class="auth-field-label">确认密码</span><span class="auth-input-wrap"><input id="authConfirm" name="confirmPassword" type="password" autocomplete="new-password" placeholder="再次输入密码" disabled aria-describedby="authError"></span></label>
             <div id="authOptions" class="auth-options"><label class="auth-remember"><input id="authRemember" type="checkbox" checked> 记住账号密码</label><button id="authForgot" class="auth-link" type="button">忘记密码？</button></div>
-            <button id="authSubmit" class="auth-submit" type="submit" disabled>正在连接…</button>
+            <button id="authSubmit" class="auth-submit" type="submit" disabled><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h14m-6-6 6 6-6 6"></path></svg><span class="text">正在连接…</span></button>
             <p id="authError" class="auth-error" role="alert"></p>
             <p id="authMessage" class="auth-message" role="status"></p>
           </form>
@@ -309,7 +309,7 @@ function wireOverlay(view, resolve) {
   const renderBusy = () => {
     $('authForm').setAttribute('aria-busy', String(busy));
     for (const id of ['authSubmit', 'authLoginTab', 'authRegisterTab', 'authForgot', 'authBack', 'authToggle', 'authRemember', 'authRetry']) $(id).disabled = busy || !service;
-    $('authSubmit').textContent = busy ? '请稍候…' : titles[mode][2];
+    $('authSubmit').querySelector('.text').textContent = busy ? '请稍候…' : titles[mode][2];
   };
   function setMode(next, focus = true) {
     mode = next; message();

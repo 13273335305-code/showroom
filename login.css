@@ -382,3 +382,78 @@ html.auth-login-document body.auth-login-page { min-height: 100dvh; }
   .auth-welcome-eyebrow, .auth-welcome .auth-welcome-description { display: none; }
   .auth-welcome h1 { font-size: 21px; }
 }
+
+/* Uiverse-inspired login action. Keep the submit state and form semantics intact. */
+.auth-overlay .auth-submit {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+  width: 100%;
+  height: 52px;
+  min-height: 52px;
+  margin-left: 0;
+  padding: 0;
+  border: #3654ff 0.2em solid;
+  border-radius: 11px;
+  color: #fff;
+  background-color: #ffffff00;
+  box-shadow: none;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1;
+  transition: all 0.6s ease;
+}
+.auth-form-panel { width: min(100%, 380px); }
+.auth-overlay .auth-submit svg {
+  width: 1.6em;
+  height: 1.6em;
+  margin: 0;
+  position: static;
+  display: block;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: all 0.6s ease;
+}
+.auth-overlay .auth-submit .text {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  line-height: 1;
+  white-space: nowrap;
+}
+.auth-overlay .auth-submit:hover:not(:disabled) {
+  background-color: #3654ff;
+  color: #fff;
+}
+.auth-overlay .auth-submit:hover:not(:disabled) svg { transform: translateX(5px); }
+.auth-overlay .auth-submit:disabled { opacity: .58; }
+@media (prefers-reduced-motion: reduce) {
+  .auth-overlay .auth-submit { transition: none; }
+  .auth-overlay .auth-submit svg { transition: none; }
+}
+@media (max-height: 720px) {
+  .auth-overlay .auth-submit { height: 46px; min-height: 46px; }
+}
+
+/* Use one theme highlight for the controls called out in the login form. */
+.auth-overlay { --auth-highlight: var(--blue, #3654ff); }
+.auth-overlay .auth-tabs button[aria-selected=true] {
+  color: var(--auth-highlight);
+  border-bottom-color: var(--auth-highlight);
+}
+.auth-overlay .auth-remember input { accent-color: var(--auth-highlight); }
+.auth-overlay .auth-submit {
+  border-color: var(--auth-highlight);
+  color: var(--auth-highlight);
+}
+.auth-overlay .auth-submit:hover:not(:disabled) {
+  background-color: var(--auth-highlight);
+  color: #fff;
+}
