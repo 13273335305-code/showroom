@@ -17,11 +17,19 @@ export function readSurface(material) {
     normalStrength: Math.abs(material.normalScale.x), flip: material.normalScale.y < 0,
     aoStrength: material.aoMapIntensity, emissive: '#' + material.emissive.getHexString(),
     emissiveStrength: material.emissiveIntensity, bumpStrength: material.bumpScale,
+    sheen: material.sheen ?? 0, sheenRoughness: material.sheenRoughness ?? 1,
     opacity: material.opacity, transparent: material.transparent, alphaTest: material.alphaTest, side: material.side };
 }
 export function applySurface(material, data) {
   for (const key of ['roughnessGrayscale', 'roughnessInvert']) if (typeof data[key] === 'boolean') material.userData[key] = data[key];
   installRoughnessShader(material);
+  // The shader derives the fiber tint from the surface; keep its multiplier
+  // neutral here. Old assets keep the layer disabled.
+  if (material.isMeshPhysicalMaterial) {
+    if (Number.isFinite(data.sheen)) material.sheen = Math.max(0, Math.min(2, data.sheen));
+    if (Number.isFinite(data.sheenRoughness)) material.sheenRoughness = Math.max(0, Math.min(1, data.sheenRoughness));
+    material.sheenColor.set(0xffffff);
+  }
   for (const key of ['color', 'emissive']) if (/^#[\da-f]{6}$/i.test(data[key])) material[key].set(data[key]);
   for (const [key, property, max] of [['roughness', 'roughness', 1], ['metalness', 'metalness', 1], ['aoStrength', 'aoMapIntensity', 3], ['emissiveStrength', 'emissiveIntensity', 3], ['bumpStrength', 'bumpScale', .2], ['opacity', 'opacity', 1], ['alphaTest', 'alphaTest', 1]]) {
     if (Number.isFinite(data[key])) material[property] = Math.max(0, Math.min(max, data[key]));

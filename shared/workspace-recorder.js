@@ -1,6 +1,6 @@
 // Shared by every workspace entry so navigation and secondary tabs keep one log.
 const STATE_KEY = 'spenic.workspace-recording.v1';
-const PAGE_NAMES = { 'index.html': '工作空间', 'design.html': '设计台', 'material-editor.html': '材质编辑器', 'asset-library.html': '资产库', 'project-library.html': '项目库', 'model-parts.html': '部件配置' };
+const PAGE_NAMES = { 'index.html': '工作空间', 'design.html': '设计台', 'material-editor.html': '材质编辑器', 'asset-library.html': '资产库', 'project-library.html': '项目库', 'model-parts.html': '部件配置', 'album.html': '图册' };
 const COLUMNS = [['time', '时间（含时区）'], ['page', '当前页面'], ['pageUrl', '页面地址'], ['action', '事件'], ['mouse', '当前鼠标动作'], ['speed', '下载速度 (KB/s)'], ['content', '当前下载内容'], ['resource', '下载地址'], ['state', '下载状态'], ['bytes', '已接收字节'], ['detail', '说明']];
 
 export function safeResource(value) {

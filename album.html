@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN" class="auth-pending">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#eef4fb">
+  <title>Spenic · 图册</title>
+  <style>
+    html.auth-pending, html.auth-pending body { background: var(--auth-boot-background) !important; }
+    html.auth-pending body > :not(#authOverlay):not(#authBootLoading) { display: none !important; }
+    html.auth-pending body::before, html.auth-pending body::after { display: none !important; }
+    :root { --auth-boot-background: #eef4fb; }
+    .auth-boot-loading { position: fixed; inset: 0; z-index: 1000; background: var(--auth-boot-background); pointer-events: none; }
+  </style>
+  <link rel="icon" type="image/png" sizes="64x64" href="assets/spenic-favicon.png">
+  <link rel="stylesheet" href="workspace.css">
+  <link rel="stylesheet" href="asset-library.css">
+  <link rel="stylesheet" href="header-brand.css">
+  <link rel="stylesheet" href="album.css">
+  <link rel="stylesheet" href="login.css?v=20261016-uiverse-login-4">
+  <link rel="stylesheet" href="workspace-developer.css">
+  <script type="module" src="shared/workspace-developer.js"></script>
+</head>
+<body class="album-page standalone asset-library-page">
+  <div id="authBootLoading" class="auth-boot-loading" role="status" aria-label="正在验证登录..."></div>
+  <header class="asset-topbar album-topbar">
+    <a class="asset-brand brand" href="./index.html" aria-label="返回 Spenic 工作空间">
+      <img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic">
+      <span class="asset-brand-divider brand-divider"></span>
+      <strong class="brand-title">图册</strong>
+    </a>
+  </header>
+  <main class="library-main album-main">
+    <section id="albumGrid" class="asset-grid album-grid" aria-busy="true" aria-label="拍摄图片"></section>
+    <section id="albumEmpty" class="album-empty" hidden>
+      <div class="album-empty-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><rect x="6" y="9" width="36" height="30" rx="4"/><circle cx="17" cy="19" r="3"/><path d="m10 34 10-10 7 7 4-4 7 7"/></svg></div>
+      <h2>还没有拍摄图片</h2>
+      <p>进入设计台，打开拍摄模式后按下拍摄，图片会自动出现在这里。</p>
+      <a class="album-empty-action" href="./design.html?new=1">进入设计台</a>
+    </section>
+    <p id="albumError" class="album-error" role="alert" hidden></p>
+    <button id="albumRetry" class="album-retry" type="button" hidden>重新加载</button>
+  </main>
+  <dialog id="albumPreviewDialog" class="album-preview-dialog" aria-labelledby="albumPreviewTitle">
+    <div class="album-preview-window">
+      <div class="album-preview-heading">
+        <div><p class="album-preview-eyebrow">图册预览</p><h2 id="albumPreviewTitle">原图预览</h2></div>
+        <button id="albumPreviewClose" class="album-preview-close" type="button" aria-label="关闭原图预览" title="关闭预览"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+      </div>
+      <div id="albumPreviewStage" class="album-preview-stage" aria-busy="false"><img id="albumOriginalImage" alt=""><p id="albumPreviewStatus" class="album-preview-status" role="status" hidden></p></div>
+      <p id="albumPreviewMeta" class="album-preview-meta"></p>
+      <p id="albumPreviewError" class="album-preview-error" role="alert" hidden></p>
+      <div class="album-preview-actions">
+        <button id="albumPreviewDelete" class="album-preview-delete" type="button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5"/></svg><span id="albumPreviewDeleteLabel">删除</span></button>
+        <button id="albumOriginalDownload" class="album-download" type="button" disabled>下载原图</button>
+      </div>
+    </div>
+  </dialog>
+  <script type="module" src="entries/album.js"></script>
+</body>
+</html>

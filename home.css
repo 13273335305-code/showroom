@@ -27,6 +27,8 @@ body.home-page{min-height:100vh;margin:0;color:var(--home-ink);background:radial
 .home-page .asset-card-home{background:linear-gradient(145deg,#ffffffc7,#eefbf790 58%,#d9f3eb8c)}
 .home-page .project-card-home{background:linear-gradient(145deg,#ffffffc7,#fff4e790 58%,#ffe8c58c)}
 .home-page .project-card-home .card-icon{color:#c77a2d;background:#fff0dc}
+.home-page .album-card-home{background:linear-gradient(145deg,#ffffffc7,#f0efff90 58%,#e5e4ff8c)}
+.home-page .album-card-home .card-icon{color:#6757c7;background:#eeebff}
 .home-page .card-icon{position:relative;z-index:1;width:60px;height:60px;border:1px solid #ffffffb8;box-shadow:inset 0 1px 0 #fff,0 8px 22px #4676a51f}
 .home-page .card-copy,
 .home-page .card-copy{gap:9px;padding-top:40px}
@@ -34,10 +36,10 @@ body.home-page{min-height:100vh;margin:0;color:var(--home-ink);background:radial
 .home-page .card-copy span{max-width:240px;color:#6f8198;line-height:1.75}
 
 .home-page .home-footer{position:relative;z-index:1;border-top-color:#ffffffb8;color:#8fa2b8}
-@media(min-width:1100px){.home-page .workspace-cards{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(min-width:1100px){.home-page .workspace-cards{grid-template-columns:repeat(5,minmax(0,1fr))}}
 @media(max-width:800px){.home-page .home-main{padding-top:calc(var(--home-topbar-height) + 82px)}.home-page .workspace-cards{margin-top:48px}.home-page .workspace-card{min-height:188px;padding:24px 22px}.home-page .card-copy{padding-top:24px}.home-page .card-copy span{max-width:280px}.home-page::before{width:90vw;height:90vw;top:-45vw;left:-28vw}.home-page::after{width:84vw;height:84vw;right:-38vw;bottom:-36vw}}
 
-/* Aceternity-inspired 3D card layers for the four workspace destinations. */
+/* Aceternity-inspired 3D card layers for the workspace destinations. */
 .home-page .workspace-card{
   --card-rotate-x:0deg;
   --card-rotate-y:0deg;
@@ -120,4 +122,8 @@ body.home-page::-webkit-scrollbar{display:none;width:0;height:0}
   .home-page .card-copy strong{font-size:21px}
   .home-page .card-copy span{line-height:1.6}
   .home-page .home-scrollbar{display:none}
+}
+@media (min-width:801px) and (max-width:1099px),(min-width:801px) and (max-height:720px){
+  body.home-page{overflow-y:auto}
+  .home-page .home-main{height:auto;min-height:100dvh;transform:none;padding-top:calc(var(--home-topbar-height) + 48px);padding-bottom:48px}
 }

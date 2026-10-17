@@ -1,5 +1,7 @@
 import { fabricColors, refreshFabricColors, saveFabricColors } from './fabric-color-store.js';
 import { createFabricColorEditor } from './fabric-color-editor.js';
+import { CAPTURE_AI_PROMPT_DEFAULTS, createCaptureAiPromptStore, readCaptureAiPrompts } from './capture-ai-prompts.js';
+import { workspaceClient } from './auth.js';
 
 const entry = document.getElementById('systemConfigEntry');
 const dialog = document.createElement('dialog');
@@ -19,6 +21,15 @@ dialog.innerHTML = `<div id="systemConfigScroll" class="system-config-scroll"><d
     <button id="systemColorAdd" class="system-config-add" type="button"><span aria-hidden="true">＋</span>新增色号球</button>
   </div>
   <div id="systemConfigFeedback" class="system-config-feedback" hidden><p id="systemConfigStatus" class="system-config-status" role="status" aria-live="polite"></p><button id="systemConfigRetry" class="system-config-retry" type="button" hidden>重新加载</button></div>
+</section>
+<section id="systemConfigPrompts" hidden>
+  <div class="system-config-body system-ai-prompt-body">
+    <p class="system-ai-prompt-intro">配置拍摄属性中的快捷提示词，最多 5 条。每条快捷提示词对应一段发送给 AI 的具体提示词。</p>
+    <div id="systemAiPromptRows" aria-label="AI 绘画快捷提示词列表"></div>
+    <button id="systemAiPromptAdd" class="system-config-add" type="button"><span aria-hidden="true">＋</span>新增快捷提示词</button>
+    <button id="systemAiPromptSave" class="system-ai-prompt-save" type="button">保存 AI 绘画配置</button>
+  </div>
+  <div id="systemAiPromptFeedback" class="system-config-feedback" hidden><p id="systemAiPromptStatus" class="system-config-status" role="status" aria-live="polite"></p><button id="systemAiPromptRetry" class="system-config-retry" type="button" hidden>重新加载</button></div>
 </section>
 <div id="systemConfigDiscard" class="system-config-discard" hidden><p>有尚未保存的修改，是否放弃？</p><button id="systemConfigKeep" type="button">继续编辑</button><button id="systemConfigLeave" type="button">放弃修改</button></div>
 </div></div><div id="systemConfigScrollbar" class="system-config-scrollbar" aria-hidden="true" hidden><span class="system-config-scrollbar-thumb"></span></div>`;
@@ -71,7 +82,10 @@ window.addEventListener('resize', syncScrollbar);
 const scrollObserver = new ResizeObserver(syncScrollbar);
 scrollObserver.observe(scroll); scrollObserver.observe($('systemConfigContent'));
 const editor = createFabricColorEditor(saveFabricColors);
-let busy = false, loaded = false, colorsPage = false, leaveAction;
+const promptStore = createCaptureAiPromptStore({ access: workspaceClient });
+let busy = false, loaded = false, colorsPage = false, promptsPage = false, leaveAction;
+let promptBusy = false, promptLoaded = false, promptCanEdit = false, promptOwnerId = '', promptDirty = false;
+let promptItems = CAPTURE_AI_PROMPT_DEFAULTS.map(item => ({ ...item }));
 function ball() {
   const element = document.createElement('span'); element.className = 'fabric-color-swatch';
   element.setAttribute('role', 'img');
@@ -83,7 +97,11 @@ const colorOption = document.createElement('button'); colorOption.type = 'button
 colorOption.setAttribute('aria-label', '色号球配置');
 colorOption.append(menuBall, document.createTextNode('色号球配置')); colorOption.onclick = openColors;
 $('systemConfigMenu').append(colorOption);
-for (let i = 1; i < 9; i++) {
+const promptOption = document.createElement('button'); promptOption.type = 'button'; promptOption.className = 'system-config-slot';
+promptOption.setAttribute('aria-label', 'AI 绘画配置');
+promptOption.innerHTML = '<span class="system-ai-prompt-icon" aria-hidden="true">✦</span>AI 绘画配置'; promptOption.onclick = openPrompts;
+$('systemConfigMenu').append(promptOption);
+for (let i = 1; i < 8; i++) {
   const slot = document.createElement('button'); slot.type = 'button'; slot.className = 'system-config-slot'; slot.disabled = true;
   slot.setAttribute('aria-label', `预留配置 ${i + 1}`); slot.innerHTML = '<span aria-hidden="true">＋</span>'; $('systemConfigMenu').append(slot);
 }
@@ -99,6 +117,7 @@ function preview(element, value) {
   element.setAttribute('aria-label', `${value.code || '新色号'}，底色 ${value.base}，线色 ${value.line}`);
 }
 function status(message, error = false) { $('systemConfigStatus').textContent = message; $('systemConfigStatus').dataset.error = String(error); $('systemConfigFeedback').hidden = !message; }
+function promptStatus(message = '', error = false) { $('systemAiPromptStatus').textContent = message; $('systemAiPromptStatus').dataset.error = String(error); $('systemAiPromptFeedback').hidden = !message; }
 const dirty = () => editor.dirty;
 function syncBusy() {
   dialog.querySelectorAll('#systemConfigColors input, .system-color-action').forEach(control => { control.disabled = busy || !loaded; });
@@ -161,6 +180,49 @@ function renderRows() {
   scroll.scrollTop = top;
   syncBusy();
 }
+function renderPromptRows() {
+  const promptRows = $('systemAiPromptRows'); if (!promptRows) return;
+  promptRows.replaceChildren();
+  promptItems.forEach((item, index) => {
+    const row = document.createElement('div'); row.className = 'system-ai-prompt-row'; row.dataset.index = String(index);
+    const head = document.createElement('div'); head.className = 'system-ai-prompt-row-head';
+    const title = document.createElement('strong'); title.textContent = `快捷提示词 ${index + 1}`;
+    const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'system-ai-prompt-remove'; remove.textContent = '删除'; remove.setAttribute('aria-label', `删除快捷提示词 ${index + 1}`);
+    remove.disabled = promptBusy || !promptLoaded || !promptCanEdit;
+    remove.onclick = () => { promptItems.splice(index, 1); promptDirty = true; renderPromptRows(); promptStatus('有未保存的修改'); };
+    head.append(title, remove);
+    const label = document.createElement('label'); label.className = 'system-ai-prompt-field'; label.textContent = '快捷名称';
+    const labelInput = document.createElement('input'); labelInput.type = 'text'; labelInput.maxLength = 80; labelInput.value = item.label; labelInput.disabled = promptBusy || !promptLoaded || !promptCanEdit; labelInput.setAttribute('aria-label', `第 ${index + 1} 条快捷提示词名称`);
+    labelInput.oninput = () => { promptItems[index].label = labelInput.value; promptDirty = true; promptStatus('有未保存的修改'); };
+    label.append(labelInput);
+    const detail = document.createElement('label'); detail.className = 'system-ai-prompt-field'; detail.textContent = '具体提示词';
+    const detailInput = document.createElement('textarea'); detailInput.rows = 3; detailInput.maxLength = 2000; detailInput.value = item.prompt; detailInput.disabled = promptBusy || !promptLoaded || !promptCanEdit; detailInput.setAttribute('aria-label', `第 ${index + 1} 条具体提示词`);
+    detailInput.oninput = () => { promptItems[index].prompt = detailInput.value; promptDirty = true; promptStatus('有未保存的修改'); };
+    detail.append(detailInput); row.append(head, label, detail); promptRows.append(row);
+  });
+  $('systemAiPromptAdd').disabled = promptBusy || !promptLoaded || !promptCanEdit || promptItems.length >= 5;
+  $('systemAiPromptSave').disabled = promptBusy || !promptLoaded || !promptCanEdit || !promptDirty;
+}
+async function openPrompts() {
+  promptsPage = true; colorsPage = false; $('systemConfigMenu').hidden = true; $('systemConfigColors').hidden = true; $('systemConfigPrompts').hidden = false; $('systemConfigBack').hidden = false;
+  $('systemConfigTitle').textContent = 'AI 绘画配置'; await loadPrompts();
+}
+async function loadPrompts() {
+  promptBusy = true; promptLoaded = false; promptDirty = false; promptCanEdit = false; promptStatus('正在读取 AI 绘画配置…'); $('systemAiPromptRetry').hidden = true; renderPromptRows();
+  try {
+    const session = await workspaceClient(); promptOwnerId = session.userId; promptCanEdit = Boolean(session.canManageSite);
+    promptItems = readCaptureAiPrompts(await promptStore.load()); promptLoaded = true; renderPromptRows();
+    promptStatus(promptCanEdit ? '' : '当前账号只能查看，需管理员授权后才能修改');
+  } catch (error) { promptStatus(error.message, true); $('systemAiPromptRetry').hidden = false; }
+  finally { promptBusy = false; renderPromptRows(); }
+}
+async function savePrompts() {
+  if (promptBusy || !promptLoaded || !promptCanEdit || !promptDirty) return;
+  promptBusy = true; renderPromptRows(); promptStatus('正在保存 AI 绘画配置…'); $('systemConfigDiscard').hidden = true;
+  try { promptItems = readCaptureAiPrompts(promptItems); promptItems = await promptStore.save(promptOwnerId, promptItems); promptDirty = false; renderPromptRows(); promptStatus('AI 绘画配置已保存'); }
+  catch (error) { promptStatus(error.message, true); }
+  finally { promptBusy = false; renderPromptRows(); }
+}
 async function saveRow() {
   const editing = editor.editing;
   if (!editing || busy || !loaded) return;
@@ -189,7 +251,7 @@ async function deleteRow() {
   }
 }
 async function openColors() {
-  colorsPage = true; $('systemConfigMenu').hidden = true; $('systemConfigColors').hidden = false; $('systemConfigBack').hidden = false;
+  colorsPage = true; promptsPage = false; $('systemConfigMenu').hidden = true; $('systemConfigColors').hidden = false; $('systemConfigPrompts').hidden = true; $('systemConfigBack').hidden = false;
   $('systemConfigTitle').textContent = '色号球配置';
   await load();
 }
@@ -204,14 +266,15 @@ async function load() {
 }
 function menu() {
   editor.cancel();
-  colorsPage = false; $('systemConfigMenu').hidden = false; $('systemConfigColors').hidden = true; $('systemConfigBack').hidden = true;
-  $('systemConfigTitle').textContent = '系统配置'; $('systemConfigDiscard').hidden = true;
+  colorsPage = false; promptsPage = false; $('systemConfigMenu').hidden = false; $('systemConfigColors').hidden = true; $('systemConfigPrompts').hidden = true; $('systemConfigBack').hidden = true;
+  $('systemConfigTitle').textContent = '系统配置'; $('systemConfigDiscard').hidden = true; promptDirty = false;
   preview(menuBall, fabricColors()[0]); colorOption.focus({ preventScroll: true });
   scroll.scrollTop = 0;
 }
 function leave(action) {
   if (busy && loaded) return;
   if (colorsPage && loaded && dirty()) { leaveAction = action; $('systemConfigDiscard').hidden = false; $('systemConfigKeep').focus(); return; }
+  if (promptsPage && promptLoaded && promptDirty) { leaveAction = action; $('systemConfigDiscard').hidden = false; $('systemConfigKeep').focus(); return; }
   action();
 }
 entry?.addEventListener('click', () => { menu(); dialog.showModal(); syncScrollbar(); });
@@ -223,9 +286,12 @@ dialog.addEventListener('click', event => {
   const b = dialog.getBoundingClientRect();
   if (event.target === dialog && (event.clientX < b.left || event.clientX > b.right || event.clientY < b.top || event.clientY > b.bottom)) leave(() => dialog.close());
 });
-$('systemConfigKeep').onclick = () => { $('systemConfigDiscard').hidden = true; rows.querySelector('input')?.focus(); };
+$('systemConfigKeep').onclick = () => { $('systemConfigDiscard').hidden = true; (colorsPage ? rows.querySelector('input') : $('systemAiPromptRows')?.querySelector('input'))?.focus(); };
 $('systemConfigLeave').onclick = () => { $('systemConfigDiscard').hidden = true; leaveAction?.(); };
 $('systemConfigRetry').onclick = load;
+$('systemAiPromptRetry').onclick = loadPrompts;
+ $('systemAiPromptAdd').onclick = () => { if (promptBusy || !promptLoaded || !promptCanEdit || promptItems.length >= 5) return; promptItems.push({ label: '', prompt: '' }); promptDirty = true; renderPromptRows(); promptStatus('请填写新增提示词后保存'); $('systemAiPromptRows').lastElementChild?.querySelector('input')?.focus(); };
+$('systemAiPromptSave').onclick = savePrompts;
 $('systemColorAdd').onclick = () => {
   try {
     if (!editor.add()) return;
@@ -235,5 +301,5 @@ $('systemColorAdd').onclick = () => {
 };
 preview(menuBall, fabricColors()[0]);
 window.addEventListener('beforeunload', event => {
-  if (dialog.open && colorsPage && loaded && dirty()) { event.preventDefault(); event.returnValue = ''; }
+  if (dialog.open && ((colorsPage && loaded && dirty()) || (promptsPage && promptLoaded && promptDirty))) { event.preventDefault(); event.returnValue = ''; }
 });

@@ -64,6 +64,6 @@ export async function createModelPreview(asset) {
         dispose(material);
       }
     });
-    if (ktx2Loader?.transcoderPending) ktx2Loader.dispose(); renderer?.dispose(); renderer?.forceContextLoss(); urls.forEach(url => URL.revokeObjectURL(url));
+    if (ktx2Loader?.transcoderPending) ktx2Loader.dispose(); renderer?.dispose(); urls.forEach(url => URL.revokeObjectURL(url));
   }
 }

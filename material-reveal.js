@@ -37,7 +37,7 @@ export function revealMaterial(scene, mesh, slot, previous, point) {
     shader.fragmentShader='varying vec3 revealPosition;\nuniform vec3 revealOrigin;\nuniform float revealRadius;\nuniform float revealFeather;\n'+shader.fragmentShader;
     shader.fragmentShader=shader.fragmentShader.replace('#include <opaque_fragment>','diffuseColor.a *= smoothstep(revealRadius - revealFeather, revealRadius + revealFeather, distance(revealPosition, revealOrigin));\n#include <opaque_fragment>');
   };
-  old.customProgramCacheKey=()=> 'form-radial-reveal-v1';
+  old.customProgramCacheKey=()=> 'form-radial-reveal-v1-' + previous.customProgramCacheKey.call(old);
   const invisible=new THREE.MeshBasicMaterial({visible:false});
   const overlay=mesh.clone(false);overlay.material=Array.isArray(mesh.material)?mesh.material.map((m,i)=>i===slot?old:invisible):old;
   overlay.matrix.copy(mesh.matrixWorld);overlay.matrixAutoUpdate=false;overlay.castShadow=false;overlay.receiveShadow=mesh.receiveShadow;overlay.renderOrder=10;
@@ -54,6 +54,8 @@ export function fadeMaterial(scene, mesh, slot, previous) {
   mesh.updateWorldMatrix(true,false);
   const old=previous.clone();old.transparent=true;old.depthWrite=false;old.polygonOffset=true;old.polygonOffsetFactor=-2;old.polygonOffsetUnits=-2;
   const originalOpacity=Number.isFinite(previous.opacity)?previous.opacity:1;old.opacity=originalOpacity;
+  old.onBeforeCompile=previous.onBeforeCompile;
+  old.customProgramCacheKey=previous.customProgramCacheKey;
   const invisible=new THREE.MeshBasicMaterial({visible:false});
   const overlay=mesh.clone(false);overlay.material=Array.isArray(mesh.material)?mesh.material.map((m,i)=>i===slot?old:invisible):old;
   overlay.matrix.copy(mesh.matrixWorld);overlay.matrixAutoUpdate=false;overlay.castShadow=false;overlay.receiveShadow=mesh.receiveShadow;overlay.renderOrder=10;overlay.userData={};scene.add(overlay);

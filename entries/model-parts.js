@@ -13,7 +13,7 @@ import { mountToolSwitcher } from '../shared/navigation.js';
 await requireAuth({ feature: 'parts' });
 mountToolSwitcher('parts');
 const $=id=>document.getElementById(id),assetId=new URLSearchParams(location.search).get('asset');
-let asset,root,balls=[],selected=-1,assignments={},highlighted=[],slotLookup=new Map(),controls,allowPick=false,pointerStart=null,randomColorMode=false,viewportOffset=0,lastUploadTask=null,submittingSave=false;
+let asset,root,balls=[],selected=-1,assignments={},highlighted=[],slotLookup=new Map(),controls,allowPick=false,pointerStart=null,randomColorMode=false,viewportOffset=0,lastUploadTask=null,submittingSave=false,pageLeaving=false;
 let developerOpen=false,savedCameraView={azimuth:40,elevation:26,framing:1.18,offset:[0,0,0]};
 let sourceModel=null;
 const formatNumber=value=>Number(value).toLocaleString('zh-CN',{maximumFractionDigits:2});
@@ -126,7 +126,7 @@ async function captureModelPreview(){
   previewRenderer.setSize(400,300,false);previewRenderer.outputColorSpace=renderer.outputColorSpace;previewRenderer.toneMapping=renderer.toneMapping;previewRenderer.toneMappingExposure=renderer.toneMappingExposure;
   previewRenderer.render(scene,previewCamera);
   const blob=await new Promise(resolve=>previewRenderer.domElement.toBlob(resolve,'image/png'));if(!blob)throw new Error('无法生成模型预览图');return blob;
- }finally{previewRenderer?.dispose();previewRenderer?.forceContextLoss();if(selected>=0)highlight(balls[selected]);}
+ }finally{previewRenderer?.dispose();if(selected>=0)highlight(balls[selected]);}
 }
 $('saveParts').onclick=async()=>{
  if(!asset||!root||!controls||submittingSave)return;
@@ -189,5 +189,11 @@ async function readModelAsset(id){
  if(lastError)throw lastError;
  return null;
 }
-async function init(){try{initDeveloperPanel();const parameters=new URLSearchParams(location.search),uploadId=parameters.get('upload');lastUploadTask=uploadId;const task=uploadId?await getUpload(uploadId,{payload:true}):null;asset=task?.asset&&task.status!=='completed'?{...task.asset,id:task.targetAssetId}:await readModelAsset(assetId);if(!asset&&task?.asset)asset={...task.asset,id:task.targetAssetId};if(!asset||asset.kind!=='model')throw new Error('模型资产不存在，可能仍在同步，请返回模型库重试');$('modelNameInput').value=asset.name||'';$('modelCategoryInput').value=asset.category||'';assignments=asset.partAssignments&&typeof asset.partAssignments==='object'?JSON.parse(JSON.stringify(asset.partAssignments)):{};root=await loadAssetModel(asset);sourceModel=cloneSourceModel(root);renderModelInfo(root);root.traverse(mesh=>{if(mesh.isMesh){mesh.castShadow=true;mesh.receiveShadow=true;const materials=Array.isArray(mesh.material)?mesh.material:[mesh.material];materials.forEach(material=>{if(material?.color)material.color.set(0x9ca3aa);});}});scene.add(root);controls=new OrbitControls(camera,$('partsCanvas'));controls.enableDamping=true;controls.dampingFactor=.075;controls.autoRotate=false;controls.maxPolarAngle=Math.PI*.49;controls.screenSpacePanning=true;controls.mouseButtons={LEFT:THREE.MOUSE.ROTATE,MIDDLE:THREE.MOUSE.PAN,RIGHT:THREE.MOUSE.PAN};const box=new THREE.Box3().setFromObject(root),size=box.getSize(new THREE.Vector3()),scale=5.25/Math.max(...size),center=box.getCenter(new THREE.Vector3());root.scale.setScalar(scale);root.position.set(-center.x*scale,-box.min.y*scale,-center.z*scale);enumerateMaterials();resize();fit();await loadSavedCameraView();$('partsLoading').hidden=true;renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera);});void syncUploadTask();}catch(error){$('partsLoading').textContent='载入失败：'+error.message;}}
+async function init(){try{initDeveloperPanel();const parameters=new URLSearchParams(location.search),uploadId=parameters.get('upload');lastUploadTask=uploadId;const task=uploadId?await getUpload(uploadId,{payload:true}):null;asset=task?.asset&&task.status!=='completed'?{...task.asset,id:task.targetAssetId}:await readModelAsset(assetId);if(!asset&&task?.asset)asset={...task.asset,id:task.targetAssetId};if(!asset||asset.kind!=='model')throw new Error('模型资产不存在，可能仍在同步，请返回模型库重试');$('modelNameInput').value=asset.name||'';$('modelCategoryInput').value=asset.category||'';assignments=asset.partAssignments&&typeof asset.partAssignments==='object'?JSON.parse(JSON.stringify(asset.partAssignments)):{};root=await loadAssetModel(asset);if(pageLeaving)return;sourceModel=cloneSourceModel(root);renderModelInfo(root);root.traverse(mesh=>{if(mesh.isMesh){mesh.castShadow=true;mesh.receiveShadow=true;const materials=Array.isArray(mesh.material)?mesh.material:[mesh.material];materials.forEach(material=>{if(material?.color)material.color.set(0x9ca3aa);});}});scene.add(root);controls=new OrbitControls(camera,$('partsCanvas'));controls.enableDamping=true;controls.dampingFactor=.075;controls.autoRotate=false;controls.maxPolarAngle=Math.PI*.49;controls.screenSpacePanning=true;controls.mouseButtons={LEFT:THREE.MOUSE.ROTATE,MIDDLE:THREE.MOUSE.PAN,RIGHT:THREE.MOUSE.PAN};const box=new THREE.Box3().setFromObject(root),size=box.getSize(new THREE.Vector3()),scale=5.25/Math.max(...size),center=box.getCenter(new THREE.Vector3());root.scale.setScalar(scale);root.position.set(-center.x*scale,-box.min.y*scale,-center.z*scale);enumerateMaterials();resize();fit();await loadSavedCameraView();if(pageLeaving)return;$('partsLoading').hidden=true;renderer.setAnimationLoop(()=>{if(pageLeaving)return;controls.update();renderer.render(scene,camera);});void syncUploadTask();}catch(error){if(!pageLeaving)$('partsLoading').textContent='载入失败：'+error.message;}}
+window.addEventListener('pagehide', () => {
+ pageLeaving=true;
+ renderer?.setAnimationLoop(null);
+ controls?.dispose();
+ renderer?.dispose();
+}, { once:true });
 init();

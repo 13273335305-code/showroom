@@ -16,7 +16,7 @@
   <link rel="icon" type="image/png" sizes="64x64" href="assets/spenic-favicon.png">
   <link rel="stylesheet" href="workspace.css">
   <link rel="stylesheet" href="header.css">
-  <link rel="stylesheet" href="home.css">
+  <link rel="stylesheet" href="home.css?v=20261017-chrome-nav-1">
   <link rel="stylesheet" href="login.css?v=20261016-uiverse-login-4">
   <link rel="stylesheet" href="header-brand.css">
   <link rel="stylesheet" href="workspace-developer.css">
@@ -69,9 +69,13 @@
         <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M8 14a4 4 0 0 1 4-4h10l4 5h10a4 4 0 0 1 4 4v17a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V14Z"/><path d="M8 20h32M17 28h14M17 34h9"/></svg></span>
         <span class="card-copy"><strong>项目库</strong><span>保存和继续设计台中的完整项目。</span></span>
       </a>
+      <a class="workspace-card album-card-home" href="./album.html">
+        <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><rect x="7" y="10" width="34" height="28" rx="4"/><circle cx="17" cy="19" r="3"/><path d="m10 34 10-10 7 7 4-4 7 7"/></svg></span>
+        <span class="card-copy"><strong>图册</strong><span>私有云端保存拍摄图片，按需下载。</span></span>
+      </a>
     </section>
   </main>
-  <script type="module" src="home-cards-3d.js"></script>
+  <script type="module" src="home-cards-3d.js?v=20261017-chrome-nav-1"></script>
   <script type="module">
     import { requireAuth } from './shared/auth.js';
     await requireAuth({ feature: 'workspace' });

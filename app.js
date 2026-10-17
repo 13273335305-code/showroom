@@ -30,12 +30,16 @@ import { createProjectResource, createProjectPreview, resolveProjectResource, va
 import { compressImageFile } from './shared/asset-thumbnail.js';
 import { createProjectThumbnail } from './shared/project-thumbnail.js';
 import { fitMaterialPreview, assetImageUrl } from './shared/material-preview.js';
+import { renderConvexPreview } from './shared/convex-preview.js';
 import { renderFabricPreview, preloadFabricPreview } from './shared/fabric-preview-transition.js';
 import { createDeveloperPanel } from './shared/developer-panel.js';
+import { addPhoto } from './shared/album-store.js';
+import { albumPhotoName } from './shared/album-name.js';
 import { gltfCentimetersPerUnit } from './shared/model-units.js';
 import { loadDeveloperSettings, defaultDeveloperSettings, readDefaultView } from './shared/developer-settings.js';
 import { workspaceClient } from './shared/auth.js';
 import { createDefaultCameraStore } from './shared/default-camera-store.js';
+import { createCaptureAiStore, CAPTURE_AI_DEFAULT_BASE, CAPTURE_AI_DEFAULTS } from './shared/capture-ai-store.js';
 let developerPanel = null, developerSettings = defaultDeveloperSettings();
 let designDefaultView = developerSettings.defaultView;
 let designLaunchLoading = true, designLaunchLoadingTimer = null;
@@ -48,6 +52,7 @@ const MAPS=MATERIAL_MAPS;
 const DEFAULTS={...ENVIRONMENT_DEFAULTS,rotation:0,scale:1.2,renderMode:'pbr',autoRotate:false};
 let state={...DEFAULTS},renderer,scene,camera,controls,floor,reflector,stage,ring,grid,key,fill,hemi,model,entries=[],selected=null,materialPicker=null;
 let modelSource=null,modelGeneration=0,currentLoad=0,loadingModel=false,toastTimer,activeProjectId=null,activeProjectName='',activeProjectRevision=null,projectSavePromise=null;
+let pageLeaving=false;
 let loadingMessageToken=0,loadingMessageTimer=null,loadingSequenceActive=false;
 let partAssignments=new Map();
 let draggedMaterial=null, assignmentHistory=[],materialPreviewTimer=null;
@@ -152,6 +157,7 @@ function setCaptureMode(active){
  if(active){
   if(!model||loadingModel)return notify('请等待模型载入完成后再进入拍摄模式');
   clearTimeout(capturePanelTimer);capturePanelTimer=null;
+  setCaptureAiSettingsOpen(false,false);
   if(showroom?.active)showroom.exit();
   captureInspectorCollapsed=document.querySelector('.workspace').classList.contains('inspector-collapsed');
   captureMode=true;captureAutoRotate=state.autoRotate;state.autoRotate=false;endMaterialDrag();setPatternMode(false);setAnnotationMode(false);designUI?.exitRemoval();syncAutoRotate();
@@ -193,28 +199,188 @@ function setCaptureOrientation(landscape){
  }
  syncCaptureOrientation();
 }
-function captureImage(){
- if(!captureMode||!renderer||!camera)return;
- const width=Math.round(Number($('captureWidth').value)),height=Math.round(Number($('captureHeight').value));
- if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width>8192||height>8192){notify('请输入 1–8192 范围内的像素值');return;}
-  const transparent=$('captureTransparent').checked;
- const flash=$('captureFlash');if(flash){flash.classList.remove('is-flashing');void flash.offsetWidth;flash.classList.add('is-flashing');clearTimeout(captureFlashTimer);captureFlashTimer=setTimeout(()=>{flash.classList.remove('is-flashing');captureFlashTimer=null;},320);}
-  $('captureShoot').disabled=true;$('captureShoot').textContent='正在拍摄…';
- // Crop the already displayed canvas instead of rendering a second color-space
- // path. This makes the exported pixels match the view inside the frame.
+const captureAiStore=createCaptureAiStore({access:workspaceClient});
+const captureAiFields=['captureAiKey','captureAiModel','captureAiBase','captureAiAspect','captureAiSize'];
+let captureAiLoaded=null,captureAiLoading=null,captureAiSaving=null,captureAiVersion=0,captureAiRequest=null;
+const captureAiPromptFallback=[{label:'极简摄影棚',prompt:'将这个产品放在极简摄影棚中，柔和侧光，高级电商产品图'},{label:'自然生活场景',prompt:'将这个产品融入自然、克制的生活方式场景，光线柔和，画面高级且真实'},{label:'材质细节特写',prompt:'突出这个产品的材质、纹理和工艺细节，使用干净的近距离产品摄影构图'}];
+let captureAiPrompts=captureAiPromptFallback.map(item=>({...item})),captureAiPromptsLoading=null,captureAiPromptsVersion=0,captureAiPromptIndex=0;
+function restoreCaptureAiModel(value){const select=$('captureAiModel');if(!select)return;const model=value||'gemini-3.1-flash-image-preview';if(!Array.from(select.options).some(option=>option.value===model))select.add(new Option(model,model));select.value=model}
+function applyCaptureAiConfig(config){
+ $('captureAiKey').value=config.apiKey;restoreCaptureAiModel(config.model);$('captureAiBase').value=config.base;
+ $('captureAiAspect').value=config.aspect;$('captureAiSize').value=config.size;
+}
+function lockCaptureAiFields(locked){
+ captureAiFields.forEach(id=>{$(id).disabled=locked});
+ $('captureAiBase').readOnly=!captureAiLoaded?.canManageSite;
+}
+function invalidateCaptureAiConfig(){
+ captureAiVersion++;captureAiLoaded=null;captureAiRequest?.abort();
+ applyCaptureAiConfig({...CAPTURE_AI_DEFAULTS,base:CAPTURE_AI_DEFAULT_BASE});
+ lockCaptureAiFields(true);$('captureAiGenerate').disabled=true;
+ setCaptureAiStatus('账号已变更，请重新登录后打开 AI 配置','error');
+}
+async function loadCaptureAiConfig(){
+ if(captureAiLoaded)return captureAiLoaded;
+ if(captureAiLoading)return captureAiLoading;
+ const version=++captureAiVersion;captureAiLoaded=null;lockCaptureAiFields(true);$('captureAiGenerate').disabled=true;$('captureAiKey').value='';setCaptureAiStatus('正在读取账号配置…');
+ captureAiLoading=(async()=>{
+  try{
+   const config=await captureAiStore.load();if(version!==captureAiVersion)return;
+   captureAiLoaded=config;applyCaptureAiConfig(config);lockCaptureAiFields(false);$('captureAiGenerate').disabled=false;
+   setCaptureAiStatus('');
+  }catch(error){if(version===captureAiVersion)setCaptureAiStatus(error.message,'error')}
+  finally{captureAiLoading=null}
+ })();return captureAiLoading;
+}
+function readCaptureAiConfig(){return {apiKey:$('captureAiKey').value.trim(),model:$('captureAiModel').value,base:$('captureAiBase').value.trim(),aspect:$('captureAiAspect').value,size:$('captureAiSize').value}}
+async function saveCaptureAiConfig(){
+ if(captureAiSaving)return captureAiSaving;
+ if(!captureAiLoaded)throw new Error('请先成功读取当前账号的 AI 配置');
+ const ownerId=captureAiLoaded.ownerId,version=captureAiVersion,value=readCaptureAiConfig(),old=captureAiLoaded;
+ lockCaptureAiFields(true);
+ captureAiSaving=(async()=>{
+  try{
+   if(value.base!==old.base)value.base=await captureAiStore.saveSite(ownerId,value.base);
+   if(version!==captureAiVersion)throw new Error('账号已切换，请重新打开 AI 配置');
+   await captureAiStore.saveAccount(ownerId,value);
+   if(version!==captureAiVersion)throw new Error('账号已切换，请重新打开 AI 配置');
+   captureAiLoaded={...old,...value};setCaptureAiStatus('');
+   return {...captureAiLoaded};
+  }finally{captureAiSaving=null;lockCaptureAiFields(!captureAiLoaded)}
+ })();return captureAiSaving;
+}
+async function initCaptureAiConfig(){
+ // The old shared browser record cannot establish which account owns its Key.
+ try{localStorage.removeItem('spenic-capture-ai-v1')}catch{}
+ try{
+  const {client,userId}=await workspaceClient();
+  client.auth.onAuthStateChange((event,session)=>{
+   if(event==='SIGNED_OUT'||(session?.user?.id&&session.user.id!==userId))invalidateCaptureAiConfig();
+  });
+  await loadCaptureAiConfig();
+  await loadCaptureAiPrompts();
+ }catch{invalidateCaptureAiConfig()}
+}
+function setCaptureAiSettingsOpen(open,focus=true){
+ $('captureMainPage').hidden=open;$('captureAiSettingsPage').hidden=!open;
+ $('captureAiSettingsOpen').setAttribute('aria-expanded',String(open));
+ $('capturePanel').setAttribute('aria-labelledby',open?'captureAiSettingsTitle':'capturePanelTitle');
+ $('capturePanel').scrollTop=0;
+ if(focus)$(open?'captureAiSettingsBack':'captureAiSettingsOpen').focus({preventScroll:true});
+}
+async function closeCaptureAiSettings(){
+ if(!captureAiLoaded){setCaptureAiSettingsOpen(false);return}
+ try{await saveCaptureAiConfig();setCaptureAiSettingsOpen(false)}catch(error){setCaptureAiStatus(error.message,'error')}
+}
+function setCaptureAiStatus(message='',kind=''){for(const id of ['captureAiStatus','captureAiSettingsStatus']){const node=$(id);if(node){node.textContent=message;node.dataset.kind=kind}}}
+function selectedCaptureAiPrompt(){
+ const index=Math.max(0,Math.min(captureAiPrompts.length-1,captureAiPromptIndex));
+ return captureAiPrompts[index]?.prompt?.trim()||'';
+}
+function syncCaptureAiPromptPicker(){
+ const slider=$('captureAiPromptSlider');
+ if(!slider)return;
+ const hasPrompts=captureAiPrompts.length>0;
+ captureAiPromptIndex=Math.max(0,Math.min(captureAiPrompts.length-1,captureAiPromptIndex));
+ slider.replaceChildren();
+ slider.setAttribute('aria-busy',String(!!captureAiPromptsLoading));
+ slider.dataset.empty=String(!hasPrompts);
+ captureAiPrompts.forEach((item,index)=>{
+  const button=document.createElement('button');button.type='button';button.className='capture-ai-prompt-option';button.textContent=item.label;button.title=item.label;button.setAttribute('role','tab');button.setAttribute('aria-selected',String(index===captureAiPromptIndex));button.tabIndex=index===captureAiPromptIndex?0:-1;button.disabled=!!captureAiPromptsLoading;
+  button.onclick=()=>{captureAiPromptIndex=index;syncCaptureAiPromptPicker();};
+  button.onkeydown=event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?captureAiPrompts.length-1:(index+(event.key==='ArrowRight'?1:-1)+captureAiPrompts.length)%captureAiPrompts.length;captureAiPromptIndex=next;syncCaptureAiPromptPicker();slider.children[next]?.focus();};
+  slider.append(button);
+ });
+}
+async function loadCaptureAiPrompts(){
+ if(captureAiPromptsLoading)return captureAiPromptsLoading;
+ if(typeof captureAiStore.loadPrompts!=='function'){syncCaptureAiPromptPicker();return captureAiPrompts;}
+ const version=++captureAiPromptsVersion;
+ captureAiPromptsLoading=(async()=>{
+  try{
+   const value=await captureAiStore.loadPrompts();
+   if(version!==captureAiPromptsVersion)return;
+   captureAiPrompts=Array.isArray(value)?value.slice(0,5).map(item=>({label:String(item.label||''),prompt:String(item.prompt||'')})):captureAiPromptFallback.map(item=>({...item}));captureAiPromptIndex=0;syncCaptureAiPromptPicker();
+  }catch(error){
+   if(version===captureAiPromptsVersion){captureAiPrompts=captureAiPromptFallback.map(item=>({...item}));captureAiPromptIndex=0;syncCaptureAiPromptPicker();setCaptureAiStatus(error.message,'error');}
+  }finally{captureAiPromptsLoading=null;syncCaptureAiPromptPicker();}
+ })();
+ return captureAiPromptsLoading;
+}
+function setCaptureAiBusy(busy){const button=$('captureAiGenerate');button.disabled=busy||!captureAiLoaded;button.setAttribute('aria-busy',String(busy));button.querySelector('.capture-ai-button-label').textContent=busy?'生成中…':'AI'}
+function buildCaptureAiUrl(base,model){
+ const root=String(base||'').trim().replace(/\/+$/,''); if(!root)throw new Error('请填写 API 地址'); if(!model)throw new Error('请填写模型');
+ if(root.includes('{{model}}'))return root.replace('{{model}}',encodeURIComponent(model));
+ if(root.includes(':generate'))return root;
+ if(root.includes('/models/'))return root+':generateContent';
+ return `${root}/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+}
+function cleanCaptureBase64(value){return String(value||'').replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/,'').replace(/\s/g,'')}
+function captureBase64Blob(data,mime='image/png'){const binary=atob(data),bytes=new Uint8Array(binary.length);for(let index=0;index<binary.length;index++)bytes[index]=binary.charCodeAt(index);return new Blob([bytes],{type:mime})}
+function extractCaptureImage(payload,text=''){
+ const found=[],seen=new Set(),add=(data,mime='image/png')=>{const clean=cleanCaptureBase64(data);if(clean&&!seen.has(clean)){seen.add(clean);found.push({data:clean,mime})}},addUrl=url=>{if(typeof url==='string'&&/^https?:\/\//i.test(url)&&!found.some(item=>item.url===url))found.push({url})};
+ const scanText=value=>{const source=String(value||'');for(const m of source.matchAll(/data:image\/([\w.+-]+);base64,([A-Za-z0-9+/=]+)/gi))add(m[2],`image/${m[1]}`);for(const m of source.matchAll(/!\[[^\]]*\]\(data:image\/([\w.+-]+);base64,([A-Za-z0-9+/=]+)\)/gi))add(m[2],`image/${m[1]}`);for(const m of source.matchAll(/https?:\/\/[^\s<>"']+\.(?:png|jpe?g|gif|webp|bmp)(?:\?[^\s<>"']*)?/gi))addUrl(m[0])};
+ const visit=(value,seenObjects=new Set(),key='')=>{if(value==null)return;if(typeof value==='string'){scanText(value);if(/image|data|base64|b64|inline/i.test(key)&&value.length>100&&/^[A-Za-z0-9+/=\s]+$/.test(value))add(value);return}if(typeof value!=='object'||seenObjects.has(value))return;seenObjects.add(value);if(value.inlineData?.data)add(value.inlineData.data,value.inlineData.mimeType||'image/png');if(value.inline_data?.data)add(value.inline_data.data,value.inline_data.mime_type||'image/png');if(value.b64_json)add(value.b64_json,value.mimeType||value.mime_type||'image/png');if(typeof value.url==='string'){if(value.url.startsWith('data:image/'))scanText(value.url);else addUrl(value.url)}if(Array.isArray(value))value.forEach(item=>visit(item,seenObjects,key));else Object.entries(value).forEach(([childKey,item])=>visit(item,seenObjects,childKey));};
+ visit(payload);scanText(text);return found[0]||null;
+}
+async function captureFrameBlob({transparent=false,width,height}={}){
+ const checkbox=$('captureTransparent'),previous=checkbox.checked;
+ if(transparent&&!previous){checkbox.checked=true;setCaptureTransparent(true)}
  renderDesignScene();
  const canvas=$('canvas'),frame=$('captureFrame'),canvasRect=canvas.getBoundingClientRect(),frameRect=frame.getBoundingClientRect();
- const scaleX=canvas.width/Math.max(1,canvasRect.width),scaleY=canvas.height/Math.max(1,canvasRect.height);
- const sx=Math.max(0,(frameRect.left-canvasRect.left)*scaleX),sy=Math.max(0,(frameRect.top-canvasRect.top)*scaleY);
- const sw=Math.min(canvas.width-sx,frameRect.width*scaleX),sh=Math.min(canvas.height-sy,frameRect.height*scaleY);
- canvas.toBlob(async blob=>{
-  try{
-   if(!blob)throw new Error('无法读取当前画面');
-   const bitmap=await createImageBitmap(blob),output=document.createElement('canvas');output.width=width;output.height=height;
-   const context=output.getContext('2d');context.imageSmoothingEnabled=true;context.imageSmoothingQuality='high';context.drawImage(bitmap,sx,sy,sw,sh,0,0,width,height);bitmap.close();
-   output.toBlob(result=>{ $('captureShoot').disabled=false;$('captureShoot').textContent='拍摄';if(result){download(result,'FORM-'+new Date().toISOString().slice(0,10)+(transparent?'-transparent':'')+'.png');notify('已导出拍摄图片');}else notify('拍摄失败，请重试。'); },'image/png');
-  }catch(error){$('captureShoot').disabled=false;$('captureShoot').textContent='拍摄';notify('拍摄失败，请重试。');console.warn('拍摄导出失败',error);}
- },'image/png');
+ const scaleX=canvas.width/Math.max(1,canvasRect.width),scaleY=canvas.height/Math.max(1,canvasRect.height),sx=Math.max(0,(frameRect.left-canvasRect.left)*scaleX),sy=Math.max(0,(frameRect.top-canvasRect.top)*scaleY),sw=Math.min(canvas.width-sx,frameRect.width*scaleX),sh=Math.min(canvas.height-sy,frameRect.height*scaleY);
+ try{const source=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!source)throw new Error('无法读取当前画面');const bitmap=await createImageBitmap(source),output=document.createElement('canvas');output.width=width;output.height=height;const context=output.getContext('2d');context.imageSmoothingEnabled=true;context.imageSmoothingQuality='high';context.drawImage(bitmap,sx,sy,sw,sh,0,0,width,height);bitmap.close();const result=await new Promise(resolve=>output.toBlob(resolve,'image/png'));if(!result)throw new Error('无法生成拍摄图片');return result}finally{if(transparent!==previous){checkbox.checked=previous;setCaptureTransparent(previous)}}
+}
+function captureFilename(){return albumPhotoName(modelSource?.name||$('modelName')?.textContent);}
+async function captureImage(){
+ if(!captureMode||!renderer||!camera||$('captureShoot').disabled)return;const width=Math.round(Number($('captureWidth').value)),height=Math.round(Number($('captureHeight').value));if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width>8192||height>8192){notify('请输入 1–8192 范围内的像素值');return}
+ const photoName=captureFilename(),transparent=$('captureTransparent').checked,flash=$('captureFlash');if(flash){flash.classList.remove('is-flashing');void flash.offsetWidth;flash.classList.add('is-flashing');clearTimeout(captureFlashTimer);captureFlashTimer=setTimeout(()=>{flash.classList.remove('is-flashing');captureFlashTimer=null},320)}
+ $('captureShoot').disabled=true;$('captureShoot').textContent='正在拍摄…';try{const result=await captureFrameBlob({transparent,width,height});$('captureShoot').textContent='正在保存到云端…';await addPhoto(result,{name:photoName,width,height,transparent,source:'capture'});notify('已保存到云端图册，仅当前账号可见')}catch(error){notify(error.message||'图片保存失败，请重试。',6500);console.warn('图册保存失败',error)}finally{$('captureShoot').disabled=false;$('captureShoot').textContent='拍摄'}
+}
+async function captureAiGenerate(){
+ if(!captureMode||$('captureAiGenerate').disabled||!captureAiLoaded)return;
+ const width=Math.round(Number($('captureWidth').value)),height=Math.round(Number($('captureHeight').value));
+ if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width>8192||height>8192)return setCaptureAiStatus('拍摄尺寸无效','error');
+ const version=captureAiVersion,ownerId=captureAiLoaded.ownerId,request=new AbortController();
+ captureAiRequest=request;setCaptureAiBusy(true);$('captureAiSettingsOpen').disabled=true;
+ const photoName=captureFilename(),shootWasDisabled=$('captureShoot').disabled;$('captureShoot').disabled=true;
+ let key='';
+ const checkAccount=async()=>{
+  await captureAiStore.assertAccount(ownerId);
+  if(version!==captureAiVersion||request.signal.aborted)throw new Error('账号已切换，本次生成已终止');
+ };
+ try{
+  const config=await saveCaptureAiConfig();key=config.apiKey;
+  const {model,aspect,size}=config,prompt=(typeof selectedCaptureAiPrompt==='function'?selectedCaptureAiPrompt():String(config.prompt||'').trim());
+  if(!key)throw new Error('请先填写当前账号的 API Key');
+  if(!prompt)throw new Error('请先在系统配置中添加快捷提示词');
+  setCaptureAiStatus('正在拍摄透明底图并请求 AI…');
+  const input=await captureFrameBlob({transparent:true,width,height});
+  const encoded=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(cleanCaptureBase64(reader.result));reader.onerror=()=>reject(new Error('读取输入图片失败'));reader.readAsDataURL(input)});
+  const generationConfig={responseModalities:['IMAGE'],imageConfig:{imageSize:size}};
+  if(aspect&&aspect!=='AUTO')generationConfig.imageConfig.aspectRatio=aspect;
+  const body={contents:[{role:'user',parts:[{text:prompt},{inlineData:{mimeType:'image/png',data:encoded}}]}],generationConfig};
+  // Read the shared endpoint again immediately before sending this account's Key.
+  const base=await captureAiStore.loadSite(ownerId);await checkAccount();
+  const response=await fetch(buildCaptureAiUrl(base,model),{method:'POST',signal:request.signal,headers:{Accept:'application/json','Content-Type':'application/json',Authorization:`Bearer ${key}`,'X-API-Key':key,'X-Banana-Client':'comfyui-banana-li'},body:JSON.stringify(body)});
+  const text=await response.text();await checkAccount();
+  let payload={};try{payload=text?JSON.parse(text):{}}catch{payload={raw:text}}
+  if(!response.ok)throw new Error(`AI 请求失败（HTTP ${response.status}），请检查当前账号的 Key 与模型配置`);
+  const image=extractCaptureImage(payload,text);if(!image)throw new Error('AI 返回中没有找到图片');
+  setCaptureAiStatus('正在保存成品到图册…');
+  const source=image.url?await fetch(image.url,{signal:request.signal}).then(r=>{if(!r.ok)throw new Error('AI 成品图片读取失败');return r.blob()}):captureBase64Blob(image.data,image.mime);
+  const bitmap=await createImageBitmap(source),output=document.createElement('canvas'),resultWidth=bitmap.width,resultHeight=bitmap.height;
+  output.width=resultWidth;output.height=resultHeight;output.getContext('2d').drawImage(bitmap,0,0,resultWidth,resultHeight);bitmap.close();
+  const png=await new Promise(resolve=>output.toBlob(resolve,'image/png'));if(!png)throw new Error('无法转换 AI 成品图片');
+  await checkAccount();
+  await addPhoto(png,{name:photoName,width:resultWidth,height:resultHeight,transparent:false,source:'ai',ownerId});
+  await checkAccount();setCaptureAiStatus(`已生成 ${resultWidth} × ${resultHeight} 并保存到云端图册`,'ok');notify('AI 成品已保存到云端图册，仅当前账号可见');
+ }catch(error){
+  const message=error.name==='AbortError'?'账号已变更，本次生成已终止':error.message||'AI 绘画失败，请重试';
+  setCaptureAiStatus(key?message.split(key).join('***'):message,'error');
+ }finally{
+  captureAiRequest=null;setCaptureAiBusy(false);$('captureAiSettingsOpen').disabled=false;$('captureShoot').disabled=shootWasDisabled;
+ }
 }
 function formatCount(n){return n>=10000?(n/10000).toFixed(1)+' 万':n.toLocaleString();}
 function imageData(texture,maxSize=128,quality=.8){try{if(!texture?.image?.width)return null;const c=document.createElement('canvas'),scale=Math.min(1,maxSize/Math.max(texture.image.width,texture.image.height));c.width=Math.max(1,Math.round(texture.image.width*scale));c.height=Math.max(1,Math.round(texture.image.height*scale));const ctx=c.getContext('2d');ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(texture.image,0,0,c.width,c.height);return c.toDataURL('image/jpeg',quality);}catch{return null;}}
@@ -243,9 +409,23 @@ function init(){
  new ResizeObserver(resize).observe($('viewport'));resize();applyScene();
  $('canvas').addEventListener('webglcontextlost',e=>{e.preventDefault();busy('显卡渲染上下文已暂停','请刷新页面，或关闭其他占用显卡的窗口后重新打开。');});
  developerPanel=createDeveloperPanel({renderer,read:()=>state,apply:next=>{Object.assign(state,next);applyScene();},cycle:()=>daylightCycle,showroom:()=>showroom,status:()=>({loading:loadingModel,ready:!!model,name:$('modelName').textContent}),readCamera:readCurrentCameraView,getSettings:()=>developerSettings,setSettings:value=>{developerSettings=value;applyShowroomScale();applyScene();},getDefaultView:()=>designDefaultView,saveDefaultView:saveDesignDefaultView,notify,download});
- renderer.setAnimationLoop(()=>{developerPanel.beginFrame();try{if(cameraTween?.update)cameraTween.update();else controls.update();syncPatterns();updateAnnotations(false);updateRuler();renderDesignScene();}finally{developerPanel.endFrame();}});bindEvents();buildSlots();showPanel('scene');
+ renderer.setAnimationLoop(()=>{if(pageLeaving)return;developerPanel.beginFrame();try{if(cameraTween?.update)cameraTween.update();else controls.update();syncPatterns();updateAnnotations(false);updateRuler();renderDesignScene();}finally{developerPanel.endFrame();}});bindEvents();buildSlots();showPanel('scene');
  loadDesignDefaultView().finally(()=>createSceneCycle({button:$('dayCycle'),read:()=>state,apply:(next,appearance)=>{Object.assign(state,next);applyScene(appearance);},name:value=>{$('sceneName').value=value;},notify,savedPresets:developerSettings.presets}).then(cycle=>{daylightCycle=cycle;loadExample();}));
 }
+// Stop the render loop before a navigation/reload. Leaving a live WebGL loop
+// running while Chromium tears down the document can leave the GPU process
+// with several competing contexts and surface as STATUS_BREAKPOINT.
+window.addEventListener('pagehide', () => {
+ pageLeaving=true;
+ currentLoad++;
+ loadingModel=false;
+ cameraTween?.cancel();
+ disposeObject(model,entries);
+ model=null;
+ renderer?.setAnimationLoop(null);
+ controls?.dispose();
+ renderer?.dispose();
+}, { once:true });
 function resize(){invalidateAnnotations();if(!renderer)return;const {width,height}=$('viewport').getBoundingClientRect();renderer.setSize(width,height,false);camera.aspect=width/Math.max(height,1);camera.updateProjectionMatrix();syncInspectorFraming();syncCaptureFrame();updateRuler();}
 function fit(direction='perspective',{intro=false,immediate=false,fromCurrent=false}={}){
  cancelDraftAnnotation();
@@ -560,7 +740,7 @@ function convertMaterials(object){
  if(o.geometry){triangles+=(o.geometry.index?o.geometry.index.count:o.geometry.attributes.position.count)/3;geometries.add(o.geometry);}
  const list=Array.isArray(o.material)?o.material:[o.material];const next=list.map(source=>{
  if(!source)source=new THREE.MeshStandardMaterial();if(converted.has(source.uuid)){const entry=converted.get(source.uuid);entry.meshes.add(o);return entry.material;}
- const material=new THREE.MeshStandardMaterial({name:source.name,color:source.color?.clone()||new THREE.Color(0xffffff),roughness:source.roughness??.65,metalness:source.metalness??0,side:source.side,opacity:source.opacity??1,transparent:source.transparent||false,alphaTest:source.alphaTest||0});
+ const material=new THREE.MeshPhysicalMaterial({name:source.name,color:source.color?.clone()||new THREE.Color(0xffffff),roughness:source.roughness??.65,metalness:source.metalness??0,side:source.side,opacity:source.opacity??1,transparent:source.transparent||false,alphaTest:source.alphaTest||0,sheenColor:0xffffff});
  installRoughnessShader(material);
  for(const[key,,,color]of MAPS){if(!source[key])continue;const original=source[key];if(original.image?.src===placeholder)continue;material[key]=original.clone();material[key].colorSpace=color?THREE.SRGBColorSpace:THREE.NoColorSpace;configureTextureSampling(material[key],renderer);}
  if(source.alphaMap){material.alphaMap=source.alphaMap.clone();configureTextureSampling(material.alphaMap,renderer);}if(source.normalScale)material.normalScale.copy(source.normalScale);if(source.emissive)material.emissive.copy(source.emissive);material.emissiveIntensity=source.emissiveIntensity??1;material.bumpScale=source.bumpMap?Math.min(.2,source.bumpScale??.02):.02;
@@ -571,24 +751,26 @@ function convertMaterials(object){
 }
  function disposeObject(object,list=[]){if(!object)return;const gs=new Set(),ms=new Set(),ts=new Set();object.traverse(o=>{if(o.geometry)gs.add(o.geometry);for(const m of(Array.isArray(o.material)?o.material:[o.material]))if(m)ms.add(m);});for(const e of list){ms.add(e.material);ms.add(e.baseline);if(e.previewUrl)URL.revokeObjectURL(e.previewUrl);Object.values(e.uploads).forEach(u=>{if(u.preview)URL.revokeObjectURL(u.preview);});}ms.forEach(m=>{for(const v of Object.values(m))if(v?.isTexture)ts.add(v);m.dispose();});gs.forEach(g=>g.dispose());ts.forEach(t=>t.dispose());}
 async function loadModel(buffer,name,files=[],{restore=null,parts=null,runtime=false}={}){
+  if(pageLeaving)return;
   showroom?.exit();cameraTween?.cancel();$('showroomMode').disabled=true;setAnnotationMode(false);if(rulerMode)$('rulerLayer').setAttribute('hidden','');designUI?.exitRemoval();const request=++currentLoad;loadingModel=true;setOpeningDockHidden(true);setOpeningDayHidden(true);busy('正在加载展厅');await yieldFrame();let parsed;
- try{parsed=runtime?await (await import('./shared/model-runtime.js')).loadModelRuntime(buffer):/\.glb$/i.test(name)?await parseGLB(buffer,files):await parseFBX(buffer,files);if(request!==currentLoad){disposeObject(parsed.object);return;}
+ try{parsed=runtime?await (await import('./shared/model-runtime.js')).loadModelRuntime(buffer):/\.glb$/i.test(name)?await parseGLB(buffer,files):await parseFBX(buffer,files);if(pageLeaving||request!==currentLoad){disposeObject(parsed.object);return;}
  const info=convertMaterials(parsed.object),box=new THREE.Box3().setFromObject(parsed.object),size=box.getSize(new THREE.Vector3()),max=Math.max(size.x,size.y,size.z);if(!Number.isFinite(max)||max<1e-10)throw new Error('模型尺寸无效');
  const unit=Number(parsed.object.userData.unitScaleFactor);
  const nextPhysicalModel={cmPerUnit:Number.isFinite(unit)&&unit>0?unit:1,fbxCmPerUnit:Number.isFinite(unit)&&unit>0?unit:1,rawSize:size.toArray(),unitKnown:Number.isFinite(unit)&&unit>0,calibrated:false};
- busy('正在加载贴图');await yieldFrame();if(!parsed.prepared)prepareAnnotationPicking(parsed.object);materialPicker=createMaterialPicker(parsed.object);
- busy('正在加载模型');await yieldFrame();if(!parsed.prepared)preparePhysicalUV(parsed.object);
+ busy('正在加载贴图');await yieldFrame();if(pageLeaving||request!==currentLoad)return;if(!parsed.prepared)prepareAnnotationPicking(parsed.object);materialPicker=createMaterialPicker(parsed.object);
+ busy('正在加载模型');await yieldFrame();if(pageLeaving||request!==currentLoad)return;if(!parsed.prepared)preparePhysicalUV(parsed.object);
  const center=box.getCenter(new THREE.Vector3()),s=4.2/max,normalizer=new THREE.Group(),root=new THREE.Group();normalizer.add(parsed.object);normalizer.scale.setScalar(s);normalizer.position.set(-center.x*s,-box.min.y*s+.014,-center.z*s);root.add(normalizer);
  if(model){for(const a of annotations)a.el.remove();annotations=[];selectedAnnotation=null;syncAnnotationPanel();clearPatterns();scene.remove(model);disposeObject(model,entries);clearPatternSources();}model=root;restorePartAssignments(parts);modelSource={buffer:buffer.slice(0),name,files,runtime:!!parsed.prepared,textureConvention:parsed.textureConvention};physicalModel=nextPhysicalModel;updateModelDimensions();modelGeneration++;assignmentHistory=[];$('undoMaterial').disabled=true;entries=info.entries;for(const entry of entries)entry.material.userData.partTypes=partAssignments.get(entry.id)||new Set();selected=null;scene.add(model);state.rotation=0;state.scale=DEFAULTS.scale;$('isolate').checked=false;applyScene();fit('perspective',{immediate:true});
- $('modelName').textContent=name;$('modelName').title=name;$('modelStats').textContent=`${info.meshCount} 网格 · ${formatCount(info.triangles)} 三角面`;$('materialCount').textContent=String(entries.length).padStart(2,'0');selectEntry(entries[0]);renderMaterials();if(restore)await restore(entries);if(request!==currentLoad)return;showPanel('scene');
- await renderer.compileAsync(scene,camera);if(request!==currentLoad)return;renderer.render(scene,camera);
+ $('modelName').textContent=name;$('modelName').title=name;$('modelStats').textContent=`${info.meshCount} 网格 · ${formatCount(info.triangles)} 三角面`;$('materialCount').textContent=String(entries.length).padStart(2,'0');selectEntry(entries[0]);renderMaterials();if(restore)await restore(entries);if(pageLeaving||request!==currentLoad)return;showPanel('scene');
+ await renderer.compileAsync(scene,camera);if(pageLeaving||request!==currentLoad)return;renderer.render(scene,camera);
   fit('perspective',restore?{intro:true,fromCurrent:true}:{intro:true});
   if(rulerMode){$('rulerLayer').removeAttribute('hidden');updateRuler(true);}
  hideBusy();
  notify(`已载入 ${entries.length} 个独立材质`+(parsed.missing.length?'；缺少 '+parsed.missing.length+' 个外部纹理，可在右侧补充':'')+(info.uvMissing?'；部分网格没有 UV，无法显示贴图':''),6000);
-  }catch(error){console.error(error);if(request===currentLoad){hideBusy();setOpeningDockHidden(false);setOpeningDayHidden(false);notify('载入失败：'+error.message,8000);if(!model){$('modelName').textContent='请从资产库打开模型';$('modelStats').textContent='模型库';}}}finally{if(request===currentLoad){loadingModel=false;$('showroomMode').disabled=!model||!daylightCycle;if(restore){setOpeningDockHidden(false);setOpeningDayHidden(false);}}}
+ }catch(error){console.error(error);if(!pageLeaving&&request===currentLoad){hideBusy();setOpeningDockHidden(false);setOpeningDayHidden(false);notify('载入失败：'+error.message,8000);if(!model){$('modelName').textContent='请从资产库打开模型';$('modelStats').textContent='模型库';}}}finally{if(!pageLeaving&&request===currentLoad){loadingModel=false;$('showroomMode').disabled=!model||!daylightCycle;if(restore){setOpeningDockHidden(false);setOpeningDayHidden(false);}}}
 }
 async function loadExample(){
+ if(pageLeaving)return;
  const params=new URLSearchParams(location.search),projectId=params.get('project'),assetId=params.get('asset');let asset=null,assetError=null;
  if(projectId){
   try{await openStoredProject(projectId);return;}
@@ -612,7 +794,7 @@ async function loadExample(){
 }
 
 function createLibraryEntry(id,name='库中材质'){
- const material=new THREE.MeshStandardMaterial({name,color:0xffffff,roughness:.65,bumpScale:.02});
+ const material=new THREE.MeshPhysicalMaterial({name,color:0xffffff,roughness:.65,bumpScale:.02,sheenColor:0xffffff});
  installRoughnessShader(material);
  return {id,name,material,meshes:new Set(),uploads:{},previewUrl:null,mapTokens:{},repeat:[1,1],physical:defaultPhysical(),pendingDpi:{},densityInfo:null,flip:false,baseline:material.clone(),thumbnails:{},previews:{}};
 }
@@ -721,7 +903,7 @@ function pulseMaterialUsage(entry){
  pulse.frame=requestAnimationFrame(tick);
  notify('正在高亮显示「'+entry.name+'」应用的模型部件',2200);
 }
-function decorateSwatch(el,entry){const color='#'+entry.material.color.getHexString();el.style.background=`radial-gradient(circle at 30% 25%,#ffffff85,transparent 48%),linear-gradient(145deg,${color},${color})`;const src=entry.previewUrl||(entry.assetPreviewChecked?null:entry.material.map&&(entry.uploads.map?.preview||entry.thumbnails.map));if(el.id==='compactSwatch'){renderFabricPreview(el,{source:src,info:entry.previewInfo,pending:entry.fabricColorPending,identity:entry});return;}el.replaceChildren();if(src){const img=new Image();img.src=src;img.alt='';img.draggable=false;if(entry.previewUrl){el.style.position='relative';fitMaterialPreview(img,entry.previewInfo,el.clientHeight?el.clientWidth/el.clientHeight:1);}el.append(img);}else if(entry.assetPreviewChecked){const empty=document.createElement('span');empty.className='material-preview-empty';empty.textContent='无预览图';el.append(empty);}}
+function decorateSwatch(el,entry){const color='#'+entry.material.color.getHexString();el.style.background=color;const src=entry.previewUrl||(entry.assetPreviewChecked?null:entry.material.map&&(entry.uploads.map?.preview||entry.thumbnails.map));if(el.id==='compactSwatch'){renderFabricPreview(el,{source:src,info:entry.previewInfo,pending:entry.fabricColorPending,identity:entry});return;}el.replaceChildren();if(src){const img=new Image();img.src=src;img.alt='';img.draggable=false;if(el.classList.contains('material-thumb')&&!el.closest('.pattern-item')){renderConvexPreview(img,src,entry.previewInfo,color);}else if(entry.previewUrl){el.style.position='relative';fitMaterialPreview(img,entry.previewInfo,el.clientHeight?el.clientWidth/el.clientHeight:1);}el.append(img);}else if(entry.assetPreviewChecked){const empty=document.createElement('span');empty.className='material-preview-empty';empty.textContent='无预览图';el.append(empty);}}
 function selectEntry(entry){if(!entry||entry.removed)return;selected=entry;activeFabric=fabricCategory(entry);$('fabricCategory').value=activeFabric;$('materialName').value=entry.name;$('materialUsage').textContent=`材质 ${String(entry.id+1).padStart(2,'0')} · 应用于 ${entry.meshes.size} 个网格`;decorateSwatch($('selectedSwatch'),entry);$('baseColor').value='#'+entry.material.color.getHexString();const vals={roughness:entry.material.roughness,metalness:entry.material.metalness,normalStrength:Math.abs(entry.material.normalScale.x),aoStrength:entry.material.aoMapIntensity,emissiveStrength:entry.material.emissiveIntensity,bumpStrength:entry.material.bumpScale};for(const[id,v]of Object.entries(vals)){$(id).value=v;$(id+'Value').textContent=Number(v).toFixed(id==='bumpStrength'?3:2);}$('repeatU').value=entry.repeat[0];$('repeatV').value=entry.repeat[1];updatePhysicalPanel(entry);$('flipNormal').checked=entry.flip;updateSlots();renderMaterials();applyIsolation();designUI?.select({kind:'fabric',entry});}
 function buildSlots(){for(const[key,label,english]of MAPS){const wrap=document.createElement('div');wrap.className='texture-slot';wrap.id='slot-'+key;const upload=document.createElement('button');upload.className='texture-upload';upload.setAttribute('aria-label','上传'+label+'贴图');const span=document.createElement('span');const plus=document.createElement('strong');plus.textContent='＋';span.append(plus,document.createTextNode(label));upload.append(span);const input=document.createElement('input');input.type='file';input.accept='image/png,image/jpeg,image/webp,image/bmp';input.id='texture-'+key;input.onchange=async()=>{const entry=selected,file=input.files[0];input.value='';if(entry&&file){try{await uploadTexture(entry,key,file);}catch{}}};upload.onclick=()=>{if(!selected)return notify('请先从资产库打开模型');input.click();};const remove=document.createElement('button');remove.className='remove-texture';remove.textContent='×';remove.title='移除'+label+'贴图';remove.setAttribute('aria-label','移除'+label+'贴图');remove.onclick=()=>removeTexture(selected,key);wrap.append(upload,input,remove);wrap.title=label+' / '+english;$('textureSlots').append(wrap);}}
 function updateSlots(){for(const[key,label]of MAPS){const wrap=$('slot-'+key);const has=!!selected?.material[key];wrap.classList.toggle('has-image',has);wrap.querySelectorAll('img').forEach(i=>i.remove());const src=selected?.uploads[key]?.preview||selected?.thumbnails[key];if(has&&src){const img=new Image();img.src=src;img.alt=label+'预览';wrap.prepend(img);}wrap.querySelector('strong').textContent=has?'✓':'＋';wrap.querySelector('.remove-texture').hidden=!has;wrap.title=selected?.uploads[key]?.file.name||label+(has?' · 模型内置贴图':' · 点击上传');}}
@@ -1174,7 +1356,10 @@ function bindEvents(){
   enter:()=>{cameraTween?.cancel();endMaterialDrag();setPatternMode(false);setAnnotationMode(false);designUI?.exitRemoval();setInspectorCollapsed(true);$('toast').classList.remove('show');state.autoRotate=true;applyScene();if($('viewport').dataset.cameraMotion==='intro')fit('perspective',{immediate:true});},
   restore:snapshot=>{state={...snapshot.state};applyScene(snapshot.appearance);$('sceneName').value=snapshot.name;setAnnotationMode(snapshot.annotationMode);setInspectorCollapsed(snapshot.inspectorCollapsed);}
  });
- $('collapseInspector').onclick=()=>setInspectorCollapsed(true);$('restoreInspector').onclick=()=>setInspectorCollapsed(!workspace.classList.contains('inspector-collapsed'));$('captureExit').onclick=()=>setCaptureMode(false);$('captureShoot').onclick=captureImage;
+ syncCaptureAiPromptPicker();
+ void initCaptureAiConfig();
+ $('captureAiSettingsOpen').onclick=()=>{setCaptureAiSettingsOpen(true);void loadCaptureAiConfig()};$('captureAiSettingsBack').onclick=closeCaptureAiSettings;$('captureAiSettingsDone').onclick=closeCaptureAiSettings;
+ $('collapseInspector').onclick=()=>setInspectorCollapsed(true);$('restoreInspector').onclick=()=>setInspectorCollapsed(!workspace.classList.contains('inspector-collapsed'));$('captureExit').onclick=()=>setCaptureMode(false);$('captureShoot').onclick=captureImage;$('captureAiGenerate').onclick=captureAiGenerate;
  $('captureLandscape').onclick=()=>setCaptureOrientation(true);$('capturePortrait').onclick=()=>setCaptureOrientation(false);$('captureWidth').oninput=syncCaptureOrientation;$('captureHeight').oninput=syncCaptureOrientation;$('captureTransparent').onchange=event=>setCaptureTransparent(event.target.checked);syncCaptureOrientation();
  $('materialTab').onclick=()=>showPanel('material');$('sceneTab').onclick=()=>showPanel('scene');$('inspectorToggle').onclick=()=>setInspectorCollapsed(!workspace.classList.contains('inspector-collapsed'));$('closeInspector').onclick=()=>setInspectorCollapsed(true);
  bindMaterialDrop();bindPhysicalControls();
@@ -1191,7 +1376,7 @@ function bindEvents(){
  document.querySelectorAll('[data-preset]').forEach(b=>b.onclick=()=>{daylightCycle?.cancel();state.preset=b.dataset.preset;Object.assign(state,state.preset==='night'?{backgroundColor:'#172232',exposure:1.05,keyLight:4,fillLight:.7,lightColor:'#dde8ff'}:state.preset==='daylight'?{backgroundColor:'#e5edf3',exposure:1.2,keyLight:4.5,fillLight:1.8,lightColor:'#ffedd4'}:{backgroundColor:DEFAULTS.backgroundColor,exposure:1.1,keyLight:3,fillLight:1.5,lightColor:DEFAULTS.lightColor});applyScene();});$('resetScene').onclick=()=>{daylightCycle?.cancel();state={...DEFAULTS};applyScene();fit();};
  $('canvas').addEventListener('dblclick',event=>{if(annotationMode)return;const hit=pickModelMaterial(event.clientX,event.clientY);if(!hit)return;selectEntry(hit.entry);showPanel('material');$('materialList').querySelector('[data-entry-id="'+hit.entry.id+'"]')?.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'});});
  $('snapshot').onclick=()=>setCaptureMode(!captureMode);
- document.addEventListener('keydown',event=>{if(captureMode&&event.key==='Escape'){event.preventDefault();event.stopPropagation();setCaptureMode(false);}},true);
+ document.addEventListener('keydown',event=>{if(captureMode&&event.key==='Escape'){event.preventDefault();event.stopPropagation();if(!$('captureAiSettingsPage').hidden)closeCaptureAiSettings();else setCaptureMode(false);}},true);
  window.__spenicDesignSession={save:()=>saveProject({silent:true})};
  $('headerUndo').onclick=undoMaterialAssignment;$('saveProject').onclick=()=>saveProject();
  $('saveScene').onclick=()=>{try{const name=sceneName($('sceneName').value);download(packScene(state,name),sceneFilename(name));$('sceneName').value=name;notify('已保存场景：'+name);}catch(error){notify('保存场景失败：'+error.message,6000);}};

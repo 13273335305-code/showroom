@@ -54,7 +54,7 @@ export function createAuthStorage(local, tab) {
 export function safeAuthTarget(target, appRoot) {
   const root = new URL(appRoot);
   const fallback = new URL('index.html', root).href;
-  const pages = new Set(['index.html', 'design.html', 'material-editor.html', 'asset-library.html', 'project-library.html', 'model-parts.html']);
+  const pages = new Set(['index.html', 'design.html', 'material-editor.html', 'asset-library.html', 'project-library.html', 'model-parts.html', 'album.html']);
   try {
     const url = new URL(target || 'index.html', root);
     const name = url.pathname.slice(root.pathname.length);

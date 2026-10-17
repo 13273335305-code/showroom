@@ -1,0 +1,65 @@
+:root{--album-ink:#2b415b;--album-muted:#73859a;--album-blue:#3978ed}
+.album-page [hidden]{display:none!important}
+body.album-page{--asset-topbar-height:74px;height:100dvh;min-height:0;margin:0;padding:0;overflow:hidden;background:#edf4fa;color:var(--album-ink);font-family:'PingFang SC','Microsoft YaHei','Segoe UI',sans-serif}
+.album-page .album-topbar{display:flex;justify-content:space-between;gap:16px;box-sizing:border-box}
+.album-page main.album-main{box-sizing:border-box;width:100%;max-width:none;height:100dvh;margin:0;padding:calc(var(--asset-topbar-height) + 28px) 26px 28px;overflow-x:hidden;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#98a2ae #ffffff70;overscroll-behavior-y:contain}
+.album-page main.album-main::-webkit-scrollbar{display:block;width:10px}
+.album-page main.album-main::-webkit-scrollbar-thumb{background:#98a2ae;border-radius:999px}
+.album-page .album-card{--album-overlay-inset:10px;position:relative;grid-template-rows:auto auto;min-width:0;cursor:zoom-in}
+.album-page .album-preview{position:relative;display:block;box-sizing:border-box;width:100%;height:auto;aspect-ratio:4/3;margin:0;padding:0;border:0;border-radius:16px 16px 0 0;overflow:hidden;background:#e1e9f1;cursor:zoom-in}
+.album-page .album-preview img{display:block;position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.album-preview img:not([src]){visibility:hidden}
+.album-badge{position:absolute;left:var(--album-overlay-inset);bottom:var(--album-overlay-inset);display:grid;place-items:center;box-sizing:border-box;width:26px;height:26px;padding:0;border:1px solid #ffffffb8;border-radius:8px;background:#ffffffb8;box-shadow:0 4px 14px #29415a1f;color:var(--album-blue);font-size:13px;font-weight:700;line-height:1;opacity:.75;backdrop-filter:blur(10px) saturate(120%);-webkit-backdrop-filter:blur(10px) saturate(120%);pointer-events:none}
+.album-page .album-card .album-card-body{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:10px 14px 12px}
+.album-card-meta{grid-column:1/-1;display:flex;flex-direction:column;gap:4px;min-width:0}
+.album-card-meta strong{display:block;overflow:hidden;font-size:14px;font-weight:650;line-height:20px;text-overflow:ellipsis;white-space:nowrap}
+.album-preview-actions button{min-height:30px;padding:5px 10px;border:1px solid #d5e1ef;border-radius:7px;background:#fff;color:#58708c;font:11px/18px 'PingFang SC','Microsoft YaHei','Segoe UI',sans-serif;cursor:pointer}
+.album-page .album-preview-download{position:absolute;z-index:2;top:var(--album-overlay-inset);right:var(--album-overlay-inset);display:grid;place-items:center;box-sizing:border-box;width:26px;height:26px;margin:0;padding:0;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none;line-height:0;cursor:pointer}
+.album-preview-download .album-download-visual{display:block;grid-area:1/1;width:26px;height:26px;color:var(--album-blue);pointer-events:none;opacity:0;transform:scale(.95);transition:opacity 160ms cubic-bezier(.23,1,.32,1),transform 160ms cubic-bezier(.23,1,.32,1)}
+.album-preview-download .album-download-icon{background-color:var(--album-blue);-webkit-mask:url('./assets/download.svg') center/contain no-repeat;mask:url('./assets/download.svg') center/contain no-repeat}
+.album-preview-download[data-download-state="idle"] .album-download-icon,.album-preview-download[data-download-state="loading"] .album-download-spinner,.album-preview-download[data-download-state="success"] .album-download-success{opacity:1;transform:scale(1)}
+.album-download-spinner::before{content:"";display:block;box-sizing:border-box;width:26px;height:26px;border:2.5px solid #3978ed40;border-top-color:var(--album-blue);border-radius:50%}
+.album-preview-download[data-download-state="loading"] .album-download-spinner::before{animation:album-download-spin .8s linear infinite}
+@keyframes album-download-spin{to{transform:rotate(360deg)}}
+@media(hover:hover) and (pointer:fine){.album-preview-download:not(:disabled):hover{opacity:.65}}
+.album-preview-download:disabled{opacity:.4;cursor:wait}
+.album-preview-download[data-download-state="loading"]:disabled{opacity:1}
+.album-preview-actions .album-download{border-color:var(--album-blue);background:var(--album-blue);color:#fff}
+.album-preview-actions .album-download:hover{background:#2869dc;color:#fff}
+.album-preview-actions button:disabled{opacity:.55;cursor:wait}
+.album-page :is(button,a):focus-visible{outline:3px solid #91baff;outline-offset:3px}
+.album-empty{display:grid;place-items:center;padding:86px 20px;text-align:center}
+.album-empty-icon{display:grid;place-items:center;width:68px;height:68px;margin-bottom:18px;border-radius:18px;background:#e8f1ff;color:#5283d8}
+.album-empty-icon svg{width:36px;height:36px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.album-empty h2{margin:0;font-size:20px}
+.album-empty p{max-width:390px;margin:9px 0 22px;color:var(--album-muted);font-size:13px;line-height:1.7}
+.album-empty-action{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:0 16px;border-radius:8px;background:var(--album-blue);color:#fff;font-size:12px;text-decoration:none}
+.album-empty-action:hover{background:#2869dc}
+.album-error{margin:24px 0;color:#be3f4d;text-align:center;font-size:13px}
+.album-retry{display:block;margin:16px auto;padding:9px 16px;border:1px solid #bdcfe5;border-radius:8px;background:white;color:#37628f;font:inherit;cursor:pointer}
+.album-preview-dialog{box-sizing:border-box;width:min(1200px,calc(100vw - 48px));max-width:none;max-height:calc(100dvh - 48px);margin:auto;padding:0;border:1px solid #ffffffc0;border-radius:18px;background:#f6f9fd;color:var(--album-ink);box-shadow:0 24px 90px #132b4b40;overflow:auto}
+.album-preview-dialog::backdrop{background:#14263b99;backdrop-filter:blur(6px)}
+.album-preview-window{padding:20px}
+.album-preview-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
+.album-preview-heading>div{min-width:0}
+.album-preview-eyebrow{margin:0 0 5px;color:var(--album-muted);font-size:11px}
+.album-preview-heading h2{margin:0;overflow-wrap:anywhere;font-size:17px;line-height:24px}
+.album-page .album-preview-close{display:grid;place-items:center;flex:0 0 36px;width:36px;height:36px;margin:0;padding:0;border:1px solid #dce6f0;border-radius:50%;background:#e9f0f8;color:#627891;line-height:1;cursor:pointer}
+.album-preview-close svg{display:block;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;pointer-events:none}
+@media(hover:hover) and (pointer:fine){.album-page .album-preview-close:not(:disabled):hover{border-color:#b7cff8;background:#e4edfb;color:var(--album-blue)}}
+.album-page .album-preview-close:active{background:#dce8fa;color:var(--album-blue)}
+.album-page .album-preview-close:disabled{opacity:.5;cursor:wait}
+.album-preview-stage{position:relative;display:flex;align-items:center;justify-content:center;min-height:240px;overflow:hidden;border-radius:12px}
+.album-preview-stage,.album-page .album-preview{background-color:#edf2f7;background-image:conic-gradient(#dce5ef 25%,transparent 0 50%,#dce5ef 0 75%,transparent 0);background-size:20px 20px}
+.album-preview-stage img{display:block;max-width:100%;max-height:calc(100dvh - 240px);width:auto;height:auto;object-fit:contain}
+.album-preview-stage img:not([src]){display:none}
+.album-preview-status{position:absolute;inset:0;display:grid;place-items:center;margin:0;padding:24px;color:#58708d;text-align:center;font-size:13px;background:#edf2f7e6}
+.album-preview-meta{margin:12px 0 0;color:var(--album-muted);font-size:12px}
+.album-preview-error{margin:12px 0 0;color:#be3f4d;font-size:12px;line-height:1.6}
+.album-preview-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}
+.album-page .album-preview-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:8px 16px;font-size:13px;line-height:20px}
+.album-preview-actions .album-preview-delete{border-color:#efcbd1;background:#fff3f4;color:#bb4859}
+.album-preview-delete svg{display:block;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+@media(hover:hover) and (pointer:fine){.album-preview-actions .album-preview-delete:not(:disabled):hover{border-color:#df9fa9;background:#ffe9ed;color:#a83245}}
+@media(max-width:700px){body.album-page{--asset-topbar-height:64px}.album-page .album-topbar{height:var(--asset-topbar-height);align-items:center;padding:0 12px}.album-page main.album-main{padding:calc(var(--asset-topbar-height) + 18px) 12px 24px}.album-page .album-card .album-card-body{padding:9px 8px 10px;gap:6px}.album-card-meta strong{font-size:12px}.album-preview-dialog{width:calc(100vw - 24px);max-height:calc(100dvh - 24px);border-radius:14px}.album-preview-window{padding:12px}.album-preview-heading{gap:10px}.album-preview-heading h2{font-size:14px;line-height:20px}.album-preview-stage{min-height:180px}.album-preview-stage img{max-height:calc(100dvh - 220px)}.album-empty{padding:60px 16px}}
+@media(prefers-reduced-motion:reduce){.album-card{transition:none}.album-preview-download .album-download-visual{transform:none;transition:opacity 120ms linear}.album-preview-download[data-download-state="loading"] .album-download-spinner::before{animation:none}}

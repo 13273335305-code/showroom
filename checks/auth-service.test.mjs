@@ -44,6 +44,7 @@ test('redirects accept only workspace routes on the same origin and deployment p
     assert.equal(safeAuthTarget(target, appRoot), fallback, target);
   }
   assert.equal(safeAuthTarget('design.html?asset=abc', appRoot), appRoot + 'design.html?asset=abc');
+  assert.equal(safeAuthTarget('album.html', appRoot), appRoot + 'album.html');
   assert.equal(safeAuthTarget('/studio/project-library.html?view=personal', appRoot), appRoot + 'project-library.html?view=personal');
 });
 

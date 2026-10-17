@@ -28,6 +28,9 @@ const root = path.resolve(__dirname, '..');
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${server.address().port}/material-editor.html`);
     await page.waitForFunction(() => !document.getElementById('saveMaterial').disabled);
+    // Calibrate base color independently of the optional fiber reflection layer.
+    await page.locator('#sheenValue').fill('0');
+    await page.locator('#sheenValue').press('Tab');
     async function upload(key, rgb) {
       const buffer = Buffer.from(await page.evaluate(color => {
         const c = document.createElement('canvas'); c.width = c.height = 32;

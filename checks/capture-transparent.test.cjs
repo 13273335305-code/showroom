@@ -1,11 +1,14 @@
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || 'C:/Users/Administrator/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 const assert = require('node:assert/strict');
-const fs = require('node:fs/promises');
 
 (async () => {
  const browser = await chromium.launch({ headless: true, channel: 'msedge' });
  try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true });
+  await require('./project-test-server.cjs').installProjectFixture(page.context());
+  await page.route('**/shared/auth.js', route => route.fulfill({ contentType: 'text/javascript', body: "export async function requireAuth() { document.documentElement.classList.remove('auth-pending'); document.getElementById('authBootLoading')?.remove(); } export const authState = () => ({ id: '11111111-1111-1111-1111-111111111111' }); export async function workspaceClient() { return (await import('../checks/project-cloud-fixture.js')).fixtureAccess(); }" }));
+  await page.route('**/shared/album-store.js', route => route.fulfill({ contentType: 'text/javascript', body: 'export async function addPhoto(blob, metadata) { window.capturedPhoto = {blob, ...metadata}; }' }));
+  const automaticDownloads = []; page.on('download', file => automaticDownloads.push(file));
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto((process.env.FORM_BASE_URL || 'http://127.0.0.1:4186') + '/design.html');
   await page.waitForFunction(() => document.getElementById('loading').hidden && !document.getElementById('dayCycle').disabled, null, { timeout: 90000 });
@@ -29,19 +32,19 @@ const fs = require('node:fs/promises');
   assert.ok(preview.transparent > preview.total * .1);
   assert.ok(preview.opaque > preview.total * .05, 'Model renders against transparent surround');
   await page.screenshot({ path: 'checks/capture-transparent-desktop.png' });
-  const downloadPromise = page.waitForEvent('download'); await page.locator('#captureShoot').click();
-  const downloaded = await downloadPromise;
-  assert.match(downloaded.suggestedFilename(), /-transparent\.png$/);
-  const bytes = await fs.readFile(await downloaded.path());
-  const exported = await page.evaluate(async data => {
-   const bitmap = await createImageBitmap(await (await fetch('data:image/png;base64,' + data)).blob());
+  await page.locator('#captureShoot').click();
+  await page.waitForFunction(() => window.capturedPhoto && !document.getElementById('captureShoot').disabled);
+  assert.equal(automaticDownloads.length, 0, 'Capture saves to the album without automatic downloading');
+  assert.match(await page.evaluate(() => window.capturedPhoto.name), /-transparent\.png$/);
+  const exported = await page.evaluate(async () => {
+   const bitmap = await createImageBitmap(window.capturedPhoto.blob);
    const output = document.createElement('canvas'); output.width = bitmap.width; output.height = bitmap.height;
    const context = output.getContext('2d'); context.drawImage(bitmap, 0, 0); bitmap.close();
    const pixels = context.getImageData(0, 0, output.width, output.height).data;
    let transparent = 0, opaque = 0;
    for (let i = 3; i < pixels.length; i += 4) { if (!pixels[i]) transparent++; if (pixels[i] === 255) opaque++; }
    return { width: output.width, height: output.height, cornerAlpha: pixels[3], transparent, opaque };
-  }, bytes.toString('base64'));
+  });
   assert.equal(exported.width, 1920); assert.equal(exported.height, 1080);
   assert.equal(exported.cornerAlpha, 0); assert.ok(exported.transparent > 0); assert.ok(exported.opaque > 0);
   await page.locator('#captureTransparent').uncheck(); await page.waitForTimeout(100);

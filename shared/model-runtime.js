@@ -73,8 +73,9 @@ async function imageBlob(image) {
 
 // GPU compressed textures are decoded once into portable PNGs, never persisted
 // in a device-specific GPU format that another browser may not support.
-async function compressedImage(texture) {
-  const renderer = new THREE.WebGLRenderer({ alpha: true, preserveDrawingBuffer: true });
+async function compressedImage(texture, renderer) {
+  const ownsRenderer = !renderer;
+  renderer ||= new THREE.WebGLRenderer({ alpha: true, preserveDrawingBuffer: true });
   const map = texture.clone(), geometry = new THREE.PlaneGeometry(2, 2);
   map.offset.set(0, 0); map.repeat.set(1, 1); map.center.set(0, 0); map.rotation = 0; map.channel = 0; map.updateMatrix();
   const uv = geometry.attributes.uv;
@@ -89,12 +90,13 @@ async function compressedImage(texture) {
     const blob = await new Promise(resolve => renderer.domElement.toBlob(resolve, 'image/png'));
     if (!blob) throw new Error('无法保存压缩模型贴图');
     return blob;
-  } finally { material.dispose(); geometry.dispose(); map.dispose(); renderer.dispose(); renderer.forceContextLoss(); }
+  } finally { material.dispose(); geometry.dispose(); map.dispose(); if (ownsRenderer) renderer.dispose(); }
 }
 
 export async function prepareModelRuntime(source, { name, textureConvention = 'fbx', onProgress = () => {} } = {}) {
   const { mergeVertices } = await import('../vendor/three/addons/utils/BufferGeometryUtils.js');
   const object = cloneSourceModel(source), geometries = new Set(), materials = new Set(), textures = new Map(), overrides = [];
+  let compressedTextureRenderer = null;
   const archive = {}; let binaryIndex = 0;
   const binary = value => {
     if (!value) return null;
@@ -151,7 +153,8 @@ export async function prepareModelRuntime(source, { name, textureConvention = 'f
         let record;
         if (image.data && !texture.isCompressedTexture) record = { uuid: source.uuid, data: binary(image.data), width: image.width, height: image.height };
         else {
-          const blob = texture.isCompressedTexture ? await compressedImage(texture) : await imageBlob(image);
+          if (texture.isCompressedTexture) compressedTextureRenderer ||= new THREE.WebGLRenderer({ alpha: true, preserveDrawingBuffer: true });
+          const blob = texture.isCompressedTexture ? await compressedImage(texture, compressedTextureRenderer) : await imageBlob(image);
           const path = 'images/' + imageRecords.size + '.png'; archive[path] = new Uint8Array(await blob.arrayBuffer()); record = { uuid: source.uuid, path };
         }
         imageRecords.set(source.uuid, record);
@@ -176,6 +179,7 @@ export async function prepareModelRuntime(source, { name, textureConvention = 'f
     for (const [target, original] of overrides) target.toJSON = original;
     for (const geometry of geometries) geometry.dispose();
     for (const material of materials) material.dispose();
+    compressedTextureRenderer?.dispose();
   }
 }
 

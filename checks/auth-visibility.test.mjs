@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 const auth = fs.readFileSync(new URL('../shared/auth.js', import.meta.url), 'utf8');
-const files = ['index.html', 'design.html', 'material-editor.html', 'asset-library.html', 'project-library.html', 'model-parts.html'];
+const files = ['index.html', 'design.html', 'material-editor.html', 'asset-library.html', 'project-library.html', 'model-parts.html', 'album.html'];
 
 test('all protected pages block their initial content before external styles or modules load', () => {
   for (const file of files) {

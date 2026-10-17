@@ -60,7 +60,7 @@ export async function workspaceClient() {
   if (!identity) throw new Error('请先登录工作空间');
   currentIdentity = identity;
   verificationNotice?.remove(); verificationNotice = null;
-  return { client: service.client, userId: identity.user.id };
+  return { client: service.client, userId: identity.user.id, canManageSite: identity.user.app_metadata?.spenic_developer === true };
 }
 
 function returnToLogin() {

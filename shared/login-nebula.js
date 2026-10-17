@@ -171,7 +171,14 @@ export function mountLoginNebula(canvas, toggle, { onIntroProgress = () => {}, o
     stop(); updateToggle(); wake();
   };
   const onVisibility = () => { stop(); wake(); };
-  const onPageHide = () => stop();
+  const onPageHide = () => {
+    // Navigation can happen while the intro is still drawing. Release the
+    // particle buffers before Chromium tears down the document so the GPU
+    // process does not keep a live context during the handoff.
+    disposed = true;
+    stop();
+    geometry.dispose(); material.dispose(); renderer.dispose();
+  };
   const onPageShow = () => wake();
   const onContextLost = event => {
     event.preventDefault(); lost = true; stop(); toggle.hidden = true; canvas.style.opacity = '0';
@@ -190,7 +197,11 @@ export function mountLoginNebula(canvas, toggle, { onIntroProgress = () => {}, o
     document.removeEventListener('visibilitychange', onVisibility);
     window.removeEventListener('pagehide', onPageHide); window.removeEventListener('pageshow', onPageShow);
     canvas.removeEventListener('webglcontextlost', onContextLost); canvas.removeEventListener('webglcontextrestored', onContextRestored);
-    geometry.dispose(); material.dispose(); renderer.dispose(); renderer.forceContextLoss();
+    // Explicit context-loss calls are tempting here, but Chromium can crash
+    // its GPU process when a page is navigating/reloading while the context
+    // is being torn down. `dispose()` releases Three.js resources and lets
+    // the browser reclaim the context safely during normal page cleanup.
+    geometry.dispose(); material.dispose(); renderer.dispose();
   } };
 }
 

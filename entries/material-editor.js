@@ -15,6 +15,7 @@ import { installRoughnessShader } from '../shared/roughness-map.js';
 import { compressImageFile } from '../shared/asset-thumbnail.js';
 import { requireAuth } from '../shared/auth.js';
 import { fitMaterialPreview } from '../shared/material-preview.js';
+import { renderConvexPreview } from '../shared/convex-preview.js';
 import { fabricInfoFromFilename } from '../shared/fabric-info.js';
 import { updateFabricColorSwatch, renderBatchFabricSwatches } from '../shared/fabric-color-swatch.js?v=fabric-default-color-20261015';
 import { planFabricBatch, enqueueFabricBatch } from '../shared/fabric-batch.js';
@@ -23,7 +24,8 @@ import { enqueueMaterialUpload, getUpload, startUploadQueue, subscribeUploads } 
 const $ = id => document.getElementById(id);
 await requireAuth({ feature: 'material' });
 mountNavigation('material');
-let renderer, scene, camera, controls, plane, assetId, dirty = false, pending = 0;
+let renderer, scene, camera, controls, plane, sheenBall, assetId, dirty = false, pending = 0, pageLeaving = false;
+let sheenPreview = false, flatPreviewView = null;
 let previewUv, previewPhysicalUv, previewPositions;
 let physical = { ...defaultPhysical(), sizeSource: 'manual', initialized: true }, repeat = [1, 1];
 let legacyMaps = {}, savedPlacement, libraryMetadata = {};
@@ -37,10 +39,11 @@ const previewSizePairs = [
   { width: 'previewPhysicalWidth', height: 'previewPhysicalHeight', button: 'previewPhysicalLock', name: '物理尺寸', digits: 2, ratio: 1 },
   { width: 'previewPixelWidth', height: 'previewPixelHeight', button: 'previewPixelLock', name: '输出像素', digits: 0, ratio: 4 / 3 },
 ];
-const material = new THREE.MeshStandardMaterial({ color: '#d6dbe0', roughness: .65, metalness: 0, bumpScale: .02 });
+const material = new THREE.MeshPhysicalMaterial({ color: '#d6dbe0', roughness: .98, metalness: 0, bumpScale: .02, sheen: 1, sheenRoughness: .4, sheenColor: 0xffffff });
 installRoughnessShader(material);
 const status = message => { $('status').textContent = message; };
 const sliders = [['roughness', '粗糙度', 1, .01], ['metalness', '金属度', 1, .01], ['normalStrength', '法线强度', 3, .05], ['aoStrength', 'AO 强度', 3, .05], ['emissiveStrength', '自发光强度', 3, .05], ['bumpStrength', '凹凸强度', .2, .005]];
+const sheenParameters = [['sheen', '侧面光强度', 2], ['sheenRoughness', '绒毛柔和度', 1]];
 
 function initEditorScrollbar() {
   const panel = document.querySelector('.editor-panel');
@@ -127,7 +130,7 @@ function applyBaseColorDpi() {
 function syncSurfaceControls() {
   const surface = readSurface(material);
   for (const key of ['color', 'emissive', ...sliders.map(item => item[0])]) $(key).value = surface[key];
-  for (const [key] of sliders) $(key + 'Value').value = Number(surface[key]).toFixed(key === 'bumpStrength' ? 3 : 2);
+  for (const [key] of [...sliders, ...sheenParameters]) $(key + 'Value').value = Number(surface[key]).toFixed(key === 'bumpStrength' ? 3 : 2);
   $('colorValue').value = surface.color; $('emissiveValue').value = surface.emissive;
   $('flip').checked = surface.flip;
   $('roughnessInvert').checked = surface.roughnessInvert; refreshRoughnessPreview();
@@ -135,6 +138,10 @@ function syncSurfaceControls() {
 function updateSurface() {
   const surface = { color: $('color').value, emissive: $('emissive').value, flip: $('flip').checked, roughnessInvert: $('roughnessInvert').checked };
   for (const [key] of sliders) surface[key] = Number($(key).value);
+  for (const [key, , max] of sheenParameters) {
+    const value = $(key + 'Value').valueAsNumber;
+    if (Number.isFinite(value) && value >= 0 && value <= max) surface[key] = value;
+  }
   applySurface(material, surface);
   dirty = true;
   syncSurfaceControls();
@@ -155,12 +162,14 @@ function syncMaterialType() {
   document.querySelectorAll('[data-material-type]').forEach(button => { const active = button.dataset.materialType === $('materialType').value; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
   $('fabricCategoryRow').hidden = pattern;
   $('fabricColorCodeRow').hidden = pattern;
+  $('fabricSheenSection').hidden = pattern;
+  $('materialPreviewModes').hidden = pattern;
   syncFabricColorSwatch();
   $('batchFabric').hidden = pattern;
   $('sizing').closest('label').hidden = pattern; $('repeatControls').hidden = pattern || physical.mode !== 'legacy';
   $('physicalControls').hidden = !pattern && physical.mode !== 'physical';
   $('materialCanvas').hidden = pattern; $('patternPreview').hidden = !pattern;
-  $('materialPreviewZoom').hidden = pattern;
+  $('materialPreviewZoom').hidden = pattern || sheenPreview;
   $('pbrHeading').hidden = pattern;
   document.body.classList.toggle('pattern-editing', pattern);
   controls.enabled = !pattern;
@@ -194,6 +203,7 @@ function configureMaps() {
   updatePatternPreview();
 }
 function fillFabricPreview() {
+  if (sheenPreview) { $('materialPreviewZoom').hidden = true; return; }
   const distance = camera.position.distanceTo(controls.target);
   const visibleHeight = 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) / Math.max(camera.zoom, .0001);
   const visibleWidth = visibleHeight * camera.aspect;
@@ -276,8 +286,7 @@ function syncPreviewGeneration() {
   try {
     const values = previewGenerationValues(), dataUrl = previewCrop(material.map?.image, values.widthPx, values.heightPx, values.widthCm, values.heightCm);
     fitMaterialPreview(cardImage, values);
-    fitMaterialPreview(ballImage, values, 1);
-    if (dataUrl) { cardImage.src = ballImage.src = dataUrl; cardImage.hidden = ballImage.hidden = false; emptyCard.hidden = emptyBall.hidden = true; $('previewGenerationHint').textContent = `${previewNumber(values.widthCm)} × ${previewNumber(values.heightCm)} cm · ${values.widthPx} × ${values.heightPx} px`; }
+    if (dataUrl) { cardImage.src = dataUrl; renderConvexPreview(ballImage, dataUrl, values, '#' + material.color.getHexString()); cardImage.hidden = ballImage.hidden = false; emptyCard.hidden = emptyBall.hidden = true; $('previewGenerationHint').textContent = `${previewNumber(values.widthCm)} × ${previewNumber(values.heightCm)} cm · ${values.widthPx} × ${values.heightPx} px`; }
     else { cardImage.removeAttribute('src'); ballImage.removeAttribute('src'); cardImage.hidden = ballImage.hidden = true; emptyCard.hidden = emptyBall.hidden = false; $('previewGenerationHint').textContent = '未上传基础颜色纹理，保存后显示“无预览图”'; }
     $('confirmPreviewGeneration').disabled = false;
   } catch (error) { $('previewGenerationHint').textContent = error.message; $('confirmPreviewGeneration').disabled = true; }
@@ -498,6 +507,24 @@ function buildPbrRows() {
     text.onchange = () => { if (/^#[\da-f]{6}$/i.test(text.value)) { color.value = text.value; updateSurface(); } else { status('请输入 #RRGGBB 格式的色值'); syncSurfaceControls(); } };
     controls.append(text, color); label.append(controls); host.append(label);
   }
+  for (const [id, title, max] of sheenParameters) {
+    const label = document.createElement('label'); label.htmlFor = id + 'Value';
+    const text = document.createElement('span'); text.textContent = title;
+    const value = document.createElement('input');
+    Object.assign(value, { type: 'number', id: id + 'Value', min: 0, max, step: .01 });
+    value.setAttribute('aria-label', title);
+    value.oninput = () => {
+      const number = value.valueAsNumber;
+      if (Number.isFinite(number) && number >= 0 && number <= max) {
+        applySurface(material, { [id]: number }); dirty = true;
+      }
+    };
+    value.onchange = () => {
+      if (!Number.isFinite(value.valueAsNumber) || value.valueAsNumber < 0 || value.valueAsNumber > max) status(title + '范围为 0–' + max);
+      syncSurfaceControls();
+    };
+    label.append(text, value); $('fabricSheenControls').append(label);
+  }
   for (const [key, title] of MATERIAL_MAPS) {
     const row = document.createElement('div'); row.className = 'map-row pbr-row'; row.dataset.map = key;
     const left = document.createElement('div'); left.className = 'pbr-texture';
@@ -555,9 +582,8 @@ async function init() {
   scene.environmentIntensity = .05;
   camera = new THREE.PerspectiveCamera(35, 1, .1, 2000); camera.position.set(0, 0, 120);
   controls = new OrbitControls(camera, $('materialCanvas'));
-  // The material editor is a flat-surface inspection window. Keep the camera
-  // fixed toward the plane so dragging can only move the surface, never orbit
-  // around it. The wheel changes zoom within the bounds below.
+  // Flat mode pans the surface. Sphere mode orbits only the camera; the
+  // sphere, scene lights and environment remain fixed in world space.
   controls.enableDamping = true;
   controls.enableRotate = false;
   controls.enablePan = true;
@@ -578,6 +604,31 @@ async function init() {
   previewPositions = plane.geometry.attributes.position;
   previewUv = plane.geometry.attributes.uv;
   previewPhysicalUv = plane.geometry.attributes.uv2;
+  sheenBall = new THREE.Mesh(new THREE.SphereGeometry(24, 64, 48), material);
+  preparePhysicalUV(sheenBall); sheenBall.visible = false; scene.add(sheenBall);
+  const setPreviewMode = ball => {
+    if (sheenPreview === ball) return;
+    // Clear pending damping before changing coordinate systems so returning
+    // from an orbit cannot leave the flat camera tilted or still rotating.
+    controls.enableDamping = false; controls.update();
+    if (ball) {
+      flatPreviewView = { position: camera.position.clone(), target: controls.target.clone() };
+      camera.position.set(0, 0, 120); controls.target.set(0, 0, 0);
+    } else if (flatPreviewView) {
+      camera.position.copy(flatPreviewView.position); controls.target.copy(flatPreviewView.target);
+    }
+    sheenPreview = ball; plane.visible = !ball; sheenBall.visible = ball;
+    controls.enablePan = !ball; controls.enableRotate = ball;
+    controls.mouseButtons.LEFT = ball ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN;
+    controls.mouseButtons.MIDDLE = ball ? THREE.MOUSE.DOLLY : THREE.MOUSE.PAN;
+    controls.mouseButtons.RIGHT = ball ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN;
+    controls.touches.ONE = ball ? THREE.TOUCH.ROTATE : THREE.TOUCH.PAN;
+    controls.touches.TWO = ball ? THREE.TOUCH.DOLLY_ROTATE : THREE.TOUCH.DOLLY_PAN;
+    controls.minDistance = ball ? 60 : 20; controls.update(); controls.enableDamping = true;
+    $('materialCanvas').setAttribute('aria-label', ball ? '球体预览，拖动环绕视角，滚轮缩放，灯光固定' : '无限平铺面料预览，左键或中键拖动平移，滚轮缩放，不可旋转');
+    document.querySelectorAll('[data-preview-mode]').forEach(button => button.setAttribute('aria-pressed', String((button.dataset.previewMode === 'ball') === ball)));
+  };
+  document.querySelectorAll('[data-preview-mode]').forEach(button => { button.onclick = () => setPreviewMode(button.dataset.previewMode === 'ball'); });
   new ResizeObserver(() => {
     const { width, height } = $('previewPane').getBoundingClientRect();
     renderer.setSize(width, height, false);
@@ -585,10 +636,16 @@ async function init() {
     camera.updateProjectionMatrix();
   }).observe($('previewPane'));
   renderer.setAnimationLoop(() => {
-    if ($('materialType').value === 'pattern') return;
+    if (pageLeaving || $('materialType').value === 'pattern') return;
     controls.update(); fillFabricPreview();
     renderer.render(scene, camera);
   });
+  window.addEventListener('pagehide', () => {
+    pageLeaving = true;
+    renderer?.setAnimationLoop(null);
+    controls?.dispose();
+    renderer?.dispose();
+  }, { once: true });
   buildPbrRows();
   initEditorScrollbar();
   $('batchFabric').onclick = () => {
