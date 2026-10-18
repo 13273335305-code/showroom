@@ -84,10 +84,10 @@ test('shared runtime ignores stale loads and publishes only confirmed saves', as
   } finally { globalThis.fetch = oldFetch; globalThis.location = oldLocation; }
 });
 
-test('site colors are shared across readers, validated in SQL and only writable by authorized developers', async () => {
+test('site colors are shared across readers, validated in SQL and only writable by the designated administrator', async () => {
   const db = new PGlite();
   try {
-    await db.exec("create role anon; create role authenticated; create schema auth; create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb $$; grant usage on schema auth to anon, authenticated;");
+    await db.exec("create role anon; create role authenticated; create schema auth; create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz); create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb $$; create function auth.uid() returns uuid language sql stable as $$ select (auth.jwt()->>'sub')::uuid $$; grant usage on schema auth to anon, authenticated; insert into auth.users values('11111111-1111-4111-8111-111111111111','486837574@qq.com',now());");
     const schema = await readFile(new URL('../supabase/fabric-colors.sql', import.meta.url), 'utf8');
     await db.exec(schema); await db.exec(schema);
     const login = async (role, claims = {}) => {
@@ -95,7 +95,8 @@ test('site colors are shared across readers, validated in SQL and only writable 
     };
     const save = colors => db.query("insert into spenic_fabric_colors(id,colors) values('site',$1::jsonb) on conflict(id) do update set colors=excluded.colors returning colors", [JSON.stringify(colors)]);
     await login('authenticated', { user_metadata: { spenic_developer: true } }); await assert.rejects(save(DEFAULT_FABRIC_COLORS), /row-level security/);
-    await login('authenticated', { app_metadata: { spenic_developer: true } });
+    await login('authenticated', { app_metadata: { spenic_developer: true } }); await assert.rejects(save(DEFAULT_FABRIC_COLORS), /row-level security/);
+    await login('authenticated', { sub: '11111111-1111-4111-8111-111111111111' });
     assert.deepEqual((await save(DEFAULT_FABRIC_COLORS)).rows[0].colors, DEFAULT_FABRIC_COLORS);
     const next = [...DEFAULT_FABRIC_COLORS, { code: 'ABC', base: '#123456', line: '#abcdef' }];
     assert.deepEqual((await save(next)).rows[0].colors, next);
@@ -106,7 +107,7 @@ test('site colors are shared across readers, validated in SQL and only writable 
     await login('authenticated'); assert.deepEqual((await db.query('select colors from spenic_fabric_colors')).rows[0].colors, next);
     await assert.rejects(save(next), /row-level security/);
     await assert.rejects(save([]), /row-level security/);
-    await login('authenticated', { app_metadata: { spenic_developer: true } });
+    await login('authenticated', { sub: '11111111-1111-4111-8111-111111111111' });
     assert.deepEqual((await save([])).rows[0].colors, []);
     await login('anon'); assert.deepEqual((await db.query('select colors from spenic_fabric_colors')).rows[0].colors, []);
   } finally { await db.close(); }

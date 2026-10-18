@@ -1,5 +1,5 @@
 import { authConfig } from '../auth-config.js';
-import { authErrorMessage, createAuthService, createAuthStorage, isAuthSessionError, readAuthConfig, safeAuthTarget } from './auth-service.js';
+import { authErrorMessage, createAuthService, createAuthStorage, isAuthSessionError, isSystemConfigAdmin, readAuthConfig, safeAuthTarget } from './auth-service.js';
 import { introHelloOpacity } from './login-intro.js';
 
 const appRoot = new URL('../', import.meta.url);
@@ -52,15 +52,20 @@ for (const key of ['spenic-auth-role-v1', 'spenic-auth-session-v2', 'spenic-auth
   try { localStorage.removeItem(key); sessionStorage.removeItem(key); } catch {}
 }
 
-export function authState() { return currentIdentity ? { id: currentIdentity.user.id, email: currentIdentity.user.email || '' } : null; }
+export function authState() { return currentIdentity ? { id: currentIdentity.user.id, email: currentIdentity.user.email || '', canManageSystemConfig: isSystemConfigAdmin(currentIdentity.user) } : null; }
+function setIdentity(identity) {
+  currentIdentity = identity;
+  window.dispatchEvent(new CustomEvent('spenic-auth-change', { detail: authState() }));
+}
 export function isAuthenticated() { return Boolean(currentIdentity); }
 export async function workspaceClient() {
   const service = await getService();
   const identity = await service.verifiedSession();
-  if (!identity) throw new Error('请先登录工作空间');
-  currentIdentity = identity;
+  if (!identity) { setIdentity(null); throw new Error('请先登录工作空间'); }
+  setIdentity(identity);
   verificationNotice?.remove(); verificationNotice = null;
-  return { client: service.client, userId: identity.user.id, canManageSite: identity.user.app_metadata?.spenic_developer === true };
+  const canManageSystemConfig = isSystemConfigAdmin(identity.user);
+  return { client: service.client, userId: identity.user.id, canManageSystemConfig, canManageSite: identity.user.app_metadata?.spenic_developer === true };
 }
 
 function returnToLogin() {
@@ -79,11 +84,13 @@ function onSessionEvent(event, session) {
     }
     if (event === 'SIGNED_OUT') {
       const wasAuthenticated = Boolean(currentIdentity);
-      currentIdentity = null;
+      setIdentity(null);
       if (wasAuthenticated && !isLoginPage) returnToLogin();
     } else if (event === 'SIGNED_IN' && currentIdentity && session?.user.id !== currentIdentity.user.id) {
-      currentIdentity = null;
+      setIdentity(null);
       location.replace(new URL('index.html', appRoot).href);
+    } else if (['USER_UPDATED', 'TOKEN_REFRESHED'].includes(event) && currentIdentity && session?.user.id === currentIdentity.user.id) {
+      void recheckSession(true);
     }
   }, 0);
 }
@@ -109,7 +116,7 @@ async function getService() {
 export async function clearAuth() {
   const service = await getService();
   await service.signOut();
-  currentIdentity = null;
+  setIdentity(null);
   verificationNotice?.remove(); verificationNotice = null;
 }
 
@@ -331,7 +338,7 @@ function wireOverlay(view, resolve) {
     if (focus) (mode === 'password' ? $('authPassword') : $('authEmail')).focus({ preventScroll: true });
   }
   async function finish(identity) {
-    currentIdentity = identity;
+    setIdentity(identity);
     if (isLoginPage) { location.replace(safeAuthTarget(parameters.get('next'), appRoot)); return; }
     mountAccountAction(); view.close();
     document.documentElement.classList.remove('auth-pending');
@@ -455,12 +462,12 @@ async function recheckSession(force = false) {
     try {
       const identity = await (await getService()).verifiedSession({ force });
       if (!currentIdentity || currentIdentity.user.id !== userId) return;
-      if (!identity || identity.user.id !== userId) { currentIdentity = null; returnToLogin(); return; }
-      currentIdentity = identity;
+      if (!identity || identity.user.id !== userId) { setIdentity(null); returnToLogin(); return; }
+      setIdentity(identity);
       verificationNotice?.remove(); verificationNotice = null;
     } catch (error) {
       if (!currentIdentity || currentIdentity.user.id !== userId) return;
-      if (isAuthSessionError(error)) { currentIdentity = null; returnToLogin(); }
+      if (isAuthSessionError(error)) { setIdentity(null); returnToLogin(); }
       else showVerificationRetry();
     }
   })();

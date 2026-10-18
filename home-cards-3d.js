@@ -2,19 +2,23 @@
  * Aceternity-style 3D card interaction for the workspace landing page.
  *
  * This is the small, dependency-free equivalent of CardContainer/CardBody/
- * CardItem for the project's native HTML architecture: the anchor is the
- * card body, and its existing icon/copy elements become depth layers.
+ * CardItem for the project's native HTML architecture: the anchor stays still
+ * for hit testing while its inner card and icon/copy depth layers tilt.
  */
 
 const cards = [...document.querySelectorAll('.workspace-card')];
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+const hoverPointer = window.matchMedia('(hover: hover) and (pointer: fine)');
 
 function setCardState(card, { rotateX = 0, rotateY = 0, glowX = 50, glowY = 50, scale = 1, active = false } = {}) {
   card.style.setProperty('--card-rotate-x', `${rotateX}deg`);
   card.style.setProperty('--card-rotate-y', `${rotateY}deg`);
   card.style.setProperty('--card-glow-x', `${glowX}%`);
   card.style.setProperty('--card-glow-y', `${glowY}%`);
+  card.style.setProperty('--card-glow-start', active ? '#ffffffb8' : 'transparent');
+  card.style.setProperty('--card-glow-mid', active ? '#ffffff36' : 'transparent');
   card.style.setProperty('--card-scale', scale);
+  card.style.setProperty('--card-lift', active ? '-6px' : '0px');
   card.classList.toggle('is-tilting', active);
 }
 
@@ -23,44 +27,47 @@ function resetCard(card) {
 }
 
 cards.forEach((card) => {
-  card.addEventListener('pointerenter', () => {
-    if (reducedMotion.matches) return;
-    setCardState(card, { scale: 1.04, active: true });
-  });
+  const hitArea = card.closest('.workspace-card-link');
+  if (!hitArea) return;
 
-  card.addEventListener('pointermove', (event) => {
-    if (reducedMotion.matches || event.pointerType === 'touch') return;
+  const updateFromPointer = (event) => {
+    if (reducedMotion.matches || !hoverPointer.matches || event.pointerType === 'touch') return;
 
-    const bounds = card.getBoundingClientRect();
+    // Read the stationary link, including after scrolling or a quick re-entry.
+    // The visual card never participates in hit testing or pointer coordinates.
+    const bounds = hitArea.getBoundingClientRect();
     const x = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
     const y = Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height));
 
-    // The pointer is mapped to a restrained tilt so the cards still feel calm
-    // inside the existing glass workspace visual language.
+    // A closer perspective and wider angles make the glass layers read in 3D.
     setCardState(card, {
-      rotateX: (0.5 - y) * 9,
-      rotateY: (x - 0.5) * 12,
+      rotateX: (0.5 - y) * 18,
+      rotateY: (x - 0.5) * 24,
       glowX: x * 100,
       glowY: y * 100,
-      scale: 1.04,
+      scale: 1.045,
       active: true,
     });
-  });
+  };
 
-  card.addEventListener('pointerleave', () => resetCard(card));
-  card.addEventListener('pointercancel', () => resetCard(card));
-  card.addEventListener('focus', () => {
-    if (!reducedMotion.matches) setCardState(card, { scale: 1.04, active: true });
-  });
-  card.addEventListener('blur', () => resetCard(card));
+  hitArea.addEventListener('pointerenter', updateFromPointer);
+  hitArea.addEventListener('pointermove', updateFromPointer);
+  hitArea.addEventListener('pointerleave', () => resetCard(card));
+  hitArea.addEventListener('pointercancel', () => resetCard(card));
+  hitArea.addEventListener('blur', () => resetCard(card));
 });
 
+window.addEventListener('resize', () => cards.forEach(resetCard));
+window.addEventListener('blur', () => cards.forEach(resetCard));
+
 const updateMotionPreference = () => {
-  if (reducedMotion.matches) cards.forEach(resetCard);
+  if (reducedMotion.matches || !hoverPointer.matches) cards.forEach(resetCard);
 };
 
-if (typeof reducedMotion.addEventListener === 'function') {
-  reducedMotion.addEventListener('change', updateMotionPreference);
-} else {
-  reducedMotion.addListener(updateMotionPreference);
-}
+[reducedMotion, hoverPointer].forEach((preference) => {
+  if (typeof preference.addEventListener === 'function') {
+    preference.addEventListener('change', updateMotionPreference);
+  } else {
+    preference.addListener(updateMotionPreference);
+  }
+});

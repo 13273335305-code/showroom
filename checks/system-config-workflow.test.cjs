@@ -18,7 +18,7 @@ const path = require('node:path');
         const name = new URL(route.request().url()).pathname.slice(1);
         if (!name || name === 'index.html') return route.fulfill({ contentType: 'text/html', body: html });
         if (name === 'fabric-colors.json') return route.fulfill({ json: DEFAULT_FABRIC_COLORS });
-        if (name === 'shared/auth.js') return route.fulfill({ contentType: 'text/javascript', body: `export async function workspaceClient(){return {client:{from(){let value;return {select(){return this},eq(){return this},upsert(row){value=row.colors;return this},async maybeSingle(){return (await fetch('/__colors')).json()},async single(){return (await fetch('/__colors',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)})).json()}}}}}}` });
+        if (name === 'shared/auth.js') return route.fulfill({ contentType: 'text/javascript', body: `export const authState=()=>({canManageSystemConfig:true}); export async function workspaceClient(){return {canManageSystemConfig:true,client:{from(){let value;return {select(){return this},eq(){return this},upsert(row){value=row.colors;return this},async maybeSingle(){return (await fetch('/__colors')).json()},async single(){return (await fetch('/__colors',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)})).json()}}}}}}` });
         if (name === '__colors') {
           if (route.request().method() === 'POST') {
             if (failSave) return route.fulfill({ json: { error: { code: '42501' } } });
@@ -36,7 +36,7 @@ const path = require('node:path');
     const open = async page => {
       await page.locator('#systemConfigEntry').click();
       assert.equal(await page.locator('.system-config-slot').count(), 9);
-      assert.equal(await page.locator('.system-config-slot:disabled').count(), 8);
+      assert.equal(await page.locator('.system-config-slot:disabled').count(), 7);
       await page.getByRole('button', { name: '色号球配置', exact: true }).click();
       await page.locator('.system-color-edit:not(:disabled)').first().waitFor();
     };

@@ -1,5 +1,17 @@
 begin;
 
+create or replace function public.spenic_is_system_config_admin()
+returns boolean language sql stable security definer set search_path = ''
+as $$
+  select exists (
+    select 1 from auth.users
+    where id = auth.uid() and lower(email) = '486837574@qq.com'
+      and email_confirmed_at is not null
+  );
+$$;
+revoke all on function public.spenic_is_system_config_admin() from public, anon;
+grant execute on function public.spenic_is_system_config_admin() to authenticated;
+
 -- The public site row contains the endpoint only. Keys never belong here.
 create table if not exists public.spenic_capture_ai_site (
   id text primary key check (id = 'site'),
@@ -34,11 +46,20 @@ create policy spenic_capture_ai_site_read on public.spenic_capture_ai_site
 for select to anon, authenticated using (true);
 drop policy if exists spenic_capture_ai_site_insert on public.spenic_capture_ai_site;
 create policy spenic_capture_ai_site_insert on public.spenic_capture_ai_site
-for insert to authenticated with check ((auth.jwt()->'app_metadata'->>'spenic_developer') = 'true');
+for insert to authenticated with check (
+  (auth.jwt()->'app_metadata'->>'spenic_developer') = 'true'
+  or public.spenic_is_system_config_admin()
+);
 drop policy if exists spenic_capture_ai_site_update on public.spenic_capture_ai_site;
 create policy spenic_capture_ai_site_update on public.spenic_capture_ai_site
-for update to authenticated using ((auth.jwt()->'app_metadata'->>'spenic_developer') = 'true')
-with check ((auth.jwt()->'app_metadata'->>'spenic_developer') = 'true');
+for update to authenticated using (
+  (auth.jwt()->'app_metadata'->>'spenic_developer') = 'true'
+  or public.spenic_is_system_config_admin()
+)
+with check (
+  (auth.jwt()->'app_metadata'->>'spenic_developer') = 'true'
+  or public.spenic_is_system_config_admin()
+);
 
 drop policy if exists spenic_capture_ai_account_read on public.spenic_capture_ai_accounts;
 create policy spenic_capture_ai_account_read on public.spenic_capture_ai_accounts
@@ -60,7 +81,7 @@ grant select, delete on public.spenic_capture_ai_accounts to authenticated;
 grant insert (owner_id, api_key, preferences), update (owner_id, api_key, preferences) on public.spenic_capture_ai_accounts to authenticated;
 
 -- The quick labels and their full prompts are shared by all accounts and are
--- editable only by an authorized developer from the System Configuration page.
+-- editable only by the designated administrator from the System Configuration page.
 create or replace function public.spenic_valid_capture_ai_prompts(value jsonb)
 returns boolean language plpgsql immutable set search_path = public
 as $$
@@ -101,11 +122,11 @@ create policy spenic_capture_ai_prompts_read on public.spenic_capture_ai_prompts
 for select to anon, authenticated using (true);
 drop policy if exists spenic_capture_ai_prompts_insert on public.spenic_capture_ai_prompts;
 create policy spenic_capture_ai_prompts_insert on public.spenic_capture_ai_prompts
-for insert to authenticated with check ((auth.jwt()->'app_metadata'->>'spenic_developer') = 'true');
+for insert to authenticated with check (public.spenic_is_system_config_admin());
 drop policy if exists spenic_capture_ai_prompts_update on public.spenic_capture_ai_prompts;
 create policy spenic_capture_ai_prompts_update on public.spenic_capture_ai_prompts
-for update to authenticated using ((auth.jwt()->'app_metadata'->>'spenic_developer') = 'true')
-with check ((auth.jwt()->'app_metadata'->>'spenic_developer') = 'true');
+for update to authenticated using (public.spenic_is_system_config_admin())
+with check (public.spenic_is_system_config_admin());
 revoke all on public.spenic_capture_ai_prompts from anon, authenticated;
 grant select on public.spenic_capture_ai_prompts to anon, authenticated;
 grant insert (id, prompts), update (id, prompts) on public.spenic_capture_ai_prompts to authenticated;

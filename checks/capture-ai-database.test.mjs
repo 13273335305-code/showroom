@@ -7,12 +7,12 @@ test('site endpoint is shared; account keys are isolated by enforced database pe
  const db=new PGlite(),alice='11111111-1111-4111-8111-111111111111',bob='22222222-2222-4222-8222-222222222222';
  try {
   await db.exec(`create role anon; create role authenticated; create schema auth;
-   create table auth.users(id uuid primary key);
+   create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);
    create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb $$;
    create function auth.uid() returns uuid language sql stable as $$ select (auth.jwt()->>'sub')::uuid $$;
    grant usage on schema auth to authenticated;
   `);
-  await db.query('insert into auth.users values($1),($2)',[alice,bob]);
+  await db.query('insert into auth.users(id) values($1),($2)',[alice,bob]);
   const schema=await readFile(new URL('../supabase/capture-ai.sql',import.meta.url),'utf8');
   await db.exec(schema);await db.exec(schema);
   const login=async (id,extra={})=>{

@@ -1,9 +1,10 @@
-.home-page .home-hero{max-width:none;padding-right:100px;box-sizing:border-box;min-height:76px}
+.home-page .home-hero{max-width:none;padding-inline:100px;box-sizing:border-box;min-height:76px}
 .system-config-entry{position:absolute;right:0;top:50%;transform:translateY(-50%);display:grid;place-items:center;box-sizing:border-box;width:76px;height:76px;padding:10px;border:1px solid #ffffffdf;border-radius:18px;background:linear-gradient(135deg,#ffffffce,#edf4ffad);box-shadow:0 9px 26px #315b8d12,inset 0 1px #fff;color:#59799f;cursor:pointer}
+.system-config-entry[hidden]{display:none!important}
 .system-config-entry svg{width:34px;height:34px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 .system-config-entry:hover{background:#fff;color:#286ad0;border-color:#c3d8f5}
 .system-config-entry:focus-visible{outline:3px solid #77a9f7;outline-offset:3px}
-@media(max-width:800px){.home-page .home-hero{padding-top:80px;padding-right:0}.system-config-entry{top:0;transform:none;width:64px;height:64px;border-radius:16px}.system-config-entry svg{width:28px;height:28px}}
+@media(max-width:800px){.home-page .home-hero{padding-top:80px;padding-inline:0}.system-config-entry{top:0;transform:none;width:64px;height:64px;border-radius:16px}.system-config-entry svg{width:28px;height:28px}}
 .system-config-dialog{box-sizing:border-box;width:min(680px,calc(100vw - 32px));max-height:calc(100dvh - 40px);padding:0;border:1px solid #ffffffc9;border-radius:24px;color:#26354b;background:#f7faff;box-shadow:0 30px 100px #253f6738;font:14px/1.5 "Microsoft YaHei","Segoe UI",sans-serif;overflow:hidden}
 .system-config-scroll{max-height:calc(100dvh - 42px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
 .system-config-scroll::-webkit-scrollbar{display:none;width:0;height:0}
@@ -31,7 +32,28 @@
 .system-config-slot .fabric-color-swatch{width:40px;height:40px;flex-basis:40px}
 .system-ai-prompt-icon{display:grid;place-items:center;width:40px;height:40px;border-radius:13px;background:linear-gradient(135deg,#e9f2ff,#f4eaff);color:#6c55c7;font-size:25px;line-height:1}
 .system-config-body{padding:18px 24px 0}
-.system-ai-prompt-body{padding-top:20px}.system-ai-prompt-intro{margin:0 0 16px;color:#7c8fa8;font-size:12px;line-height:1.55}.system-ai-prompt-row{padding:14px 0;border-top:1px solid #e4ebf5}.system-ai-prompt-row:first-child{border-top:0}.system-ai-prompt-row-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;color:#405e8b;font-size:12px}.system-ai-prompt-row-head strong{font-weight:650}.system-ai-prompt-remove{padding:5px 9px;border:1px solid #e4bcbc;border-radius:7px;background:#fff7f7;color:#b94c4c;font-size:11px}.system-ai-prompt-remove:not(:disabled):hover{background:#fff0f0;border-color:#d99595}.system-ai-prompt-field{display:flex;flex-direction:column;gap:6px;margin-top:9px;color:#8092aa;font-size:11px}.system-ai-prompt-field :is(input,textarea){width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #dce5f0;border-radius:8px;background:#fff;color:#2f415c;font-size:12px;line-height:1.5;outline:none;resize:vertical}.system-ai-prompt-field :is(input,textarea):focus{border-color:#6f9df0;box-shadow:0 0 0 3px #6f9df01c}.system-ai-prompt-field :is(input,textarea):disabled{background:#f2f5f9;color:#8190a4}.system-ai-prompt-save{display:block;width:100%;min-height:40px;margin:14px 0;border:1px solid #b8cef0;border-radius:9px;background:#edf4ff;color:#397bea;font-size:12px;font-weight:650}.system-ai-prompt-save:not(:disabled):hover{background:#e1edff;border-color:#8fb3eb}.system-ai-prompt-save:disabled{cursor:default;opacity:.55}
+.system-ai-prompt-body{padding-top:20px}
+.system-ai-base-field{display:block;margin:0 0 6px;color:#7c8fa8;font-size:12px;line-height:1.5}
+.system-ai-base-field input{display:block;width:100%;min-width:0;height:38px;margin-top:6px;padding:9px 10px;border:1px solid #dce5f0;border-radius:8px;background:#fff;color:#2f415c;font:12px/18px "Microsoft YaHei","Segoe UI",sans-serif;outline:none}
+.system-ai-base-field input:focus{border-color:#6f9df0;box-shadow:0 0 0 3px #6f9df01c}
+.system-ai-base-field input:disabled{background:#f2f5f9;color:#8190a4}
+.system-ai-base-hint{margin:0 0 14px;color:#8a9ab0;font-size:11px;line-height:1.5}
+.system-ai-prompt-intro{margin:0 0 16px;color:#7c8fa8;font-size:12px;line-height:1.55}
+.system-ai-prompt-head,.system-ai-prompt-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2.4fr) 48px;align-items:center;gap:12px}
+.system-ai-prompt-head{padding:0 0 10px;color:#8a9ab0;font-size:11px}
+.system-ai-prompt-row{box-sizing:border-box;min-height:59px;padding:10px 0;border-top:1px solid #e4ebf5}
+.system-ai-prompt-remove{justify-self:end;min-height:30px;padding:5px 9px;border:1px solid #e4bcbc;border-radius:8px;background:#fff7f7;color:#b94c4c;font-size:11px}
+.system-ai-prompt-remove:not(:disabled):hover{background:#fff0f0;border-color:#d99595}
+.system-ai-prompt-field{display:block;min-width:0;margin:0}
+.system-ai-prompt-field :is(input,textarea){display:block;width:100%;min-width:0;box-sizing:border-box;height:38px;margin:0;padding:9px 10px;border:1px solid #dce5f0;border-radius:8px;background:#fff;color:#2f415c;font:12px/18px "Microsoft YaHei","Segoe UI",sans-serif;outline:none}
+.system-ai-prompt-field textarea{min-height:38px;max-height:180px;resize:vertical}
+.system-ai-prompt-field :is(input,textarea):focus-visible{outline:2px solid #397bea;outline-offset:2px}
+.system-ai-prompt-field :is(input,textarea):focus{border-color:#6f9df0;box-shadow:0 0 0 3px #6f9df01c}
+.system-ai-prompt-field :is(input,textarea):disabled{background:#f2f5f9;color:#8190a4}
+.system-ai-prompt-save{display:block;width:100%;min-height:40px;margin:14px 0;border:1px solid #b8cef0;border-radius:9px;background:#edf4ff;color:#397bea;font-size:12px;font-weight:650}
+.system-ai-prompt-save:not(:disabled):hover{background:#e1edff;border-color:#8fb3eb}
+.system-ai-prompt-save:disabled{cursor:default;opacity:.55}
+@media(max-width:540px){.system-ai-prompt-head,.system-ai-prompt-row{grid-template-columns:minmax(0,1fr) minmax(0,1.8fr) 42px;gap:8px}.system-ai-prompt-field :is(input,textarea){padding-inline:7px}.system-ai-prompt-remove{padding-inline:6px}}
 .system-color-head,.system-color-row{display:grid;grid-template-columns:42px 64px minmax(0,1fr) minmax(0,1fr) 102px;align-items:center;gap:12px}
 .system-color-head{padding:0 0 10px;color:#8a9ab0;font-size:11px}
 .system-color-row{min-height:49px;border-top:1px solid #e4ebf5}

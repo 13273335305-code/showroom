@@ -1,3 +1,9 @@
+export function isSystemConfigAdmin(user) {
+  return typeof user?.email === 'string'
+    && user.email.trim().toLowerCase() === '486837574@qq.com'
+    && Boolean(user.email_confirmed_at);
+}
+
 export function readAuthConfig(config) {
   if (!config?.url || !config?.publishableKey) {
     throw new Error('账号服务尚未连接，请联系管理员完成配置。');

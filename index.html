@@ -16,7 +16,7 @@
   <link rel="icon" type="image/png" sizes="64x64" href="assets/spenic-favicon.png">
   <link rel="stylesheet" href="workspace.css">
   <link rel="stylesheet" href="header.css">
-  <link rel="stylesheet" href="home.css?v=20261017-chrome-nav-1">
+  <link rel="stylesheet" href="home.css?v=20261018-stable-hover-1">
   <link rel="stylesheet" href="login.css?v=20261016-uiverse-login-4">
   <link rel="stylesheet" href="header-brand.css">
   <link rel="stylesheet" href="workspace-developer.css">
@@ -26,6 +26,9 @@
 </head>
 <body class="home-page">
   <div id="authBootLoading" class="auth-boot-loading" role="status" aria-label="正在验证登录..."></div>
+  <div class="workspace-background-host threeui-background predictive-arc predictive-arc--light" data-mode="light" aria-hidden="true">
+    <canvas class="workspace-background-canvas"></canvas>
+  </div>
   <header class="topbar">
     <a class="brand" href="./index.html" aria-label="Spenic 工作空间首页">
       <img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic">
@@ -45,37 +48,47 @@
   <main class="home-main">
     <section class="home-hero" aria-labelledby="workspaceTitle">
       <button id="workspaceDeveloper" class="workspace-developer-entry" type="button" aria-haspopup="dialog" aria-controls="workspaceDeveloperDialog" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 16"/></svg><span>开发者</span><i aria-hidden="true"></i></button>
-      <button class="system-config-entry" id="systemConfigEntry" type="button" aria-label="系统配置" aria-haspopup="dialog" aria-controls="systemConfigDialog">
+      <button class="system-config-entry" id="systemConfigEntry" type="button" aria-label="系统配置" aria-haspopup="dialog" aria-controls="systemConfigDialog" hidden>
         <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M38.419 19.865 42.711 20.701 42.711 27.299 38.419 28.135 37.119 31.272 39.564 34.898 34.898 39.564 31.272 37.119 28.135 38.419 27.299 42.711 20.701 42.711 19.865 38.419 16.728 37.119 13.102 39.564 8.436 34.898 10.881 31.272 9.581 28.135 5.289 27.299 5.289 20.701 9.581 19.865 10.881 16.728 8.436 13.102 13.102 8.436 16.728 10.881 19.865 9.581 20.701 5.289 27.299 5.289 28.135 9.581 31.272 10.881 34.898 8.436 39.564 13.102 37.119 16.728Z"/><circle cx="24" cy="24" r="6.5"/></svg>
       </button>
-      <div class="home-eyebrow">SPENIC WORKSPACE</div>
       <h1 id="workspaceTitle">欢迎来到工作空间</h1>
       <p>从设计、材质到资产，把每一次灵感整理成可继续的工作。</p>
     </section>
     <section class="workspace-cards" aria-label="工作空间模块">
-      <a class="workspace-card design-card" href="./design.html?new=1">
-        <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M9 34 28 15l6 6-19 19H9v-6Z"/><path d="m29 14 3-3a4.2 4.2 0 0 1 6 6l-3 3M14 40h25"/></svg></span>
-        <span class="card-copy"><strong>设计台</strong><span>进入三维设计台，预览模型并应用材质。</span></span>
+      <a class="workspace-card-link" href="./design.html?new=1">
+        <span class="workspace-card design-card">
+          <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 48 48" focusable="false"><path class="glyph-shadow" d="m10 34 18-18 8 8-18 18h-8Z"/><path class="glyph-fill" d="m12 31 17-17 6 6-17 17h-6Z"/><path class="glyph-highlight" d="m30 13 2-2a4.2 4.2 0 0 1 6 6l-2 2-6-6Z"/><path class="glyph-detail" d="M12 37h25"/></svg></span>
+          <span class="card-copy"><strong>设计台</strong><span>进入三维设计台，预览模型并应用材质。</span></span>
+        </span>
       </a>
-      <a class="workspace-card material-card" href="./material-editor.html">
-        <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 7 39 16v16L24 41 9 32V16L24 7Z"/><path d="m9 16 15 9 15-9M24 25v16"/></svg></span>
-        <span class="card-copy"><strong>材质编辑器</strong><span>制作和调整 PBR 材质，保存到资产库。</span></span>
+      <a class="workspace-card-link" href="./material-editor.html">
+        <span class="workspace-card material-card">
+          <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 48 48" focusable="false"><path class="glyph-fill glyph-top" d="m24 7 15 9-15 9-15-9 15-9Z"/><path class="glyph-fill glyph-left" d="M9 16v16l15 9V25L9 16Z"/><path class="glyph-fill glyph-right" d="M39 16v16l-15 9V25l15-9Z"/><path class="glyph-line" d="M24 7 39 16 24 25 9 16 24 7Zm0 18v16"/></svg></span>
+          <span class="card-copy"><strong>材质编辑器</strong><span>制作和调整 PBR 材质，保存到资产库。</span></span>
+        </span>
       </a>
-      <a class="workspace-card asset-card-home" href="./asset-library.html">
-        <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M7 14a4 4 0 0 1 4-4h10l4 5h12a4 4 0 0 1 4 4v17a4 4 0 0 1-4 4H11a4 4 0 0 1-4-4V14Z"/><path d="M7 19h34"/></svg></span>
-        <span class="card-copy"><strong>资产库</strong><span>集中管理材质、贴图和模型资产。</span></span>
+      <a class="workspace-card-link" href="./asset-library.html">
+        <span class="workspace-card asset-card-home">
+          <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 48 48" focusable="false"><path class="glyph-fill" d="M7 15a5 5 0 0 1 5-5h9l4 5h11a5 5 0 0 1 5 5v14a5 5 0 0 1-5 5H12a5 5 0 0 1-5-5V15Z"/><path class="glyph-detail" d="M8 19h32"/><path class="glyph-shine" d="M12 13h10l2 3H10a3 3 0 0 1 2-3Z"/></svg></span>
+          <span class="card-copy"><strong>资产库</strong><span>集中管理材质、贴图和模型资产。</span></span>
+        </span>
       </a>
-      <a class="workspace-card project-card-home" href="./project-library.html">
-        <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M8 14a4 4 0 0 1 4-4h10l4 5h10a4 4 0 0 1 4 4v17a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V14Z"/><path d="M8 20h32M17 28h14M17 34h9"/></svg></span>
-        <span class="card-copy"><strong>项目库</strong><span>保存和继续设计台中的完整项目。</span></span>
+      <a class="workspace-card-link" href="./project-library.html">
+        <span class="workspace-card project-card-home">
+          <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 48 48" focusable="false"><path class="glyph-fill" d="M8 15a5 5 0 0 1 5-5h9l4 5h9a5 5 0 0 1 5 5v14a5 5 0 0 1-5 5H13a5 5 0 0 1-5-5V15Z"/><path class="glyph-detail" d="M9 20h30M17 28h14M17 34h9"/><path class="glyph-shine" d="M13 13h9l2 3H11a3 3 0 0 1 2-3Z"/></svg></span>
+          <span class="card-copy"><strong>项目库</strong><span>保存和继续设计台中的完整项目。</span></span>
+        </span>
       </a>
-      <a class="workspace-card album-card-home" href="./album.html">
-        <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><rect x="7" y="10" width="34" height="28" rx="4"/><circle cx="17" cy="19" r="3"/><path d="m10 34 10-10 7 7 4-4 7 7"/></svg></span>
-        <span class="card-copy"><strong>图册</strong><span>私有云端保存拍摄图片，按需下载。</span></span>
+      <a class="workspace-card-link" href="./album.html">
+        <span class="workspace-card album-card-home">
+          <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 48 48" focusable="false"><rect class="glyph-fill" x="7" y="9" width="34" height="30" rx="6"/><path class="glyph-photo" d="m10 34 10-10 7 7 4-4 7 7H10Z"/><circle class="glyph-photo" cx="17" cy="18" r="3.2"/></svg></span>
+          <span class="card-copy"><strong>图册</strong><span>私有云端保存拍摄图片，按需下载。</span></span>
+        </span>
       </a>
     </section>
   </main>
-  <script type="module" src="home-cards-3d.js?v=20261017-chrome-nav-1"></script>
+  <script type="module" src="workspace-background.js?v=20261018-predictive-arc-3"></script>
+  <script type="module" src="home-cards-3d.js?v=20261018-stable-hover-1"></script>
   <script type="module">
     import { requireAuth } from './shared/auth.js';
     await requireAuth({ feature: 'workspace' });

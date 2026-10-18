@@ -19,7 +19,7 @@ export function readCaptureAiPrompts(value) {
 }
 
 function failure(error, action) {
-  if (missingSchema(error)) return new Error('AI 绘画配置尚未初始化，请先执行 supabase/capture-ai.sql');
+  if (missingSchema(error)) return new Error('AI 提示词表未初始化或接口尚未更新，请执行最新版 supabase/system-config-admin.sql 后重试；当前编辑内容会保留');
   if (error?.code === '42501' || [401, 403].includes(error?.status)) {
     return new Error(action === 'save' ? '当前账号没有修改 AI 绘画配置的权限，请由管理员授权' : '无权读取 AI 绘画配置');
   }

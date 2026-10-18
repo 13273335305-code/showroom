@@ -8,7 +8,7 @@ const missingSchema = error => ['42P01', 'PGRST202', 'PGRST205'].includes(error?
 
 function failure(error, action) {
   if (missingSchema(error)) return new Error('AI 云端配置尚未初始化，请先执行 supabase/capture-ai.sql');
-  if (error?.code === '42501' || [401, 403].includes(error?.status)) return new Error(action === 'site' ? '只有管理员授权的开发者账号可以修改全站 API 地址' : '无权访问此账号的 AI 配置，请重新登录');
+  if (error?.code === '42501' || [401, 403].includes(error?.status)) return new Error(action === 'site' ? '只有系统配置管理员或授权的开发者账号可以修改全站 API 地址' : '无权访问此账号的 AI 配置，请重新登录');
   return new Error('AI 配置读取或保存失败，请检查网络后重试');
 }
 export function validateCaptureAiBase(value) {

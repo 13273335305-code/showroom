@@ -1,5 +1,18 @@
 begin;
 
+-- Resolve the administrator from the current server-side account, never editable metadata.
+create or replace function public.spenic_is_system_config_admin()
+returns boolean language sql stable security definer set search_path = ''
+as $$
+  select exists (
+    select 1 from auth.users
+    where id = auth.uid() and lower(email) = '486837574@qq.com'
+      and email_confirmed_at is not null
+  );
+$$;
+revoke all on function public.spenic_is_system_config_admin() from public, anon;
+grant execute on function public.spenic_is_system_config_admin() to authenticated;
+
 create or replace function public.spenic_valid_fabric_colors(value jsonb)
 returns boolean language plpgsql immutable set search_path = public
 as $$
@@ -32,14 +45,14 @@ alter table public.spenic_fabric_colors enable row level security;
 drop policy if exists spenic_fabric_colors_read on public.spenic_fabric_colors;
 create policy spenic_fabric_colors_read on public.spenic_fabric_colors
 for select to anon, authenticated using (true);
--- Reuse the server-controlled permission for editing site defaults.
+-- Only the designated, verified administrator can edit system configuration.
 drop policy if exists spenic_fabric_colors_insert on public.spenic_fabric_colors;
 create policy spenic_fabric_colors_insert on public.spenic_fabric_colors
-for insert to authenticated with check ((auth.jwt()->'app_metadata'->>'spenic_developer') = 'true');
+for insert to authenticated with check (public.spenic_is_system_config_admin());
 drop policy if exists spenic_fabric_colors_update on public.spenic_fabric_colors;
 create policy spenic_fabric_colors_update on public.spenic_fabric_colors
-for update to authenticated using ((auth.jwt()->'app_metadata'->>'spenic_developer') = 'true')
-with check ((auth.jwt()->'app_metadata'->>'spenic_developer') = 'true');
+for update to authenticated using (public.spenic_is_system_config_admin())
+with check (public.spenic_is_system_config_admin());
 revoke all on public.spenic_fabric_colors from anon, authenticated;
 grant select on public.spenic_fabric_colors to anon, authenticated;
 grant insert (id, colors), update (id, colors) on public.spenic_fabric_colors to authenticated;

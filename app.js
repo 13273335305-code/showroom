@@ -165,6 +165,7 @@ function setCaptureMode(active){
   setInspectorCollapsed(true);$('snapshot').setAttribute('aria-pressed','true');$('snapshot').setAttribute('aria-label','退出拍摄模式');$('snapshot').title='退出拍摄模式';
  }else{
   setCaptureTransparent(false);captureMode=false;clearTimeout(captureFrameTimer);captureFrameTimer=null;state.autoRotate=captureAutoRotate;applyScene();const capturePanel=$('capturePanel');capturePanel.classList.add('capture-closing');capturePanel.inert=true;document.body.classList.add('capture-exiting');
+  closeCaptureAiPromptMenu();
   clearTimeout(capturePanelTimer);capturePanelTimer=setTimeout(()=>{capturePanelTimer=null;capturePanel.hidden=true;capturePanel.classList.remove('capture-closing');capturePanel.inert=false;document.body.classList.remove('capture-mode','capture-exiting');setInspectorCollapsed(captureInspectorCollapsed);},1500);
   $('snapshot').setAttribute('aria-pressed','false');$('snapshot').setAttribute('aria-label','拍摄模式');$('snapshot').title='拍摄模式';
  }
@@ -200,7 +201,7 @@ function setCaptureOrientation(landscape){
  syncCaptureOrientation();
 }
 const captureAiStore=createCaptureAiStore({access:workspaceClient});
-const captureAiFields=['captureAiKey','captureAiModel','captureAiBase','captureAiAspect','captureAiSize'];
+const captureAiFields=['captureAiKey','captureAiModel','captureAiAspect','captureAiSize'];
 let captureAiLoaded=null,captureAiLoading=null,captureAiSaving=null,captureAiVersion=0,captureAiRequest=null;
 const captureAiPromptFallback=[{label:'极简摄影棚',prompt:'将这个产品放在极简摄影棚中，柔和侧光，高级电商产品图'},{label:'自然生活场景',prompt:'将这个产品融入自然、克制的生活方式场景，光线柔和，画面高级且真实'},{label:'材质细节特写',prompt:'突出这个产品的材质、纹理和工艺细节，使用干净的近距离产品摄影构图'}];
 let captureAiPrompts=captureAiPromptFallback.map(item=>({...item})),captureAiPromptsLoading=null,captureAiPromptsVersion=0,captureAiPromptIndex=0;
@@ -211,7 +212,7 @@ function applyCaptureAiConfig(config){
 }
 function lockCaptureAiFields(locked){
  captureAiFields.forEach(id=>{$(id).disabled=locked});
- $('captureAiBase').readOnly=!captureAiLoaded?.canManageSite;
+ $('captureAiBase').readOnly=true;
 }
 function invalidateCaptureAiConfig(){
  captureAiVersion++;captureAiLoaded=null;captureAiRequest?.abort();
@@ -232,7 +233,7 @@ async function loadCaptureAiConfig(){
   finally{captureAiLoading=null}
  })();return captureAiLoading;
 }
-function readCaptureAiConfig(){return {apiKey:$('captureAiKey').value.trim(),model:$('captureAiModel').value,base:$('captureAiBase').value.trim(),aspect:$('captureAiAspect').value,size:$('captureAiSize').value}}
+function readCaptureAiConfig(){return {apiKey:$('captureAiKey').value.trim(),model:$('captureAiModel').value,aspect:$('captureAiAspect').value,size:$('captureAiSize').value}}
 async function saveCaptureAiConfig(){
  if(captureAiSaving)return captureAiSaving;
  if(!captureAiLoaded)throw new Error('请先成功读取当前账号的 AI 配置');
@@ -240,8 +241,6 @@ async function saveCaptureAiConfig(){
  lockCaptureAiFields(true);
  captureAiSaving=(async()=>{
   try{
-   if(value.base!==old.base)value.base=await captureAiStore.saveSite(ownerId,value.base);
-   if(version!==captureAiVersion)throw new Error('账号已切换，请重新打开 AI 配置');
    await captureAiStore.saveAccount(ownerId,value);
    if(version!==captureAiVersion)throw new Error('账号已切换，请重新打开 AI 配置');
    captureAiLoaded={...old,...value};setCaptureAiStatus('');
@@ -277,20 +276,52 @@ function selectedCaptureAiPrompt(){
  const index=Math.max(0,Math.min(captureAiPrompts.length-1,captureAiPromptIndex));
  return captureAiPrompts[index]?.prompt?.trim()||'';
 }
+function closeCaptureAiPromptMenu(restoreFocus=false){
+ const button=$('captureAiPromptSlider'),menu=$('captureAiPromptMenu');
+ if(!button||!menu)return;
+ menu.hidden=true;button.setAttribute('aria-expanded','false');
+ menu.classList.remove('capture-ai-prompt-menu-above');menu.style.removeProperty('left');menu.style.removeProperty('top');menu.style.removeProperty('width');
+ if(restoreFocus&&!button.disabled)button.focus({preventScroll:true});
+}
+function positionCaptureAiPromptMenu(){
+ const button=$('captureAiPromptSlider'),menu=$('captureAiPromptMenu');
+ if(!button||!menu||menu.hidden)return;
+ const buttonRect=button.getBoundingClientRect(),menuHeight=menu.getBoundingClientRect().height;
+ const gap=8,padding=8;
+ const left=Math.max(padding,Math.min(buttonRect.left,window.innerWidth-buttonRect.width-padding));
+ const top=Math.max(padding,buttonRect.top-gap-menuHeight);
+ menu.style.left=`${Math.round(left)}px`;menu.style.top=`${Math.round(top)}px`;menu.style.width=`${Math.round(buttonRect.width+2)}px`;
+ menu.classList.add('capture-ai-prompt-menu-above');
+}
+function openCaptureAiPromptMenu(focusEdge=null){
+ const button=$('captureAiPromptSlider'),menu=$('captureAiPromptMenu');
+ if(!button||!menu||button.disabled)return;
+ menu.hidden=false;button.setAttribute('aria-expanded','true');
+ positionCaptureAiPromptMenu();
+ const options=[...menu.querySelectorAll('[role="menuitemradio"]')];
+ const option=focusEdge==='first'?options[0]:focusEdge==='last'?options.at(-1):options[captureAiPromptIndex];
+ option?.focus();
+}
 function syncCaptureAiPromptPicker(){
- const slider=$('captureAiPromptSlider');
- if(!slider)return;
+ const slider=$('captureAiPromptSlider'),menu=$('captureAiPromptMenu'),label=$('captureAiPromptLabel');
+ if(!slider||!menu||!label)return;
  const hasPrompts=captureAiPrompts.length>0;
  captureAiPromptIndex=Math.max(0,Math.min(captureAiPrompts.length-1,captureAiPromptIndex));
- slider.replaceChildren();
+ menu.replaceChildren();
  slider.setAttribute('aria-busy',String(!!captureAiPromptsLoading));
- slider.dataset.empty=String(!hasPrompts);
+ slider.disabled=!!captureAiPromptsLoading||!hasPrompts;
  captureAiPrompts.forEach((item,index)=>{
-  const button=document.createElement('button');button.type='button';button.className='capture-ai-prompt-option';button.textContent=item.label;button.title=item.label;button.setAttribute('role','tab');button.setAttribute('aria-selected',String(index===captureAiPromptIndex));button.tabIndex=index===captureAiPromptIndex?0:-1;button.disabled=!!captureAiPromptsLoading;
-  button.onclick=()=>{captureAiPromptIndex=index;syncCaptureAiPromptPicker();};
-  button.onkeydown=event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?captureAiPrompts.length-1:(index+(event.key==='ArrowRight'?1:-1)+captureAiPrompts.length)%captureAiPrompts.length;captureAiPromptIndex=next;syncCaptureAiPromptPicker();slider.children[next]?.focus();};
-  slider.append(button);
+  const option=document.createElement('button');option.type='button';option.role='menuitemradio';option.tabIndex=-1;option.textContent=item.label;option.title=item.label;option.setAttribute('aria-checked',String(index===captureAiPromptIndex));
+  option.onclick=()=>{captureAiPromptIndex=index;closeCaptureAiPromptMenu(true);syncCaptureAiPromptPicker();};
+  menu.append(option);
  });
+ if(hasPrompts){
+  label.textContent=captureAiPrompts[captureAiPromptIndex]?.label||'快捷提示词';
+  slider.setAttribute('aria-label','快捷提示词，当前：'+label.textContent);
+  if(!menu.hidden)positionCaptureAiPromptMenu();
+ }else{
+  label.textContent='暂无快捷提示词';slider.setAttribute('aria-label','暂无快捷提示词');closeCaptureAiPromptMenu();
+ }
 }
 async function loadCaptureAiPrompts(){
  if(captureAiPromptsLoading)return captureAiPromptsLoading;
@@ -1357,6 +1388,21 @@ function bindEvents(){
   restore:snapshot=>{state={...snapshot.state};applyScene(snapshot.appearance);$('sceneName').value=snapshot.name;setAnnotationMode(snapshot.annotationMode);setInspectorCollapsed(snapshot.inspectorCollapsed);}
  });
  syncCaptureAiPromptPicker();
+ const captureAiPromptButton=$('captureAiPromptSlider'),captureAiPromptMenu=$('captureAiPromptMenu'),captureAiPromptShell=captureAiPromptButton?.closest('.capture-ai-prompt-picker');
+ document.body.append(captureAiPromptMenu);
+ captureAiPromptButton.onclick=()=>{captureAiPromptButton.classList.remove('picker-category-clicked');void captureAiPromptButton.offsetWidth;captureAiPromptButton.classList.add('picker-category-clicked');if(captureAiPromptMenu.hidden)openCaptureAiPromptMenu();else closeCaptureAiPromptMenu(true);};
+ captureAiPromptButton.addEventListener('animationend',event=>{if(event.animationName==='picker-category-click')captureAiPromptButton.classList.remove('picker-category-clicked');});
+ captureAiPromptButton.addEventListener('keydown',event=>{if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return;event.preventDefault();openCaptureAiPromptMenu(event.key==='ArrowUp'||event.key==='End'?'last':'first');});
+ captureAiPromptMenu.addEventListener('keydown',event=>{
+  const options=[...captureAiPromptMenu.querySelectorAll('[role="menuitemradio"]')];
+  if(event.key==='Tab'){closeCaptureAiPromptMenu(true);return;}
+  if(event.key==='Escape'){event.preventDefault();closeCaptureAiPromptMenu(true);return;}
+  if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return;
+  event.preventDefault();const current=options.indexOf(document.activeElement),next=event.key==='Home'?0:event.key==='End'?options.length-1:(current+(event.key==='ArrowDown'?1:-1)+options.length)%options.length;options[next]?.focus();
+ });
+ document.addEventListener('pointerdown',event=>{if(!captureAiPromptMenu.hidden&&!captureAiPromptShell.contains(event.target)&&!captureAiPromptMenu.contains(event.target))closeCaptureAiPromptMenu();});
+ window.addEventListener('resize',positionCaptureAiPromptMenu);
+ window.addEventListener('scroll',positionCaptureAiPromptMenu,true);
  void initCaptureAiConfig();
  $('captureAiSettingsOpen').onclick=()=>{setCaptureAiSettingsOpen(true);void loadCaptureAiConfig()};$('captureAiSettingsBack').onclick=closeCaptureAiSettings;$('captureAiSettingsDone').onclick=closeCaptureAiSettings;
  $('collapseInspector').onclick=()=>setInspectorCollapsed(true);$('restoreInspector').onclick=()=>setInspectorCollapsed(!workspace.classList.contains('inspector-collapsed'));$('captureExit').onclick=()=>setCaptureMode(false);$('captureShoot').onclick=captureImage;$('captureAiGenerate').onclick=captureAiGenerate;
@@ -1376,7 +1422,7 @@ function bindEvents(){
  document.querySelectorAll('[data-preset]').forEach(b=>b.onclick=()=>{daylightCycle?.cancel();state.preset=b.dataset.preset;Object.assign(state,state.preset==='night'?{backgroundColor:'#172232',exposure:1.05,keyLight:4,fillLight:.7,lightColor:'#dde8ff'}:state.preset==='daylight'?{backgroundColor:'#e5edf3',exposure:1.2,keyLight:4.5,fillLight:1.8,lightColor:'#ffedd4'}:{backgroundColor:DEFAULTS.backgroundColor,exposure:1.1,keyLight:3,fillLight:1.5,lightColor:DEFAULTS.lightColor});applyScene();});$('resetScene').onclick=()=>{daylightCycle?.cancel();state={...DEFAULTS};applyScene();fit();};
  $('canvas').addEventListener('dblclick',event=>{if(annotationMode)return;const hit=pickModelMaterial(event.clientX,event.clientY);if(!hit)return;selectEntry(hit.entry);showPanel('material');$('materialList').querySelector('[data-entry-id="'+hit.entry.id+'"]')?.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'});});
  $('snapshot').onclick=()=>setCaptureMode(!captureMode);
- document.addEventListener('keydown',event=>{if(captureMode&&event.key==='Escape'){event.preventDefault();event.stopPropagation();if(!$('captureAiSettingsPage').hidden)closeCaptureAiSettings();else setCaptureMode(false);}},true);
+ document.addEventListener('keydown',event=>{if(captureMode&&event.key==='Escape'){event.preventDefault();event.stopPropagation();if(!$('captureAiPromptMenu').hidden){closeCaptureAiPromptMenu(true);return;}if(!$('captureAiSettingsPage').hidden)closeCaptureAiSettings();else setCaptureMode(false);}},true);
  window.__spenicDesignSession={save:()=>saveProject({silent:true})};
  $('headerUndo').onclick=undoMaterialAssignment;$('saveProject').onclick=()=>saveProject();
  $('saveScene').onclick=()=>{try{const name=sceneName($('sceneName').value);download(packScene(state,name),sceneFilename(name));$('sceneName').value=name;notify('已保存场景：'+name);}catch(error){notify('保存场景失败：'+error.message,6000);}};
