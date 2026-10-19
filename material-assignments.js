@@ -23,6 +23,30 @@ function meshesIn(model) {
   return meshes;
 }
 
+// Part types belong to the model's configured slots, even after a user swaps
+// the material occupying one of those slots in the design workspace.
+export function captureConfiguredMaterialSlots(model, getPartTypes) {
+  const configured = new WeakMap();
+  for (const mesh of meshesIn(model)) {
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    configured.set(mesh, materials.map(material => new Set(getPartTypes(material) || [])));
+  }
+  return configured;
+}
+
+export function materialSlotsForPartType(model, type, configured, getPartTypes) {
+  const result = [];
+  for (const mesh of meshesIn(model)) {
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    const originalTypes = configured?.get(mesh);
+    materials.forEach((material, slot) => {
+      const types = originalTypes?.[slot] ?? getPartTypes(material);
+      if (types?.has(type)) result.push({ mesh, slot, material });
+    });
+  }
+  return result;
+}
+
 export function rebuildMaterialUsage(model, entries) {
   const owners = new Map(entries.map(entry => [entry.material, entry]));
   entries.forEach(entry => entry.meshes.clear());

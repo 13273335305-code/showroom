@@ -360,7 +360,10 @@ export function createDesignWorkspace(api) {
     closePickerCategory(); pickerAdding = true; syncPickerSelection();
     try {
       for (const [id, asset] of [...pickerSelected]) {
-        const full = await getAsset(id, { runtime: true }); if (!full) throw new Error('资产已被删除');
+        const summary = await getAsset(id, { runtime: true, previewOnly: true }); if (!summary) throw new Error('资产已被删除');
+        // Keep fabric additions lightweight. Their PBR files are fetched by the
+        // design surface only after the material ball is dropped on a mesh.
+        const full = summary.materialType === 'pattern' ? await getAsset(id, { runtime: true }) : summary;
         await api.add({ ...full, fabricVariants: asset.fabricVariants?.map(({ id, fabricColorCode }) => ({ id, fabricColorCode })), fabricColorCodes: asset.fabricVariants?.map(variant => variant.fabricColorCode) || (full.fabricColorCode ? [full.fabricColorCode] : []) });
         pickerSelected.delete(id);
       }

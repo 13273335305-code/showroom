@@ -23,7 +23,7 @@ const path = require('node:path');
     await page.route('http://picker.test/**', async route => {
       const name = new URL(route.request().url()).pathname.slice(1);
       if (!name || name === 'design.html') return route.fulfill({ contentType: 'text/html', body: html });
-      if (name === 'shared/asset-store.js') return route.fulfill({ contentType: 'text/javascript', body: `export async function listAssets({onProgress}={}){const items=${JSON.stringify(fixtures)};onProgress?.(items);return items;}` });
+      if (name === 'shared/asset-store.js') return route.fulfill({ contentType: 'text/javascript', body: `export async function listAssets({onProgress}={}){const items=${JSON.stringify(fixtures)};onProgress?.(items);return items;}export async function getAsset(id){return ${JSON.stringify(fixtures)}.find(item=>item.id===id)||null;}` });
       if (name === 'shared/material-placement.js') return route.fulfill({ contentType: 'text/javascript', body: "export const materialType = asset => asset.materialType === 'pattern' ? 'pattern' : 'fabric';" });
       try {
         await route.fulfill({ contentType: name.endsWith('.css') ? 'text/css' : name.endsWith('.js') ? 'text/javascript' : 'application/octet-stream', body: await fs.readFile(path.join(root, name)) });
@@ -45,6 +45,8 @@ const path = require('node:path');
     const card = id => page.locator(`[data-asset-id="${id}"]`);
     const dialogBounds = () => page.locator('#assetPicker').boundingBox();
     await open();
+    await page.waitForFunction(() => document.getElementById('assetPicker').getAttribute('aria-busy') === 'false');
+    console.log(await page.evaluate(() => [...document.styleSheets].map(sheet => ({ href: sheet.href, rules: (() => { try { return sheet.cssRules.length; } catch { return -1; } })() }))));
     await card('outer').waitFor();
     assert.equal(await page.locator('#confirmAssetPicker').isDisabled(), true);
     assert.equal(await page.locator('#pickerBack').isDisabled(), true);
@@ -113,6 +115,12 @@ const path = require('node:path');
       if (width === 1440) await page.locator('#assetPicker').screenshot({ path: path.join(__dirname, 'design-picker-glass-header.png') });
       await card('extra-3').click(); await card('extra-4').click();
       assert.equal(await page.locator('.picker-selected').count(), 2);
+      const confirmLayer = await page.locator('#confirmAssetPicker').evaluate(button => {
+        const rect = button.getBoundingClientRect();
+        return { topElement: document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) === button, zIndex: getComputedStyle(button).zIndex };
+      });
+      assert.equal(confirmLayer.topElement, true, 'Selected card outline stays below the confirm button');
+      assert.equal(confirmLayer.zIndex, '20');
       assert.deepEqual(await page.evaluate(() => window.addedAssets), [], 'Selecting cards does not add them');
       if (width !== 760) await page.locator('#assetPicker').screenshot({ path: path.join(__dirname, width === 1440 ? 'design-picker-multiselect.png' : 'design-picker-multiselect-mobile.png') });
       await card('extra-3').click(); await card('extra-4').click();

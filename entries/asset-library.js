@@ -22,7 +22,7 @@ const renderedCards = new Map();
 const cardUrls = new Map();
 const hiddenDeletedAssetIds = new Set();
 const selectedFabricColors = new Map(), fabricColorPages = new Map();
-let editing, editPreview, editPreviewUrl, editVersion = 0, movingAssetId = null, deletingAsset = null, deleteDialogResolver = null;
+let editing, editPreview, editPreviewUrl, editVersion = 0, movingAssetIds = [], deletingAsset = null, deleteDialogResolver = null;
 let currentPage = 1, pageContext = '', currentPageItems = [];
 let assetsLoading = true;
 const assetLoading = createAssetLoading({ host: $('assetPanel'), grid: $('assetGrid'), indicator: $('assetLoading') });
@@ -154,13 +154,17 @@ function moveTargets(asset) {
   return assets.filter(candidate => candidate.kind === 'folder' && libraryType(candidate) === libraryType(asset)
     && canEdit(candidate) && candidate.id !== asset.id && !folderContains(candidate.id, asset.id)).sort((a, b) => folderLabel(a).localeCompare(folderLabel(b), 'zh-CN'));
 }
-function openMoveDialog(asset) {
+function openMoveDialog(assetOrAssets) {
+  const selection = Array.isArray(assetOrAssets) ? assetOrAssets : [assetOrAssets];
+  if (!selection.length) return;
   const select = $('moveAssetTarget'); select.replaceChildren();
+  const asset = selection[0];
   const root = document.createElement('option'); root.value = ''; root.textContent = libraryNames[libraryType(asset)] + '根目录'; select.append(root);
-  for (const folder of moveTargets(asset)) {
+  for (const folder of moveTargets(asset).filter(folder => selection.every(item => folder.id !== item.id && !folderContains(folder.id, item.id)))) {
     const option = document.createElement('option'); option.value = folder.id; option.textContent = folderLabel(folder); select.append(option);
   }
-  movingAssetId = asset.id; $('moveDialogTitle').textContent = '移动「' + asset.name + '」';
+  movingAssetIds = selection.map(item => item.id);
+  $('moveDialogTitle').textContent = selection.length === 1 ? '移动「' + asset.name + '」' : `移动 ${selection.length} 项资产`;
   $('moveAssetError').textContent = ''; $('saveMove').disabled = false; select.value = asset.parentId || '';
   $('moveDialog').showModal(); select.focus();
 }
@@ -644,18 +648,20 @@ $('assetPreviewFile').onchange = async () => {
   } catch (error) { if (version === editVersion) $('assetEditError').textContent = '预览图无效：' + error.message; }
   finally { if (version === editVersion) $('saveAssetEdit').disabled = false; }
 };
-$('cancelMove').onclick = () => $('moveDialog').close();
-$('moveDialog').addEventListener('close', () => { movingAssetId = null; $('moveAssetError').textContent = ''; });
+$('cancelMove').onclick = () => { if (!$('saveMove').disabled) $('moveDialog').close(); };
+$('moveDialog').addEventListener('cancel', event => { if ($('saveMove').disabled) event.preventDefault(); });
+$('moveDialog').addEventListener('close', () => { movingAssetIds = []; $('moveAssetError').textContent = ''; });
 $('moveAssetForm').onsubmit = async event => {
-  event.preventDefault(); if (!movingAssetId) return;
-  const targetId = $('moveAssetTarget').value || null, asset = assets.find(item => item.id === movingAssetId);
-  if (!asset) { $('moveDialog').close(); return; }
-  if (asset.kind === 'folder' && targetId && folderContains(targetId, asset.id)) {
+  event.preventDefault(); if ($('saveMove').disabled || !movingAssetIds.length) return;
+  const targetId = $('moveAssetTarget').value || null;
+  const selected = movingAssetIds.map(id => assets.find(item => item.id === id)).filter(Boolean);
+  if (!selected.length) { $('moveDialog').close(); return; }
+  if (selected.some(asset => asset.kind === 'folder' && targetId && folderContains(targetId, asset.id))) {
     $('moveAssetError').textContent = '不能移动到当前文件夹或它的子文件夹'; return;
   }
   $('saveMove').disabled = true; $('moveAssetError').textContent = '';
   try {
-    await updateAsset(asset.id, { parentId: targetId });
+    for (const asset of selected) await updateAsset(asset.id, { parentId: targetId });
     $('moveDialog').close(); await refresh(); status('已移动资产');
   } catch (error) { $('moveAssetError').textContent = error.message; }
   finally { $('saveMove').disabled = false; }
@@ -730,6 +736,11 @@ function render({ background = false } = {}) {
   const context = JSON.stringify([activeLibrary, activeFolderId, searchQuery, $('assetCategory')?.value, sortMode]);
   if (context !== pageContext) { currentPage = 1; pageContext = context; }
   const page = assetPage(shown, currentPage); currentPage = page.page; shown = currentPageItems = page.items;
+  const selectAllButton = $('selectAllAssets');
+  if (selectAllButton) {
+    const selectable = shown.filter(asset => asset.kind !== 'folder');
+    selectAllButton.textContent = selectable.length && selectable.every(asset => selectedAssetIds.has(asset.id)) ? '取消全选' : '全选';
+  }
   renderPagination(page);
   const visibleIds = new Set(shown.map(asset => asset.id));
   for (const id of renderedCards.keys()) if (!visibleIds.has(id)) {
@@ -1069,16 +1080,42 @@ $('assetCategory').addEventListener('change', render);
 $('assetSort').addEventListener('change', render);
 $('moreOptions').onclick = () => {
   const menu = $('moreMenu'), button = $('moreOptions');
+  const selectable = currentPageItems.filter(asset => asset.kind !== 'folder');
+  $('selectAllAssets').textContent = selectable.length && selectable.every(asset => selectedAssetIds.has(asset.id)) ? '取消全选' : '全选';
   menu.hidden = !menu.hidden; button.setAttribute('aria-expanded', String(!menu.hidden));
 };
 $('selectAllAssets').onclick = () => {
   const shown = currentPageItems.filter(asset => asset.kind !== 'folder');
-  shown.forEach(asset => selectedAssetIds.add(asset.id));
-  closeMoreMenu(); render(); status(shown.length ? `已选择 ${shown.length} 项资产` : '当前没有可选择的资产');
+  const allSelected = shown.length > 0 && shown.every(asset => selectedAssetIds.has(asset.id));
+  shown.forEach(asset => allSelected ? selectedAssetIds.delete(asset.id) : selectedAssetIds.add(asset.id));
+  closeMoreMenu(); render(); status(shown.length ? (allSelected ? `已取消全选 ${shown.length} 项资产` : `已选择 ${shown.length} 项资产`) : '当前没有可选择的资产');
 };
-$('refreshAssets').onclick = () => { closeMoreMenu(); refresh(); };
-$('clearSearch').onclick = () => {
-  searchInput.value = ''; searchQuery = ''; $('assetCategory').value = 'all'; closeMoreMenu(); render();
+function selectedAssetsForBatchAction() {
+  return [...selectedAssetIds].map(id => assets.find(asset => asset.id === id)).filter(Boolean);
+}
+$('moveSelectedAssets').onclick = () => {
+  const selected = selectedAssetsForBatchAction(); closeMoreMenu();
+  if (!selected.length) return status('请先选择要移动的资产');
+  if (selected.some(asset => !canEdit(asset))) return status('只有上传者可以移动资产');
+  if (new Set(selected.map(asset => libraryType(asset))).size > 1) return status('请选择同一资产库中的内容再移动');
+  openMoveDialog(selected);
+};
+$('deleteSelectedAssets').onclick = async () => {
+  if ($('deleteSelectedAssets').disabled) return;
+  const selected = selectedAssetsForBatchAction(); closeMoreMenu();
+  if (!selected.length) return status('请先选择要删除的资产');
+  if (selected.some(asset => !canEdit(asset))) return status('只有上传者可以删除资产');
+  $('deleteSelectedAssets').disabled = true;
+  const removedIds = [];
+  try {
+    if (!await askDelete(selected[0], `确定删除选中的 ${selected.length} 项资产？`)) return;
+    for (const asset of selected) { await deleteAsset(asset.id); removedIds.push(asset.id); }
+    removeAssetsFromView(selected[0], selected.map(asset => asset.id));
+    status(`已删除 ${selected.length} 项资产`);
+  } catch (error) {
+    if (removedIds.length) removeAssetsFromView(selected[0], removedIds);
+    status(`已删除 ${removedIds.length}/${selected.length} 项资产。${error.message}`);
+  } finally { $('deleteSelectedAssets').disabled = false; }
 };
 $('importAssets').onclick = () => {
   const menu = $('assetAddMenu'); menu.hidden = !menu.hidden;

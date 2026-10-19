@@ -5,7 +5,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
-import { slotMaterial, assignMaterial, rebuildMaterialUsage, serializeAssignments, restoreAssignments } from './material-assignments.js';
+import { slotMaterial, assignMaterial, rebuildMaterialUsage, serializeAssignments, restoreAssignments, captureConfiguredMaterialSlots, materialSlotsForPartType as findConfiguredMaterialSlots } from './material-assignments.js';
 import { defaultPhysical, readPhysical, preparePhysicalUV, setPhysicalTransform, measureUVMetric } from './physical-textures.js';
 import { readImageDensity, physicalSizeFromDensity } from './image-density.js';
 import { uvPatternGeometry } from './uv-pattern.js';
@@ -40,6 +40,13 @@ import { loadDeveloperSettings, defaultDeveloperSettings, readDefaultView } from
 import { workspaceClient } from './shared/auth.js';
 import { createDefaultCameraStore } from './shared/default-camera-store.js';
 import { createCaptureAiStore, CAPTURE_AI_DEFAULT_BASE, CAPTURE_AI_DEFAULTS } from './shared/capture-ai-store.js';
+async function loadDesignAsset(id){
+ const summary=await readAsset(id,{runtime:true,previewOnly:true});
+ if(!summary)return null;
+ // Fabric balls only need metadata and the preview until they are applied.
+ // Patterns and models still need their files immediately to build geometry.
+ return summary.kind==='material'&&materialType(summary)==='fabric'?summary:readAsset(id,{runtime:true});
+}
 let developerPanel = null, developerSettings = defaultDeveloperSettings();
 let designDefaultView = developerSettings.defaultView;
 let designLaunchLoading = true, designLaunchLoadingTimer = null;
@@ -55,7 +62,8 @@ let modelSource=null,modelGeneration=0,currentLoad=0,loadingModel=false,toastTim
 let pageLeaving=false;
 let loadingMessageToken=0,loadingMessageTimer=null,loadingSequenceActive=false;
 let partAssignments=new Map();
-let draggedMaterial=null, assignmentHistory=[],materialPreviewTimer=null;
+let configuredMaterialSlots=new WeakMap();
+let draggedMaterial=null, assignmentHistory=[],materialPreviewTimer=null,materialClickApplying=null;
 let materialHoldTimer=null, materialHoverTimer=null, previewAnimation=null, activeReveal=null, suppressMaterialClick=false, materialPulse=null;
 let materialPickFrame=0, pendingMaterialPick=null;
 let dragMoveRecorded=false, dragStartedAt=0, dragPickMs=0, dragPickCount=0;
@@ -67,10 +75,29 @@ let patterns=[],selectedPattern=null,patternAsset=null,patternPlaceMode=false,pa
 let activeFabric='其他';
 function fabricCategory(entry){return entry.category||(/包边|滚边|piping|binding/i.test(entry.name)?'包边条':/边布|侧布|side/i.test(entry.name)?'边布':'面布');}
 const PART_TYPES=['面布','边布','包边条'];
-function restorePartAssignments(raw){partAssignments=new Map();if(!raw||typeof raw!=='object')return;for(const [key,value] of Object.entries(raw)){const types=Array.isArray(value)?value:value?.types;if(!Number.isInteger(Number(key))||!Array.isArray(types))continue;const valid=types.filter(type=>PART_TYPES.includes(type));if(valid.length)partAssignments.set(Number(key),new Set(valid));}}
+function restorePartAssignments(raw){
+ partAssignments=new Map();if(!raw||typeof raw!=='object')return;
+ const names=raw.__materialNames&&typeof raw.__materialNames==='object'?raw.__materialNames:{};
+ const pendingByName=[];
+ for(const [key,value] of Object.entries(raw)){
+  if(key==='__materialNames')continue;
+  const types=Array.isArray(value)?value:value?.types;
+  if(!Array.isArray(types))continue;
+  const valid=types.filter(type=>PART_TYPES.includes(type));if(!valid.length)continue;
+  const index=Number(key);if(Number.isInteger(index))partAssignments.set(index,new Set(valid));
+  const name=names[key];if(typeof name==='string'&&name)pendingByName.push([name,new Set(valid)]);
+ }
+ if(pendingByName.length){
+  const used=new Set();
+  entries.forEach((entry,index)=>{
+   const match=pendingByName.find(([name])=>name===entry.name&&!used.has(name));
+   if(match){partAssignments.set(index,match[1]);used.add(match[0]);}
+  });
+ }
+}
 function serializePartAssignments(){const out={};for(const [index,types] of partAssignments)out[index]=[...types];return out;}
 function partTypesForMaterial(material){if(material?.userData?.partTypes instanceof Set)return material.userData.partTypes;const entry=entries.find(candidate=>candidate.material===material);return partAssignments.get(entry?.id)||new Set();}
-function materialSlotsForPartType(type){const result=[];model?.traverse(o=>{if(!o.isMesh)return;const materials=Array.isArray(o.material)?o.material:[o.material];materials.forEach((material,slot)=>{if(partTypesForMaterial(material).has(type))result.push({mesh:o,slot,material});});});return result;}
+function materialSlotsForPartType(type){return findConfiguredMaterialSlots(model,type,configuredMaterialSlots,partTypesForMaterial);}
 const MATERIAL_DRAG_TYPE='application/x-form-material';
 function notify(message,duration=3500){$('toast').textContent=message;$('toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('show'),duration);}
 function recordPerformanceOperation(operation, metrics = {}) { developerPanel?.record?.(operation, metrics); }
@@ -261,7 +288,9 @@ async function initCaptureAiConfig(){
  }catch{invalidateCaptureAiConfig()}
 }
 function setCaptureAiSettingsOpen(open,focus=true){
- $('captureMainPage').hidden=open;$('captureAiSettingsPage').hidden=!open;
+ const mainPage=$('captureMainPage');
+ mainPage.inert=open;mainPage.setAttribute('aria-hidden',String(open));
+ $('captureAiSettingsPage').hidden=!open;
  $('captureAiSettingsOpen').setAttribute('aria-expanded',String(open));
  $('capturePanel').setAttribute('aria-labelledby',open?'captureAiSettingsTitle':'capturePanelTitle');
  $('capturePanel').scrollTop=0;
@@ -451,6 +480,7 @@ window.addEventListener('pagehide', () => {
  currentLoad++;
  loadingModel=false;
  cameraTween?.cancel();
+ finishReveal();
  disposeObject(model,entries);
  model=null;
  renderer?.setAnimationLoop(null);
@@ -592,6 +622,12 @@ function updateAnnotations(){
 }
 const rulerWorldPoints=Array.from({length:4},()=>new THREE.Vector3());
 const rulerScreenPoints=Array.from({length:4},()=>({x:0,y:0}));
+function scheduleRulerReveal(){
+ const layer=$('rulerLayer');
+ if(rulerAnimationTimer)clearTimeout(rulerAnimationTimer);
+ rulerAnimating=true;layer.classList.add('ruler-entering');
+ rulerAnimationTimer=setTimeout(()=>{if(rulerMode)layer.classList.remove('ruler-entering');rulerAnimating=false;rulerAnimationTimer=null;},520);
+}
 function setRulerMode(active){
  if(rulerAnimationTimer){clearTimeout(rulerAnimationTimer);rulerAnimationTimer=null;}
  rulerMode=!!active;
@@ -599,11 +635,10 @@ function setRulerMode(active){
  button.classList.toggle('active',rulerMode);button.setAttribute('aria-pressed',String(rulerMode));
  button.title=rulerMode?'关闭标尺模式':'标尺模式';button.setAttribute('aria-label',rulerMode?'关闭标尺模式':'标尺模式');
  if(rulerMode){
-  rulerClosing=false;rulerAnimating=true;layer.classList.remove('ruler-closing');layer.removeAttribute('hidden');updateRuler(true);
+   rulerClosing=false;layer.classList.remove('ruler-closing');scheduleRulerReveal();layer.removeAttribute('hidden');updateRuler(true);
   requestAnimationFrame(()=>{if(rulerMode)layer.querySelectorAll('.ruler-line').forEach(line=>{line.style.strokeDashoffset='0';});});
-  rulerAnimationTimer=setTimeout(()=>{rulerAnimating=false;rulerAnimationTimer=null;},520);
  }else if(layer.childElementCount){
-  rulerClosing=true;rulerAnimating=true;layer.classList.add('ruler-closing');
+   rulerClosing=true;rulerAnimating=true;layer.classList.remove('ruler-entering');layer.classList.add('ruler-closing');
   layer.querySelectorAll('.ruler-line').forEach(line=>{line.style.strokeDashoffset=line.style.strokeDasharray||'0';});
   rulerAnimationTimer=setTimeout(()=>{if(!rulerMode){layer.setAttribute('hidden','');layer.classList.remove('ruler-closing');}rulerAnimating=false;rulerAnimationTimer=null;},520);
  }else layer.setAttribute('hidden','');
@@ -791,11 +826,11 @@ async function loadModel(buffer,name,files=[],{restore=null,parts=null,runtime=f
  busy('正在加载贴图');await yieldFrame();if(pageLeaving||request!==currentLoad)return;if(!parsed.prepared)prepareAnnotationPicking(parsed.object);materialPicker=createMaterialPicker(parsed.object);
  busy('正在加载模型');await yieldFrame();if(pageLeaving||request!==currentLoad)return;if(!parsed.prepared)preparePhysicalUV(parsed.object);
  const center=box.getCenter(new THREE.Vector3()),s=4.2/max,normalizer=new THREE.Group(),root=new THREE.Group();normalizer.add(parsed.object);normalizer.scale.setScalar(s);normalizer.position.set(-center.x*s,-box.min.y*s+.014,-center.z*s);root.add(normalizer);
- if(model){for(const a of annotations)a.el.remove();annotations=[];selectedAnnotation=null;syncAnnotationPanel();clearPatterns();scene.remove(model);disposeObject(model,entries);clearPatternSources();}model=root;restorePartAssignments(parts);modelSource={buffer:buffer.slice(0),name,files,runtime:!!parsed.prepared,textureConvention:parsed.textureConvention};physicalModel=nextPhysicalModel;updateModelDimensions();modelGeneration++;assignmentHistory=[];$('undoMaterial').disabled=true;entries=info.entries;for(const entry of entries)entry.material.userData.partTypes=partAssignments.get(entry.id)||new Set();selected=null;scene.add(model);state.rotation=0;state.scale=DEFAULTS.scale;$('isolate').checked=false;applyScene();fit('perspective',{immediate:true});
+ finishReveal();if(model){for(const a of annotations)a.el.remove();annotations=[];selectedAnnotation=null;syncAnnotationPanel();clearPatterns();scene.remove(model);disposeObject(model,entries);clearPatternSources();}model=root;restorePartAssignments(parts);modelSource={buffer:buffer.slice(0),name,files,runtime:!!parsed.prepared,textureConvention:parsed.textureConvention};physicalModel=nextPhysicalModel;updateModelDimensions();modelGeneration++;assignmentHistory=[];$('undoMaterial').disabled=true;entries=info.entries;for(const entry of entries)entry.material.userData.partTypes=partAssignments.get(entry.id)||new Set();configuredMaterialSlots=captureConfiguredMaterialSlots(model,partTypesForMaterial);selected=null;scene.add(model);state.rotation=0;state.scale=DEFAULTS.scale;$('isolate').checked=false;applyScene();fit('perspective',{immediate:true});
  $('modelName').textContent=name;$('modelName').title=name;$('modelStats').textContent=`${info.meshCount} 网格 · ${formatCount(info.triangles)} 三角面`;$('materialCount').textContent=String(entries.length).padStart(2,'0');selectEntry(entries[0]);renderMaterials();if(restore)await restore(entries);if(pageLeaving||request!==currentLoad)return;showPanel('scene');
  await renderer.compileAsync(scene,camera);if(pageLeaving||request!==currentLoad)return;renderer.render(scene,camera);
   fit('perspective',restore?{intro:true,fromCurrent:true}:{intro:true});
-  if(rulerMode){$('rulerLayer').removeAttribute('hidden');updateRuler(true);}
+  if(rulerMode){const layer=$('rulerLayer');layer.removeAttribute('hidden');scheduleRulerReveal();updateRuler(true);}
  hideBusy();
  notify(`已载入 ${entries.length} 个独立材质`+(parsed.missing.length?'；缺少 '+parsed.missing.length+' 个外部纹理，可在右侧补充':'')+(info.uvMissing?'；部分网格没有 UV，无法显示贴图':''),6000);
  }catch(error){console.error(error);if(!pageLeaving&&request===currentLoad){hideBusy();setOpeningDockHidden(false);setOpeningDayHidden(false);notify('载入失败：'+error.message,8000);if(!model){$('modelName').textContent='请从资产库打开模型';$('modelStats').textContent='模型库';}}}finally{if(!pageLeaving&&request===currentLoad){loadingModel=false;$('showroomMode').disabled=!model||!daylightCycle;if(restore){setOpeningDockHidden(false);setOpeningDayHidden(false);}}}
@@ -807,16 +842,33 @@ async function loadExample(){
   try{await openStoredProject(projectId);return;}
   catch(error){hideBusy();setOpeningDockHidden(false);setOpeningDayHidden(false);notify('打开项目失败：'+error.message,6000);return;}
  }
- if(assetId)try{asset=await getAsset(assetId);if(!asset)throw new Error('资产不存在，可能已被删除');}catch(error){assetError=error;}
+  if(assetId)try{asset=await loadDesignAsset(assetId);if(!asset)throw new Error('资产不存在，可能已被删除');}catch(error){assetError=error;}
  if(!assetId&&!params.has('new'))try{const session=await loadDesignSession();if(session){await openStoredProject(session);return;}}catch(error){console.warn('恢复设计台状态失败',error);}
  try{
+  // The model named "默认模型" in the model library is the site's starting model.
+  // Keep the bundled model as a compatibility fallback for deployments without it.
+  if(!assetId){
+   try{
+    const libraryAssets=await listAssets();
+    const defaultModel=libraryAssets.find(item=>item?.kind==='model'&&item.name?.trim()==='默认模型');
+    if(defaultModel){
+     const candidate=await loadDesignAsset(defaultModel.id);
+     if(candidate?.kind==='model'&&candidate.file&&
+       (candidate.runtimeModel?/\.spmodel$/i:/\.(fbx|glb)$/i).test(candidate.file.name))asset=candidate;
+    }
+   }catch(error){console.warn('读取模型库默认模型失败，使用内置模型',error);}
+  }
   if(asset?.kind==='model'){
    if(!asset.file||!(asset.runtimeModel?/\.spmodel$/i:/\.(fbx|glb)$/i).test(asset.file.name))throw new Error('资产库模型文件无效');
    if(asset.file.size>512*1024*1024)throw new Error('模型文件过大，请使用小于 512 MB 的模型');
    activeProjectId=null;activeProjectName='';activeProjectRevision=null;
+   const modelBeforeLoad=model;
    await loadModel(await asset.file.arrayBuffer(),asset.sourceName||asset.file.name,asset.resources||[],{parts:asset.partAssignments,runtime:asset.runtimeModel});
-   if(modelSource&&asset.projectReferences)modelSource.projectReferences=asset.projectReferences;
-   return;
+   if(model!==modelBeforeLoad){
+    if(modelSource&&asset.projectReferences)modelSource.projectReferences=asset.projectReferences;
+    return;
+   }
+   asset=null;
   }
   const r=await fetch('./MM06-展厅版.fbx');if(!r.ok)throw new Error('找不到示例 FBX');await loadModel(await r.arrayBuffer(),'MM06-展厅版.fbx');
   if(asset?.kind==='material')await addDesignAsset(asset);
@@ -827,7 +879,7 @@ async function loadExample(){
 function createLibraryEntry(id,name='库中材质'){
  const material=new THREE.MeshPhysicalMaterial({name,color:0xffffff,roughness:.65,bumpScale:.02,sheenColor:0xffffff});
  installRoughnessShader(material);
- return {id,name,material,meshes:new Set(),uploads:{},previewUrl:null,mapTokens:{},repeat:[1,1],physical:defaultPhysical(),pendingDpi:{},densityInfo:null,flip:false,baseline:material.clone(),thumbnails:{},previews:{}};
+ return {id,name,material,meshes:new Set(),uploads:{},previewUrl:null,mapTokens:{},repeat:[1,1],physical:defaultPhysical(),pendingDpi:{},densityInfo:null,flip:false,assetMapsLoaded:false,assetMapLoadPromise:null,baseline:material.clone(),thumbnails:{},previews:{}};
 }
 async function refreshLibrary(){
  const select=$('libraryMaterial');
@@ -842,20 +894,35 @@ async function addMaterialAsset(asset){
  const started=performance.now(),entry=await prepareFabricEntry(asset,entries.length);
  entries.push(entry);entry.baseline.dispose();entry.baseline=entry.material.clone();
  $('materialCount').textContent=String(entries.length).padStart(2,'0');selectEntry(entry);showPanel('material');
- notify('已添加「'+entry.name+'」，拖动底部材质球到模型表面即可应用');
+ notify('已添加「'+entry.name+'」，单击材质球可应用到已配置部位，也可拖到模型表面');
  recordPerformanceOperation('新增面料完成：'+entry.name,{durationMs:performance.now()-started});
 }
-async function prepareFabricEntry(asset,id){
+async function prepareFabricEntry(asset,id,{loadMaps=false}={}){
  const generation=modelGeneration,entry=createLibraryEntry(id,asset.name);
  entry.previewUrl=asset.preview?assetImageUrl(asset.preview):null;entry.previewInfo=asset.previewInfo;entry.assetPreviewChecked=true;entry.fabricColorCodes=asset.fabricColorCodes|| (asset.fabricColorCode?[asset.fabricColorCode]:[]);
  entry.fabricVariants=asset.fabricVariants||[];entry.fabricColorCode=asset.fabricColorCode;entry.assetId=asset.id;
  entry.category=asset.category||'面布';const savedPhysical=readPhysical(asset.physical,true);entry.physical={...savedPhysical,sizeSource:'manual'};entry.repeat=asset.repeat||[1,1];entry.legacyMaps=asset.legacyMaps||{};
  try{
-  for(const[key]of MAPS){if(!asset.maps?.[key])continue;await yieldFrame();const runtime=asset.runtimeMaps?.[key]||await compressImageFile(asset.maps[key],2048);await uploadTexture(entry,key,runtime,true,asset.maps[key],{prepared:true,sourceRef:materialSourceReference(asset,key),projectReference:asset.projectRefs?.[key],density:asset.density?.[key]});if(generation!==modelGeneration)throw new Error('模型已经切换，请重新添加材质');if(!entry.material[key])throw new Error('贴图未能载入：'+key);if(asset.density?.[key]){entry.material[key].userData.density=asset.density[key];configureTexture(entry,entry.material[key],key);}}
-  entry.physical=savedPhysical;for(const[key]of MAPS)if(entry.material[key])configureTexture(entry,entry.material[key],key);
-  applySurface(entry.material,asset.surface);entry.flip=!!asset.surface.flip;
+  entry.physical=savedPhysical;applySurface(entry.material,asset.surface||{});entry.flip=!!asset.surface?.flip;
+  if(loadMaps)await loadMaterialMaps(entry,asset,{generation});
   return entry;
  }catch(error){for(const[key]of MAPS)entry.material[key]?.dispose();if(entry.previewUrl)URL.revokeObjectURL(entry.previewUrl);Object.values(entry.uploads).forEach(u=>URL.revokeObjectURL(u.preview));entry.material.dispose();entry.baseline.dispose();throw error;}
+}
+async function loadMaterialMaps(entry,asset=null,{generation=modelGeneration}={}){
+ if(entry.assetMapsLoaded)return;
+ if(!asset&&!entry.assetId){entry.assetMapsLoaded=true;return;}
+ if(entry.assetMapLoadPromise)return entry.assetMapLoadPromise;
+ entry.assetMapLoadPromise=(async()=>{
+  const source=asset||await getAsset(entry.assetId);
+  if(generation!==modelGeneration)throw new Error('模型已经切换，请重新添加材质');
+  if(!source)throw new Error('材质资产不存在，可能已被删除');
+  const mapKeys=MAPS.filter(([key])=>source.maps?.[key]);
+  if(!mapKeys.length){entry.assetMapsLoaded=true;return;}
+  for(let index=0;index<mapKeys.length;index++){const [key]=mapKeys[index];await yieldFrame();const runtime=source.runtimeMaps?.[key]||await compressImageFile(source.maps[key],2048);await uploadTexture(entry,key,runtime,true,source.maps[key],{prepared:!!source.runtimeMaps?.[key],sourceRef:materialSourceReference(source,key),projectReference:source.projectRefs?.[key],density:source.density?.[key]});if(generation!==modelGeneration)throw new Error('模型已经切换，请重新添加材质');if(!entry.material[key])throw new Error('贴图未能载入：'+key);if(source.density?.[key]){entry.material[key].userData.density=source.density[key];configureTexture(entry,entry.material[key],key);}}
+  for(const[key]of MAPS)if(entry.material[key])configureTexture(entry,entry.material[key],key);
+  entry.assetMapsLoaded=true;
+ })().finally(()=>{entry.assetMapLoadPromise=null;});
+ return entry.assetMapLoadPromise;
 }
 function disposePreparedFabric(entry){
  for(const[key]of MAPS)entry.material[key]?.dispose();
@@ -881,19 +948,23 @@ async function switchFabricColor(entry,code){
   if(!loaded)throw new Error('该色号已被删除');
   const asset=preview?.preview?{...loaded,preview:preview.preview}:loaded;
   setColorProgress(65);
-  prepared=await prepareFabricEntry({...asset,fabricVariants:entry.fabricVariants,fabricColorCodes:entry.fabricColorCodes},entry.id);
+  prepared=await prepareFabricEntry({...asset,fabricVariants:entry.fabricVariants,fabricColorCodes:entry.fabricColorCodes},entry.id,{loadMaps:true});
   setColorProgress(90);
   if(token!==entry.fabricColorRequest||generation!==modelGeneration||entry.removed||!entries.includes(entry)){disposePreparedFabric(prepared);prepared=null;return;}
   const previousMaps=MAPS.map(([key])=>[key,entry.material[key]]),previousUploads=entry.uploads,previousPreview=entry.previewUrl;
   finishReveal();
   stopMaterialPulse();
+  const slots=[];
+  for(const mesh of entry.meshes){const materials=Array.isArray(mesh.material)?mesh.material:[mesh.material];materials.forEach((material,slot)=>{if(material===entry.material)slots.push({mesh,slot});});}
+  const previousMaterial=slots.length?entry.material.clone():null;
+  if(previousMaterial)installRoughnessShader(previousMaterial);
   const userData=entry.material.userData;entry.material.copy(prepared.material);entry.material.userData=userData;installRoughnessShader(entry.material);
-  for(const key of ['uploads','previewUrl','previewInfo','assetPreviewChecked','physical','repeat','legacyMaps','flip','fabricColorCode','assetId'])entry[key]=prepared[key];
+  for(const key of ['uploads','previewUrl','previewInfo','assetPreviewChecked','physical','repeat','legacyMaps','flip','fabricColorCode','assetId','assetMapsLoaded'])entry[key]=prepared[key];
   for(const[key]of MAPS)if(entry.material[key])configureTexture(entry,entry.material[key],key);
   compiledMaterials.delete(entry.material);entry.material.needsUpdate=true;
   prepared.material.dispose();prepared.baseline.dispose();prepared=null;
-  for(const[key,texture]of previousMaps)if(texture&&texture!==entry.baseline[key])texture.dispose();
-  Object.values(previousUploads).forEach(upload=>URL.revokeObjectURL(upload.preview));if(previousPreview)URL.revokeObjectURL(previousPreview);
+  const releasePrevious=()=>{previousMaterial?.dispose();for(const[key,texture]of previousMaps)if(texture&&texture!==entry.baseline[key]&&texture!==entry.material[key])texture.dispose();Object.values(previousUploads).forEach(upload=>URL.revokeObjectURL(upload.preview));if(previousPreview&&previousPreview!==entry.previewUrl)URL.revokeObjectURL(previousPreview);};
+  if(slots.length)playMaterialRevealBatch(slots.map(({mesh,slot})=>({mesh,slot,previous:previousMaterial})),releasePrevious);else releasePrevious();
   if(selected===entry)selectEntry(entry);else renderMaterials();
   switched=true;
  }catch(error){if(prepared)disposePreparedFabric(prepared);if(token===entry.fabricColorRequest)notify('色号切换失败：'+error.message,5000);}
@@ -918,8 +989,15 @@ async function saveSelectedToLibrary(){
   await saveAsset(asset);await refreshLibrary();notify('已保存「'+asset.name+'」到资产库');
  }catch(error){notify('保存资产失败：'+error.message,6000);}finally{button.disabled=false;}
 }
-function renderMaterials(){const host=$('materialList');host.replaceChildren();document.querySelectorAll('[data-fabric]').forEach(b=>{b.classList.toggle('active',b.dataset.fabric===activeFabric);b.setAttribute('aria-pressed',String(b.dataset.fabric===activeFabric));});for(const entry of entries.filter(e=>!e.removed&&fabricCategory(e)===activeFabric)){const button=document.createElement('button');button.className='material-item'+(entry===selected?' active':'');button.setAttribute('aria-pressed',String(entry===selected));button.draggable=false;button.dataset.entryId=entry.id;button.addEventListener('pointerdown',event=>startMaterialDrag(event,entry));button.addEventListener('dblclick',event=>{event.preventDefault();event.stopPropagation();endMaterialDrag();pulseMaterialUsage(entry);});button.setAttribute('aria-label','选择材质 '+entry.name);const swatch=document.createElement('div');swatch.className='material-thumb';decorateSwatch(swatch,entry);const name=document.createElement('strong');name.textContent=entry.name;button.append(swatch,name);button.onclick=()=>{if(suppressMaterialClick){suppressMaterialClick=false;return;}setPatternMode(false);designUI?.setType('fabric');if(!replaceCategoryMaterials(entry,activeFabric)){selectEntry(entry);showPanel('material');}};designUI?.bindDockItem(button,{kind:'fabric',entry});host.append(button);}designUI?.syncDock();$('materialCount').textContent=String(entries.filter(e=>!e.removed).length).padStart(2,'0');}
+function renderMaterials(){const host=$('materialList');host.replaceChildren();document.querySelectorAll('[data-fabric]').forEach(b=>{b.classList.toggle('active',b.dataset.fabric===activeFabric);b.setAttribute('aria-pressed',String(b.dataset.fabric===activeFabric));});for(const entry of entries.filter(e=>!e.removed&&fabricCategory(e)===activeFabric)){const button=document.createElement('button');button.className='material-item'+(entry===selected?' active':'');button.setAttribute('aria-pressed',String(entry===selected));button.draggable=false;button.dataset.entryId=entry.id;button.addEventListener('pointerdown',event=>startMaterialDrag(event,entry));button.addEventListener('dblclick',event=>{event.preventDefault();event.stopPropagation();endMaterialDrag();pulseMaterialUsage(entry);});button.setAttribute('aria-label','选择材质 '+entry.name);const swatch=document.createElement('div');swatch.className='material-thumb';decorateSwatch(swatch,entry);const ball=document.createElement('div');ball.className='material-ball'+(materialClickApplying===entry?' apply-loading':'');ball.append(swatch);if(materialClickApplying===entry)ball.append($('materialPreview').querySelector('.material-apply-progress').cloneNode(true));const name=document.createElement('strong');name.textContent=entry.name;button.append(ball,name);button.onclick=async()=>{if(suppressMaterialClick){suppressMaterialClick=false;return;}if(materialClickApplying)return;setPatternMode(false);designUI?.setType('fabric');beginMaterialClickLoading(entry,button);try{if(!await replaceCategoryMaterials(entry,activeFabric)){selectEntry(entry);showPanel('material');}}catch(error){notify('材质应用失败：'+error.message,5000);}finally{finishMaterialClickLoading(entry);}};designUI?.bindDockItem(button,{kind:'fabric',entry});host.append(button);}designUI?.syncDock();$('materialCount').textContent=String(entries.filter(e=>!e.removed).length).padStart(2,'0');}
 function stopMaterialPulse(){if(!materialPulse)return;cancelAnimationFrame(materialPulse.frame);for(const item of materialPulse.items){if(Array.isArray(item.mesh.material))item.mesh.material=item.original;else item.mesh.material=item.original;item.highlight.dispose();}materialPulse=null;}
+function beginMaterialClickLoading(entry,button){
+ materialClickApplying=entry;const ball=button.querySelector('.material-ball');ball.classList.add('apply-loading');ball.append($('materialPreview').querySelector('.material-apply-progress').cloneNode(true));
+}
+function finishMaterialClickLoading(entry){
+ if(materialClickApplying!==entry)return;materialClickApplying=null;
+ for(const button of $('materialList').querySelectorAll('.material-item'))if(button.dataset.entryId===String(entry.id)){const ball=button.querySelector('.material-ball');ball.classList.remove('apply-loading');ball.querySelector('.material-apply-progress')?.remove();}
+}
 function pulseMaterialUsage(entry){
  stopMaterialPulse();
  const items=[];
@@ -1002,7 +1080,8 @@ function animatePreview(x,y,size,round=8,opacity=1,duration=400){
  const preview=$('materialPreview'),rect=preview.getBoundingClientRect();
  previewAnimation?.cancel();
  const from={transform:`translate3d(${rect.left}px,${rect.top}px,0) scale(${rect.width/300})`,opacity:getComputedStyle(preview).opacity,borderRadius:getComputedStyle(preview).borderRadius};
- const to={transform:`translate3d(${x-size/2}px,${y-size/2}px,0) scale(${size/300})`,opacity,borderRadius:round+'px'};
+ const borderRadius=typeof round==='number'?round+'px':round;
+ const to={transform:`translate3d(${x-size/2}px,${y-size/2}px,0) scale(${size/300})`,opacity,borderRadius};
  Object.assign(preview.style,to);
  previewAnimation=preview.animate([from,to],{duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:duration,easing:'cubic-bezier(.2,.8,.2,1)'});
 }
@@ -1010,7 +1089,9 @@ function centerMaterialPreview(entry){
  if(!draggedMaterial||draggedMaterial.phase!=='pressed')return;
  draggedMaterial.phase='preview';suppressMaterialClick=true;
  const r=$('canvas').getBoundingClientRect(),size=Math.min(680,r.width*.9,r.height*.84);
- animatePreview(r.left+r.width/2,r.top+r.height/2,size);
+ // Material balls stay circular while the hold preview grows. Pattern previews
+ // keep their compact rounded-square shape.
+ animatePreview(r.left+r.width/2,r.top+r.height/2,size,draggedMaterial.patternTarget?'12px':'50%');
 }
 function moveMaterialPreview(event,hit){
  if(!draggedMaterial)return;
@@ -1069,23 +1150,24 @@ function endMaterialDrag(success=false, options={}){
  controls.enabled=true;syncAutoRotate();
  session.element.classList.remove('dragging');$('materialDropHint').hidden=true;$('viewport').classList.remove('material-drag-active');
  const preview=$('materialPreview'),r=session.sourceRect;
+ const previewRound=session.patternTarget?'12px':'50%';
  if(success===true&&options.loading){
   preview.classList.add('apply-loading');
   const p=preview.getBoundingClientRect();
-  animatePreview(p.left+p.width/2,p.top+p.height/2,54,50,1,180);
- }else if(success===true){const p=preview.getBoundingClientRect();animatePreview(p.left+p.width/2,p.top+p.height/2,10,40,0,220);}
- else animatePreview(r.left+r.width/2,r.top+r.height/2,r.width,150,0,380);
+   animatePreview(p.left+p.width/2,p.top+p.height/2,54,previewRound,1,180);
+ }else if(success===true){const p=preview.getBoundingClientRect();animatePreview(p.left+p.width/2,p.top+p.height/2,10,previewRound,0,220);}
+ else animatePreview(r.left+r.width/2,r.top+r.height/2,r.width,previewRound,0,380);
  if(!options.loading){clearTimeout(materialPreviewTimer);materialPreviewTimer=setTimeout(()=>{preview.className='material-preview';},400);}
 }
-function finishMaterialApplyLoading(){
+function finishMaterialApplyLoading(success=true){
  const preview=$('materialPreview');
  if(!preview.classList.contains('apply-loading'))return;
  preview.classList.remove('apply-loading');
  const p=preview.getBoundingClientRect();
- animatePreview(p.left+p.width/2,p.top+p.height/2,10,40,0,220);
+ animatePreview(p.left+p.width/2,p.top+p.height/2,10,'50%',0,220);
  clearTimeout(materialPreviewTimer);materialPreviewTimer=setTimeout(()=>{preview.className='material-preview';},260);
 }
-function finishReveal(){if(activeReveal){cancelAnimationFrame(activeReveal.frame);for(const effect of activeReveal.effects||[activeReveal.effect])effect.dispose();activeReveal=null;}}
+function finishReveal(){if(activeReveal){const reveal=activeReveal;activeReveal=null;cancelAnimationFrame(reveal.frame);for(const effect of reveal.effects||[reveal.effect])effect.dispose();reveal.onFinish?.();}}
 function playMaterialReveal(hit,previous,prepared=null){
  if(!prepared)finishReveal();
  if(matchMedia('(prefers-reduced-motion: reduce)').matches){prepared?.dispose();return;}
@@ -1094,14 +1176,16 @@ function playMaterialReveal(hit,previous,prepared=null){
  const tick=now=>{const p=Math.min(1,(now-started)/REVEAL_DURATION);const eased=p*p*(3-2*p);effect.update(eased);if(p<1)session.frame=requestAnimationFrame(tick);else finishReveal();};
  session.frame=requestAnimationFrame(tick);
 }
-function playMaterialRevealBatch(items){
- finishReveal();if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;
- const effects=items.map(item=>fadeMaterial(scene,item.mesh,item.slot,item.previous)),started=performance.now(),session={effects,frame:0};activeReveal=session;
+function playMaterialRevealBatch(items,onFinish=null){
+ finishReveal();if(matchMedia('(prefers-reduced-motion: reduce)').matches){onFinish?.();return;}
+ const effects=[];try{for(const item of items)effects.push(fadeMaterial(scene,item.mesh,item.slot,item.previous));}catch(error){effects.forEach(effect=>effect.dispose());onFinish?.();throw error;}
+ const started=performance.now(),session={effects,frame:0,onFinish};activeReveal=session;
  const tick=now=>{const p=Math.min(1,(now-started)/REVEAL_DURATION),eased=p*p*(3-2*p);effects.forEach(effect=>effect.update(eased));if(p<1)session.frame=requestAnimationFrame(tick);else finishReveal();};session.frame=requestAnimationFrame(tick);
 }
 async function replaceHitMaterial(hit,source){
  if(hit.entry===source){notify('该部位已经使用这个材质');return false;}
  const started=performance.now(),previous=slotMaterial(hit.mesh,hit.slot);
+ await loadMaterialMaps(source);
  finishReveal();
  // Put the old surface above the mesh before swapping materials. This keeps
  // the first frame of the new texture covered while the GPU warms up.
@@ -1126,10 +1210,11 @@ async function replaceHitMaterial(hit,source){
  $('undoMaterial').disabled=false;
  return true;
 }
-function replaceCategoryMaterials(source,type=activeFabric){
+async function replaceCategoryMaterials(source,type=activeFabric){
  const slots=materialSlotsForPartType(type),items=[],changed=[];
- for(const {mesh,slot,material} of slots){const entry=entries.find(candidate=>candidate.material===material);if(!entry||entry===source)continue;const previous=slotMaterial(mesh,slot);if(assignMaterial(mesh,slot,source.material)){items.push({mesh,slot,previous});changed.push({mesh,slot,previous});}}
  if(!slots.length){notify('当前模型尚未配置“'+type+'”材质球，请先点击齿轮进行配置');return false;}
+ await loadMaterialMaps(source);
+ for(const {mesh,slot,material} of slots){const entry=entries.find(candidate=>candidate.material===material);if(!entry||entry===source)continue;const previous=slotMaterial(mesh,slot);if(assignMaterial(mesh,slot,source.material)){items.push({mesh,slot,previous});changed.push({mesh,slot,previous});}}
  if(!changed.length){notify('“'+type+'”部件已经使用这个材质');return false;}
  const sourceTypes=source.material.userData.partTypes instanceof Set?source.material.userData.partTypes:new Set();source.material.userData.partTypes=new Set([...sourceTypes,type]);
  playMaterialRevealBatch(items);assignmentHistory.push({batch:changed});if(assignmentHistory.length>30)assignmentHistory.shift();$('undoMaterial').disabled=false;rebuildMaterialUsage(model,entries);selectEntry(source);return true;
@@ -1177,7 +1262,7 @@ function bindMaterialDrop(){
    return;
   }
   const hit=s.phase==='dragging'&&s.generation===modelGeneration&&document.elementFromPoint(event.clientX,event.clientY)===$('canvas')?(s.lastHit||pickModelMaterial(event.clientX,event.clientY)):null;
-  const fabricHit=!!hit&&!s.patternTarget;endMaterialDrag(!!hit,{loading:fabricHit});if(hit){if(s.patternTarget){try{dropDesignPattern(s.patternTarget,event);}catch(error){notify('图案放置失败：'+error.message);}}else void replaceHitMaterial(hit,s.entry).then(finishMaterialApplyLoading).catch(error=>{finishMaterialApplyLoading();notify('材质应用失败：'+error.message,5000);});}
+  const fabricHit=!!hit&&!s.patternTarget;endMaterialDrag(!!hit,{loading:fabricHit});if(hit){if(s.patternTarget){try{dropDesignPattern(s.patternTarget,event);}catch(error){notify('图案放置失败：'+error.message);}}else void replaceHitMaterial(hit,s.entry).then(()=>finishMaterialApplyLoading(true)).catch(error=>{finishMaterialApplyLoading(false);notify('材质应用失败：'+error.message,5000);});}
  });
  document.addEventListener('pointercancel',()=>endMaterialDrag());
  document.addEventListener('keydown',e=>{if(e.key==='Escape')endMaterialDrag();});
@@ -1201,7 +1286,7 @@ function bindMaterialDrop(){
   if(isMaterial(event)){
    event.preventDefault();const source=draggedMaterial;
    const hit=source.generation===modelGeneration?pickModelMaterial(event.clientX,event.clientY):null;
-   if(hit){endMaterialDrag(true,{loading:true});void replaceHitMaterial(hit,source.entry).then(finishMaterialApplyLoading).catch(error=>{finishMaterialApplyLoading();notify('材质应用失败：'+error.message,5000);});}else{endMaterialDrag(false);notify('请把材质球拖到模型表面');}
+   if(hit){endMaterialDrag(true,{loading:true});void replaceHitMaterial(hit,source.entry).then(()=>finishMaterialApplyLoading(true)).catch(error=>{finishMaterialApplyLoading(false);notify('材质应用失败：'+error.message,5000);});}else{endMaterialDrag(false);notify('请把材质球拖到模型表面');}
   }
  });
  // Block browser file navigation without accepting files into the workspace.
@@ -1368,7 +1453,7 @@ function bindEvents(){
  document.addEventListener('focusin',event=>{const draft=annotations.find(a=>!a.saved);if(draft&&!draft.window.contains(event.target))cancelDraftAnnotation();});
  $('saveToLibrary').onclick=saveSelectedToLibrary;
  $('refreshLibrary').onclick=refreshLibrary;
- $('addLibraryMaterial').onclick=async()=>{const button=$('addLibraryMaterial'),id=$('libraryMaterial').value;if(!id)return notify('请先选择资产库中的材质');button.disabled=true;try{await addMaterialAsset(await getAsset(id));}catch(error){notify('添加材质失败：'+error.message,6000);}finally{button.disabled=false;}};
+  $('addLibraryMaterial').onclick=async()=>{const button=$('addLibraryMaterial'),id=$('libraryMaterial').value;if(!id)return notify('请先选择资产库中的材质');button.disabled=true;try{await addMaterialAsset(await loadDesignAsset(id));}catch(error){notify('添加材质失败：'+error.message,6000);}finally{button.disabled=false;}};
  window.addEventListener('focus',refreshLibrary);refreshLibrary();
  $('annotationMode').onclick=()=>{setAnnotationMode(!annotationMode);if(annotationMode)notify('标记模式已开启，点击模型添加标记；Esc 退出');};
  let annotationStart=null;
@@ -1436,7 +1521,7 @@ function bindEvents(){
   finally{$('openScene').disabled=false;$('saveScene').disabled=false;}
  };
 }
-function snapshotEntry(e){const m=e.material;return {id:e.id,removed:!!e.removed,name:e.name,category:fabricCategory(e),color:m.color.getHexString(),roughness:m.roughness,metalness:m.metalness,normalStrength:Math.abs(m.normalScale.x),aoStrength:m.aoMapIntensity,emissive:m.emissive.getHexString(),emissiveStrength:m.emissiveIntensity,bumpStrength:m.bumpScale,repeat:e.repeat,physical:{...e.physical},density:Object.fromEntries(MAPS.filter(([k])=>m[k]?.userData.density).map(([k])=>[k,m[k].userData.density])),flip:e.flip,maps:Object.fromEntries(MAPS.map(([k])=>[k,m[k]?(e.uploads[k]?'upload':'original'):null]))};}
+function snapshotEntry(e){const m=e.material,used=e.meshes.size>0;return {id:e.id,assetId:e.assetId||null,assetMapsLoaded:used&&e.assetMapsLoaded===true,removed:!!e.removed,name:e.name,category:fabricCategory(e),color:m.color.getHexString(),roughness:m.roughness,metalness:m.metalness,normalStrength:Math.abs(m.normalScale.x),aoStrength:m.aoMapIntensity,emissive:m.emissive.getHexString(),emissiveStrength:m.emissiveIntensity,bumpStrength:m.bumpScale,repeat:e.repeat,physical:{...e.physical},density:Object.fromEntries(MAPS.filter(([k])=>m[k]?.userData.density).map(([k])=>[k,m[k].userData.density])),flip:e.flip,maps:Object.fromEntries(MAPS.map(([k])=>[k,used&&m[k]?(e.uploads[k]?'upload':'original'):null]))};}
 function projectNameFromModel(name){return String(name||'FORM').replace(/\.(fbx|glb)$/i,'').trim()||'FORM';}
 function projectThumbnail(){
  return createProjectThumbnail($('canvas'));
@@ -1453,7 +1538,7 @@ async function saveOnlineProject({silent=false}={}){
  try{const extension=modelSource.runtime?'spmodel':/\.glb$/i.test(modelSource.name)?'glb':'fbx',modelPath='model.'+extension,files={},config={format:'SPENIC-PROJECT',version:1,name:modelSource.name,modelPath,modelRuntimeVersion:modelSource.runtime?1:undefined,files,scene:{...state},camera:{position:camera.position.toArray(),target:controls.target.toArray()},selected:selected?.id||0,materials:entries.map(e=>({...snapshotEntry(e),surface:readSurface(e.material),legacyMaps:e.legacyMaps,placement:e.placement})),assignments:serializeAssignments(model,entries),partAssignments:serializePartAssignments(),physicalModel:{...physicalModel},resources:[]};
  files[modelPath]=modelSource.projectReferences?.model||await uploadProjectResource(new File([modelSource.buffer],modelSource.name));
  for(let i=0;i<modelSource.files.length;i++){const f=modelSource.files[i],path='resources/'+i;files[path]=modelSource.projectReferences?.resources?.[i]||await uploadProjectResource(f);config.resources.push({path,name:f.name,type:f.type});}
- for(const e of entries)for(const[key,u]of Object.entries(e.uploads)){const source=u.sourceRef?u.file:u.sourceFile||u.file,path='textures/'+e.id+'/'+key;files[path]=u.projectReference||await createProjectResource(source,u.sourceRef,uploadProjectResource);config.materials[e.id].maps[key]={path,name:source.name,type:source.type};}
+  for(const e of entries)if(e.meshes.size>0)for(const[key,u]of Object.entries(e.uploads)){const source=u.sourceRef?u.file:u.sourceFile||u.file,path='textures/'+e.id+'/'+key;files[path]=u.projectReference||await createProjectResource(source,u.sourceRef,uploadProjectResource);config.materials[e.id].maps[key]={path,name:source.name,type:source.type};}
  const hosts=[];model.traverse(o=>{if(o.isMesh)hosts.push(o);});config.annotations=annotations.map(a=>({host:hosts.indexOf(a.host),point:a.point.toArray(),text:a.text}));config.patterns=[];
  for(let i=0;i<patterns.length;i++){const p=patterns[i],path='patterns/'+i;files[path]=await snapshotPatternFile(p,'map',p.file);const maps={};for(const [key,file] of Object.entries(p.pbrFiles||{})){const mapPath=path+'-'+key;files[mapPath]=await snapshotPatternFile(p,key,file);maps[key]={path:mapPath,name:file.name,type:file.type};}const m=p.mesh.material;config.patterns.push({path,sourceKey:p.sourceKey,name:p.name,type:p.file.type,host:hosts.indexOf(p.host),slot:p.slot,singlePlacement:!!p.singlePlacement,placement:p.placement,surface:readSurface(m),point:p.point.toArray(),normal:p.normal.toArray(),uv:p.uv,width:p.width,height:p.height,angle:p.angle,pbr:{maps,roughness:m.roughness,metalness:m.metalness,normalScale:m.normalScale.toArray()}});}
  config.patternSources=[];for(let i=0;i<patternSources.length;i++){const source=patternSources[i],asset=patternSourceAsset(source),snapshot={};for(const field of ['name','description','designInfo','supplier','previewInfo','materialType','category','surface','physical','repeat','placement','density','legacyMaps'])if(asset[field]!==undefined)snapshot[field]=asset[field];snapshot.maps={};for(const[key,file]of Object.entries(asset.maps)){const path='pattern-sources/'+i+'/'+key;files[path]=asset.projectRefs?.[key]||await createProjectResource(asset.runtimeMaps?.[key]||file,materialSourceReference(asset,key),uploadProjectResource);snapshot.maps[key]={path};}const preview=await createProjectPreview(asset.previewReference||asset.preview,uploadProjectResource);if(preview?.url)snapshot.preview={url:preview.url};else if(preview?.file){const path='pattern-sources/'+i+'/preview';files[path]=preview.file;snapshot.preview={path};}config.patternSources.push({key:source.key,asset:snapshot});}
@@ -1477,9 +1562,10 @@ async function openProject(config){
  modelSource.projectReferences={model:config.files[modelPath],resources:(config.resources||[]).map(r=>config.files[r.path])};
  if((config.materials||[]).length>1000)throw new Error('项目材质数量超过 1000');
  for(const data of config.materials||[]){if(data.id<entries.length)continue;if(data.id!==entries.length)throw new Error('项目材质编号无效');entries.push(createLibraryEntry(data.id,String(data.name)));}
- for(const data of config.materials||[])if(entries[data.id]){entries[data.id].legacyMaps=data.legacyMaps||{};entries[data.id].placement=readPlacement(data.placement);}
+  const assignedMaterialIds=Array.isArray(config.assignments)?new Set(config.assignments.flat().filter(Number.isInteger)):null;
+  for(const data of config.materials||[])if(entries[data.id]){entries[data.id].assetId=typeof data.assetId==='string'&&data.assetId?data.assetId:null;entries[data.id].assetMapsLoaded=data.assetMapsLoaded===true&&(!assignedMaterialIds||assignedMaterialIds.has(data.id));entries[data.id].legacyMaps=data.legacyMaps||{};entries[data.id].placement=readPlacement(data.placement);}
  if(config.physicalModel){const unit=config.physicalModel.cmPerUnit;if(!Number.isFinite(unit)||unit<=0||unit>1e9)throw new Error('模型单位无效');physicalModel.cmPerUnit=unit;physicalModel.calibrated=!!config.physicalModel.calibrated;updateModelDimensions();}
- for(const data of config.materials||[]){const entry=entries[data.id];if(!entry)continue;entry.physical=readPhysical(data.physical,true);entry.repeat=data.repeat||[1,1];for(const[key]of MAPS){const map=data.maps?.[key];if(map===null)removeTexture(entry,key);else if(map?.path){const descriptor=config.files[map.path];await uploadTexture(entry,key,await readFile(map.path),true,null,{density:data.density?.[key],prepared:descriptor.prepared===true,sourceRef:descriptor.reference,projectReference:descriptor});if(!entry.material[key])throw new Error('项目贴图未能载入：'+key);}}
+  for(const data of config.materials||[]){const entry=entries[data.id];if(!entry)continue;entry.physical=readPhysical(data.physical,true);entry.repeat=data.repeat||[1,1];const shouldRestoreMaps=!assignedMaterialIds||assignedMaterialIds.has(data.id);if(shouldRestoreMaps)for(const[key]of MAPS){const map=data.maps?.[key];if(map===null)removeTexture(entry,key);else if(map?.path){const descriptor=config.files[map.path];await uploadTexture(entry,key,await readFile(map.path),true,null,{density:data.density?.[key],prepared:descriptor.prepared===true,sourceRef:descriptor.reference,projectReference:descriptor});if(!entry.material[key])throw new Error('项目贴图未能载入：'+key);}}
  entry.name=String(data.name);entry.category=['面布','边布','包边条','其他'].includes(data.category)?data.category:fabricCategory(entry);entry.material.name=entry.name;entry.material.color.set('#'+data.color);entry.material.roughness=data.roughness;entry.material.metalness=data.metalness;entry.material.normalScale.set(data.normalStrength,data.normalStrength*(data.flip?-1:1));entry.material.aoMapIntensity=data.aoStrength;entry.material.emissive.set('#'+data.emissive);entry.material.emissiveIntensity=data.emissiveStrength;entry.material.bumpScale=data.bumpStrength;entry.flip=!!data.flip;entry.repeat=data.repeat||[1,1];for(const[key]of MAPS)if(entry.material[key]&&(entry.uploads[key]||entry.physical.mode==='legacy')){if(entry.material[key]===entry.baseline[key])entry.material[key]=entry.material[key].clone();configureTexture(entry,entry.material[key],key);}
  }
  for(const data of config.materials||[]){const entry=entries[data.id];if(entry&&data.surface)applySurface(entry.material,data.surface);}

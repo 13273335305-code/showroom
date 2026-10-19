@@ -9,7 +9,7 @@ await requireAuth({ feature: 'projects' });
 mountToolSwitcher('projects');
 let projects = [], query = '', sort = 'recent';
 let view = new URLSearchParams(location.search).get('view') === 'public' ? 'public' : 'personal';
-let activeFolderId = null, openRenameId = null, movingProjectId = null, openProjectMenu = null;
+let activeFolderId = null, openRenameId = null, movingProjectIds = [], openProjectMenu = null;
 const selectedProjectIds = new Set();
 let currentPage = 1, pageContext = '', currentPageItems = [], projectsLoading = true, refreshVersion = 0;
 const projectLoading = createAssetLoading({ host: $('projectPanel'), grid: $('projectGrid'), indicator: $('projectLoading'), onChange: loading => { $('projectPagination').inert = loading; } });
@@ -78,10 +78,39 @@ function createSelectionControl(item, card) {
 
 async function removeProjectTree(item) { for (const child of projects.filter(candidate => (candidate.parentId || null) === item.id)) await removeProjectTree(child); await deleteProject(item.id); }
 function moveTargets(item) { return projects.filter(candidate => ownsProject(candidate) && isFolder(candidate) && (candidate.visibility || 'personal') === (item.visibility || 'personal') && candidate.id !== item.id && !folderContains(candidate.id, item.id)).sort((a, b) => folderLabel(a).localeCompare(folderLabel(b), 'zh-CN')); }
-function openMoveDialog(item) {
+function openMoveDialog(itemOrItems) {
+  const selection = Array.isArray(itemOrItems) ? itemOrItems : [itemOrItems];
+  if (!selection.length) return;
   const select = $('projectMoveTarget'); select.replaceChildren(); const root = document.createElement('option'); root.value = ''; root.textContent = '项目库根目录'; select.append(root);
-  for (const folder of moveTargets(item)) { const option = document.createElement('option'); option.value = folder.id; option.textContent = folderLabel(folder); select.append(option); }
-  movingProjectId = item.id; $('projectMoveTitle').textContent = isFolder(item) ? '移动文件夹' : '移动项目'; $('projectMoveError').textContent = ''; select.value = item.parentId || ''; $('projectMoveDialog').showModal(); select.focus();
+  const targets = moveTargets(selection[0]).filter(folder => selection.every(item => moveTargets(item).some(candidate => candidate.id === folder.id)));
+  for (const folder of targets) { const option = document.createElement('option'); option.value = folder.id; option.textContent = folderLabel(folder); select.append(option); }
+  movingProjectIds = selection.map(item => item.id); $('projectMoveTitle').textContent = selection.length === 1 ? '移动项目' : `移动 ${selection.length} 个项目`; $('projectMoveError').textContent = ''; select.value = selection.length === 1 ? selection[0].parentId || '' : ''; $('projectMoveDialog').showModal(); select.focus();
+}
+
+function selectedProjects() {
+  return [...selectedProjectIds].map(id => projects.find(item => item.id === id)).filter(item => item && !isFolder(item));
+}
+
+async function moveSelectedProjects() {
+  const selection = selectedProjects();
+  if (!selection.length) { status('请先选择要移动的项目'); return; }
+  if (selection.some(item => !ownsProject(item))) { status('只有项目所有者可以移动项目'); return; }
+  openMoveDialog(selection);
+}
+
+async function deleteSelectedProjects() {
+  const selection = selectedProjects();
+  if (!selection.length) { status('请先选择要删除的项目'); return; }
+  if (selection.some(item => !ownsProject(item))) { status('只有项目所有者可以删除项目'); return; }
+  if (!window.confirm(`确定删除选中的 ${selection.length} 个项目？`)) return;
+  closeProjectMoreMenu();
+  let removed = 0;
+  try {
+    for (const item of selection) { await deleteProject(item.id); removed++; }
+    selectedProjectIds.clear(); await refresh(); status(`已删除 ${removed} 个项目`);
+  } catch (error) {
+    selectedProjectIds.clear(); await refresh(); status(`已删除 ${removed}/${selection.length} 个项目。${error.message}`);
+  }
 }
 
 function setupCardInteraction(card, item) {
@@ -145,6 +174,11 @@ function render() {
   const context = JSON.stringify([view, activeFolderId, query, sort]);
   if (context !== pageContext) { currentPage = 1; pageContext = context; }
   const page = assetPage(collection, currentPage); currentPage = page.page; currentPageItems = page.items; renderPagination(page);
+  const selectAllButton = $('selectAllProjects');
+  if (selectAllButton) {
+    const selectable = currentPageItems.filter(item => !isFolder(item));
+    selectAllButton.textContent = selectable.length && selectable.every(item => selectedProjectIds.has(item.id)) ? '取消全选' : '全选';
+  }
   if (!collection.length) { $('projectEmpty').querySelector('strong').textContent = query ? '没有匹配的项目' : (activeFolderId ? '文件夹暂无项目' : (projects.length ? '暂无当前范围的项目' : '暂无保存的项目')); $('projectEmpty').querySelector('span').textContent = activeFolderId ? '可以从项目卡片的更多菜单移动项目到这里。' : '在设计台点击保存，即可在这里继续工作。'; }
   for (const item of currentPageItems) {
     const folder = isFolder(item), card = document.createElement('article'); card.className = 'asset-card ' + (folder ? 'asset-folder project-folder' : 'project-card'); card.dataset.projectId = item.id; card.tabIndex = 0; card.setAttribute('role', 'link'); card.setAttribute('aria-label', folder ? '打开文件夹 ' + item.name : '打开项目 ' + item.name); if (!folder) card.style.setProperty('--card-accent', '#3978ed'); setupCardInteraction(card, item);
@@ -181,13 +215,13 @@ $('createProjectFolder').onclick = () => { closeProjectAddMenu(); $('newProjectF
 $('cancelRenameProject').onclick = () => $('renameProjectDialog').close();
 $('renameProjectForm').onsubmit = async event => { event.preventDefault(); const name = $('renameProjectName').value.trim(); if (!name) { $('renameProjectError').textContent = '请输入名称'; return; } try { await renameProject(openRenameId, name); $('renameProjectDialog').close(); await refresh(); status('名称已更新'); } catch (error) { $('renameProjectError').textContent = error.message; } };
 $('cancelProjectMove').onclick = () => $('projectMoveDialog').close();
-$('projectMoveForm').onsubmit = async event => { event.preventDefault(); if (!movingProjectId) return; try { await moveProject(movingProjectId, $('projectMoveTarget').value || null); $('projectMoveDialog').close(); await refresh(); status('已移动'); } catch (error) { $('projectMoveError').textContent = error.message; } };
+$('projectMoveForm').onsubmit = async event => { event.preventDefault(); if (!movingProjectIds.length) return; try { for (const id of movingProjectIds) await moveProject(id, $('projectMoveTarget').value || null); movingProjectIds = []; $('projectMoveDialog').close(); selectedProjectIds.clear(); await refresh(); status('已移动'); } catch (error) { $('projectMoveError').textContent = error.message; } };
 $('cancelNewProjectFolder').onclick = () => $('newProjectFolderDialog').close();
 $('newProjectFolderForm').onsubmit = async event => { event.preventDefault(); const name = $('newProjectFolderName').value.trim(); if (!name) { $('newProjectFolderError').textContent = '请输入文件夹名称'; return; } try { await saveProjectFolder({ name, parentId: activeFolderId, visibility: view }); $('newProjectFolderDialog').close(); await refresh(); status('已创建文件夹'); } catch (error) { $('newProjectFolderError').textContent = error.message; } };
-$('projectMoreOptions').onclick = () => { const menu = $('projectMoreMenu'); menu.hidden = !menu.hidden; $('projectMoreOptions').setAttribute('aria-expanded', String(!menu.hidden)); };
-$('selectAllProjects').onclick = () => { const shown = currentPageItems.filter(item => !isFolder(item)); shown.forEach(item => selectedProjectIds.add(item.id)); closeProjectMoreMenu(); render(); status(shown.length ? `已选择 ${shown.length} 个项目` : '当前没有可选择的项目'); };
-$('refreshProjects').onclick = () => { closeProjectMoreMenu(); refresh(); };
-$('clearProjectSearch').onclick = () => { $('projectSearch').value = ''; query = ''; closeProjectMoreMenu(); render(); };
+$('projectMoreOptions').onclick = () => { const menu = $('projectMoreMenu'); const selectable = currentPageItems.filter(item => !isFolder(item)); $('selectAllProjects').textContent = selectable.length && selectable.every(item => selectedProjectIds.has(item.id)) ? '取消全选' : '全选'; menu.hidden = !menu.hidden; $('projectMoreOptions').setAttribute('aria-expanded', String(!menu.hidden)); };
+$('selectAllProjects').onclick = () => { const shown = currentPageItems.filter(item => !isFolder(item)); const allSelected = shown.length > 0 && shown.every(item => selectedProjectIds.has(item.id)); shown.forEach(item => allSelected ? selectedProjectIds.delete(item.id) : selectedProjectIds.add(item.id)); closeProjectMoreMenu(); render(); status(shown.length ? (allSelected ? `已取消全选 ${shown.length} 个项目` : `已选择 ${shown.length} 个项目`) : '当前没有可选择的项目'); };
+$('moveSelectedProjects').onclick = () => { closeProjectMoreMenu(); void moveSelectedProjects(); };
+$('deleteSelectedProjects').onclick = () => { void deleteSelectedProjects(); };
 
 const libraryScroll = document.querySelector('.library-main'), assetScrollbar = document.getElementById('assetScrollbar'), assetScrollbarThumb = assetScrollbar.querySelector('.asset-scrollbar-thumb');
 function syncScrollbar() { const maxScroll = libraryScroll.scrollHeight - libraryScroll.clientHeight; const trackHeight = assetScrollbar.clientHeight; const thumbHeight = maxScroll <= 1 ? trackHeight : Math.max(72, Math.round(trackHeight * libraryScroll.clientHeight / libraryScroll.scrollHeight)); const travel = Math.max(0, trackHeight - thumbHeight); assetScrollbarThumb.style.height = `${thumbHeight}px`; assetScrollbarThumb.style.transform = `translateY(${maxScroll <= 1 ? 0 : Math.round(travel * libraryScroll.scrollTop / maxScroll)}px)`; }

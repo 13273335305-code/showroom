@@ -134,7 +134,11 @@ $('saveParts').onclick=async()=>{
  const button=$('saveParts');button.disabled=true;submittingSave=true;
  try{
   const runtimeModelFile=await prepareModelRuntime(sourceModel,{name:asset.file.name,textureConvention:/\.glb$/i.test(asset.file.name)?'gltf':'fbx',onProgress:message=>{$('partsStatus').textContent=message;}});
-  const preview=await captureModelPreview(),next={...asset,name,category:$('modelCategoryInput').value.trim(),partAssignments:structuredClone(assignments),preview,thumbnail:preview,runtimeModelFile};
+  // Retain numeric assignments for backward compatibility and persist the
+  // material names so runtime model traversal cannot lose a classification.
+  const partAssignments=structuredClone(assignments);
+  partAssignments.__materialNames=Object.fromEntries(balls.map(ball=>[ball.key,ball.name]));
+  const preview=await captureModelPreview(),next={...asset,name,category:$('modelCategoryInput').value.trim(),partAssignments,preview,thumbnail:preview,runtimeModelFile};
   const task=await enqueueMaterialUpload(next,{dependsOn:lastUploadTask});lastUploadTask=task.id;
   asset={...next,id:task.targetAssetId};history.replaceState(null,'','?asset='+encodeURIComponent(task.targetAssetId)+'&upload='+encodeURIComponent(task.id));
   $('partsStatus').textContent='已加入后台上传任务';

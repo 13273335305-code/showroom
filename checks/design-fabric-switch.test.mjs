@@ -5,14 +5,14 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
 const switchSource = source.slice(source.indexOf('async function switchFabricColor('), source.indexOf('async function saveSelectedToLibrary('));
 function fixture(load = async id => ({ id })) {
-  const material = { userData: { partTypes: new Set(['面布']) }, map: { dispose() {} }, copy(other) { this.map = other.map; }, needsUpdate: false };
-  const entry = { id: 0, assetId: 'a', fabricColorCode: 'WBR', fabricVariants: [{ id: 'a', fabricColorCode: 'WBR' }, { id: 'b', fabricColorCode: 'DBW' }, { id: 'c', fabricColorCode: 'WBK' }], fabricColorCodes: ['WBR','DBW','WBK'], uploads: {}, baseline: { map: material.map }, placement: { angle: 20, offset: [.1,.2] }, material };
-  const requests = [], disposed = [], messages = [], context = { entries: [entry], selected: entry, modelGeneration: 1, MAPS: [['map']], compiledMaterials: new WeakSet(),
+  const material = { userData: { partTypes: new Set(['面布']) }, map: { dispose() {} }, copy(other) { this.map = other.map; }, clone() { return { map: this.map, dispose() {} }; }, needsUpdate: false };
+  const entry = { id: 0, assetId: 'a', fabricColorCode: 'WBR', fabricVariants: [{ id: 'a', fabricColorCode: 'WBR' }, { id: 'b', fabricColorCode: 'DBW' }, { id: 'c', fabricColorCode: 'WBK' }], fabricColorCodes: ['WBR','DBW','WBK'], uploads: {}, meshes: new Set(), baseline: { map: material.map }, placement: { angle: 20, offset: [.1,.2] }, material };
+  const requests = [], disposed = [], messages = [], reveals = [], context = { entries: [entry], selected: entry, modelGeneration: 1, MAPS: [['map']], compiledMaterials: new WeakSet(),
     designUI: { sync() {} }, getAsset: async id => { requests.push(id); return load(id); }, readAsset: async () => null, preloadFabricPreview: async () => {},
     prepareFabricEntry: async asset => ({ uploads: {}, previewUrl: asset.id + '-preview', previewInfo: { widthPx: 400, heightPx: 300 }, assetId: asset.id, fabricColorCode: entry.fabricVariants.find(v => v.id === asset.id).fabricColorCode, material: { map: { id: asset.id, dispose() {} }, dispose() {} }, baseline: { dispose() {} } }),
-    disposePreparedFabric: prepared => disposed.push(prepared.assetId), finishReveal() {}, stopMaterialPulse() {}, installRoughnessShader() {}, configureTexture() {}, selectEntry() {}, renderMaterials() {}, notify: message => messages.push(message), URL: { revokeObjectURL() {} } };
+    disposePreparedFabric: prepared => disposed.push(prepared.assetId), finishReveal() {}, playMaterialRevealBatch(items, onFinish) { reveals.push({ items, onFinish }); }, stopMaterialPulse() {}, installRoughnessShader() {}, configureTexture() {}, selectEntry() {}, renderMaterials() {}, notify: message => messages.push(message), URL: { revokeObjectURL() {} } };
   vm.createContext(context); vm.runInContext(switchSource, context);
-  return { entry, context, requests, messages, disposed };
+  return { entry, context, requests, messages, disposed, reveals };
 }
 test('switch downloads on demand and updates the existing model material while preserving placement', async () => {
   const f = fixture(), original = f.entry.material, placement = f.entry.placement;
@@ -26,6 +26,19 @@ test('failed color download preserves the current texture and preview', async ()
   const f = fixture(async () => { throw new Error('offline'); }), original = f.entry.material.map;
   await f.context.switchFabricColor(f.entry, 'DBW');
   assert.equal(f.entry.material.map, original); assert.equal(f.entry.assetId, 'a'); assert.equal(f.entry.fabricColorPending, null); assert.match(f.messages[0], /offline/);
+});
+test('applied color uses the click crossfade and retains old maps until it finishes', async () => {
+  const f = fixture(), oldMap = f.entry.material.map, mesh = { material: f.entry.material };
+  let released = 0; oldMap.dispose = () => { released++; };
+  f.entry.baseline.map = null; f.entry.meshes.add(mesh);
+  await f.context.switchFabricColor(f.entry, 'DBW');
+  assert.equal(f.reveals.length, 1);
+  assert.equal(f.reveals[0].items.length, 1);
+  assert.equal(f.reveals[0].items[0].mesh, mesh);
+  assert.equal(f.reveals[0].items[0].previous.map, oldMap);
+  assert.equal(released, 0);
+  f.reveals[0].onFinish();
+  assert.equal(released, 1);
 });
 
 test('preview starts alongside runtime loading and model waits for preview decode', async () => {
