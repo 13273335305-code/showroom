@@ -9,7 +9,7 @@
     "test:design": "node checks/design-material-types.test.cjs",
     "test:editor": "node checks/editor-pbr-layout.test.cjs",
     "test:sampling": "node checks/texture-sampling.test.cjs",
-    "test:scan": "node --test checks/fabric-identity.test.mjs checks/asset-cloud.test.mjs && node checks/fabric-scan-workflow.test.cjs"
+    "test:scan": "node --test checks/fabric-identity.test.mjs checks/asset-cloud.test.mjs && node checks/qr-decoder.test.cjs && node checks/fabric-scan-workflow.test.cjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",

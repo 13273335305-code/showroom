@@ -9,8 +9,7 @@ export function mountFabricScanner({ button, apply }) {
     <header class="fabric-scan-heading">
       <button type="button" class="fabric-scan-back fabric-scan-icon" aria-label="返回扫码" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button>
       <h2 id="fabricScanTitle">扫码换面料</h2>
-      <button type="button" class="fabric-scan-settings fabric-scan-icon" aria-label="扫码设置" title="扫码设置" aria-controls="fabricScanSettings" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-1 3-3 1-2 3 2 2-1 3 2 3 3-1 2 3h3l1-3 3-1 2-3-2-2 1-3-2-3-3 1-2-3z"/><circle cx="12" cy="12" r="3"/></svg></button>
-      <button type="button" class="fabric-scan-close fabric-scan-icon" aria-label="关闭扫码" title="关闭扫码"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+      <button type="button" class="fabric-scan-settings fabric-scan-icon" aria-label="扫码设置" title="扫码设置" aria-controls="fabricScanSettings" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3h5l.6 2.4 1.3.8 2.4-.7 2.5 4.3-1.8 1.5v1.4l1.8 1.5-2.5 4.3-2.4-.7-1.3.8-.6 2.4h-5l-.6-2.4-1.3-.8-2.4.7-2.5-4.3 1.8-1.5v-1.4L2.2 9.8l2.5-4.3 2.4.7 1.3-.8z"/><circle cx="12" cy="12" r="3"/></svg></button>
     </header>
     <div class="fabric-scan-camera-view">
       <video class="fabric-scan-video" muted playsinline autoplay aria-label="二维码扫描画面"></video>
@@ -173,7 +172,6 @@ export function mountFabricScanner({ button, apply }) {
     active = true; session++; position(); showSettings(false, false); dialog.show(); button.setAttribute('aria-expanded', 'true');
     settingsButton.focus({ preventScroll: true }); controls(); void startCamera();
   };
-  dialog.querySelector('.fabric-scan-close').onclick = dismiss;
   dialog.addEventListener('cancel', event => { event.preventDefault(); dismiss(); });
   dialog.addEventListener('close', () => { if (!dialog.open) close(); });
   document.addEventListener('keydown', event => {

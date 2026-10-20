@@ -9,15 +9,25 @@ export async function createQrDecoder() {
     if (globalThis.BarcodeDetector && (await BarcodeDetector.getSupportedFormats()).includes('qr_code')) native = new BarcodeDetector({ formats: ['qr_code'] });
   } catch {}
   let reader;
-  if (!native) { const library = await zxing(); reader = new library.BrowserQRCodeReader(); }
+  const ensureReader = async () => {
+    if (!reader) { const library = await zxing(); reader = new library.BrowserQRCodeReader(); }
+    return reader;
+  };
   return {
     async decode(source) {
       if (native) {
-        try { return (await native.detect(source))[0]?.rawValue || null; }
-        catch { native = null; const library = await zxing(); reader = new library.BrowserQRCodeReader(); }
+        try {
+          const value = (await native.detect(source)).find(result => result?.rawValue)?.rawValue;
+          if (value) return value;
+        } catch { native = null; }
       }
+      await ensureReader();
       const library = globalThis.ZXing;
-      const bitmap = reader.createBinaryBitmap(source);
+      // BrowserQRCodeReader only captures image/video elements; camera crops
+      // are canvases and must be read directly to preserve their dimensions.
+      const bitmap = source instanceof HTMLCanvasElement
+        ? new library.BinaryBitmap(new library.HybridBinarizer(new library.HTMLCanvasElementLuminanceSource(source)))
+        : reader.createBinaryBitmap(source);
       try { return reader.decodeBitmap(bitmap).getText(); }
       catch (error) {
         if (error instanceof library.NotFoundException || error instanceof library.ChecksumException || error instanceof library.FormatException) {

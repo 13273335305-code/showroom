@@ -47,6 +47,16 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
       const decoder = await createQrDecoder(), result = await decoder.decode(image); decoder.reset(); return result;
     }, editorId);
     assert.equal(decoded, editorId);
+    const nativeEmptyFallback = await editor.evaluate(async id => {
+      const { fabricQrSvg } = await import('./shared/fabric-label.js'); const { createQrDecoder } = await import('./shared/qr-decoder.js');
+      Object.defineProperty(window, 'BarcodeDetector', { configurable: true, value: class {
+        static async getSupportedFormats() { return ['qr_code']; }
+        async detect() { return []; }
+      } });
+      const image = new Image(); image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(fabricQrSvg(id)); await image.decode();
+      const decoder = await createQrDecoder(), result = await decoder.decode(image); decoder.reset(); return result;
+    }, editorId);
+    assert.equal(nativeEmptyFallback, editorId, 'ZXing fallback should run when native detection returns no result');
     const sampleResults = await editor.evaluate(async () => {
       const { fabricQrSvg } = await import('./shared/fabric-label.js');
       const { createQrDecoder } = await import('./shared/qr-decoder.js');
@@ -146,8 +156,15 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
     assert.equal(await design.locator('.fabric-scan-video').isVisible(), true);
     const cameraBox = await design.locator('#fabricScanDialog').boundingBox(), dockBox = await design.locator('#materialDock').boundingBox();
     assert.ok(Math.abs(cameraBox.width - cameraBox.height) < 1, 'Primary camera window is square');
+    assert.equal(cameraBox.width, 224, 'Desktop camera window is compact');
     assert.ok(cameraBox.y + cameraBox.height < dockBox.y, 'Camera window floats above the material bar');
+    assert.equal(await design.locator('.fabric-scan-close').count(), 0, 'Camera overlay has no close button');
+    assert.equal(await design.locator('#fabricScanDialog button:visible').count(), 1, 'Only settings appears over the camera');
+    assert.ok((await design.locator('#fabricScanTitle').boundingBox()).width <= 1, 'Camera title is visually removed');
+    assert.ok((await design.locator('#fabricScanStatus').boundingBox()).width <= 1, 'Camera status is visually removed');
     assert.match(await scan(ids.edge), /已将“边布”/);
+    assert.equal(await design.locator('#fabricScanTitle').textContent(), '扫码设置');
+    assert.ok((await design.locator('#fabricScanStatus').boundingBox()).width > 1, 'Status remains readable in settings');
     let value = await read(); assert.equal(value.slots[1].values[0].id, ids.edge); assert.equal(value.slots[0].values[0].id, null); assert.equal(value.history, 1);
     assert.match(await scan(ids.edge), /无需重复替换/); assert.equal((await read()).history, 1);
     assert.match(await scan(ids.face), /已将“面布”/); assert.match(await scan(ids.piping), /已将“包边条”/); assert.equal((await read()).history, 3);
@@ -225,11 +242,12 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
     await design.getByRole('button', { name: '返回扫码', exact: true }).click();
     await design.waitForFunction(() => document.querySelector('.fabric-scan-camera').textContent === '关闭摄像头');
     assert.equal(await design.locator('#fabricScanStatus').getAttribute('data-state'), '');
-    await design.getByRole('button', { name: '关闭扫码', exact: true }).click();
+    await design.locator('#scanFabric').click();
     await design.locator('#scanFabric').click();
     await design.setViewportSize({ width: 390, height: 844 }); assert.equal(await design.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true); assert.equal(await design.locator('#scanFabric').isVisible(), true);
     const mobileCamera = await design.locator('#fabricScanDialog').boundingBox();
     assert.ok(Math.abs(mobileCamera.width - mobileCamera.height) < 1 && mobileCamera.x >= 0 && mobileCamera.y >= 0);
+    assert.equal(mobileCamera.width, 216, 'Mobile camera window is compact');
     await design.screenshot({ path: 'outputs/fabric-scan/scanner-mobile.png' });
     await settings(); await design.screenshot({ path: 'outputs/fabric-scan/scanner-settings-mobile.png' });
     await design.keyboard.press('Escape'); await design.setViewportSize({ width: 1440, height: 1000 });
@@ -244,11 +262,17 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
       } });
     });
     await design.locator('#scanFabric').click(); await design.waitForFunction(() => window.cameraOpenCalls === 1);
-    await design.getByRole('button', { name: '关闭扫码', exact: true }).click();
+    await design.locator('#scanFabric').click();
     await design.evaluate(() => window.releasePendingCamera());
     await design.waitForFunction(() => window.cameraTracks.every(track => track.readyState === 'ended'));
     assert.equal(await design.locator('#scanFabric').getAttribute('aria-expanded'), 'false');
     // Feed a real label through the square video crop and local ZXing decoder.
+    // Start from a different material so a stale assignment cannot pass the test.
+    await design.locator('#scanFabric').click();
+    assert.match(await scan(ids.edge), /最新边布/);
+    await design.locator('#scanFabric').click();
+    assert.equal((await read()).slots[1].values[0].id, ids.edge);
+    const beforeCameraDecode = (await read()).history;
     await design.evaluate(async id => {
       clearInterval(window.cameraCanvasTimer);
       Object.defineProperty(window, 'BarcodeDetector', { value: undefined, configurable: true });
@@ -259,10 +283,12 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
       const draw = () => { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 640, 480); ctx.drawImage(image, 140, 60, 360, 360); };
       draw(); window.cameraCanvasTimer = setInterval(draw, 100);
       Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, value: async () => { const stream = canvas.captureStream(10); window.cameraTracks.push(...stream.getTracks()); return stream; } });
-    }, ids.face);
+    }, editorId);
     await design.locator('#scanFabric').click();
-    await design.waitForFunction(id => readScanState().slots[0].values[0].id === id, ids.face, { timeout: 15000 });
-    await design.getByRole('button', { name: '关闭扫码', exact: true }).click();
+    await design.waitForFunction(id => readScanState().slots[1].values[0].id === id, editorId, { timeout: 15000 });
+    assert.equal((await read()).history, beforeCameraDecode + 1, 'Decoding a camera frame must perform a replacement');
+    assert.match(await design.locator('#fabricScanStatus').textContent(), /已将“边布”/);
+    await design.locator('#scanFabric').click();
     assert.equal(await design.evaluate(() => window.cameraTracks.every(track => track.readyState === 'ended')), true);
     const expectedSlots = (await read()).slots, project = await saveOnlineProject(design);
     await openOnlineProject(design, project); assert.deepEqual((await read()).slots, expectedSlots);
