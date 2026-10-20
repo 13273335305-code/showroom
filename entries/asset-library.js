@@ -11,7 +11,9 @@ import { groupFabricCards } from '../shared/fabric-card-groups.js';
 import { updateFabricColorSwatch } from '../shared/fabric-color-swatch.js';
 import { fetchFabricColorPreview } from '../shared/fabric-color-preview.js';
 import { syncFabricColorProgress } from '../shared/fabric-color-progress.js';
+import { mountFabricLabel } from '../shared/fabric-label.js';
 const $ = id => document.getElementById(id);
+const identityLabel = mountFabricLabel($('fabricPreviewIdentity'), { compact: true });
 await requireAuth({ feature: 'assets' });
 mountToolSwitcher('assets');
 const libraryNames = { fabric: '\u9762\u6599\u5e93', pattern: '\u56fe\u6848\u5e93', model: '\u6a21\u578b\u5e93' };
@@ -440,25 +442,15 @@ async function loadFabricTexture(asset, source, token, previewOnly = false) {
   } finally { if (bitmap && fabricTextureState?.bitmap !== bitmap) bitmap.close(); }
 }
 function fabricPreviewValue(asset, field) {
-  const physical = asset.physical || {};
-  const surface = asset.surface || {};
   if (field === 'name') return asset.name || '未命名面料';
   if (field === 'designInfo') return asset.designInfo || asset.description || '未填写';
   if (field === 'supplier') return asset.supplier || '未填写';
-  if (field === 'size') {
-    const width = previewNumber(physical.widthCm), height = previewNumber(physical.heightCm);
-    return width && height ? `${width} × ${height} cm` : '未填写';
-  }
-  if (field === 'surface') {
-    const color = surface.color || '#FFFFFF';
-    const roughness = previewNumber(surface.roughness, 2);
-    return roughness ? `${color} · 粗糙度 ${roughness}` : color;
-  }
   return asset[field] || '未填写';
 }
 function closeFabricPreview() {
   const dialog = $('fabricPreviewDialog');
   if (!dialog?.open || dialog.classList.contains('is-closing')) return;
+  identityLabel.closeActions();
   dialog.classList.add('is-closing');
   const duration = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : 320;
   fabricPreviewClosingTimer = setTimeout(() => {
@@ -473,6 +465,7 @@ async function showFabricPreview(asset) {
   dialog.classList.remove('is-closing');
   const token = ++fabricTextureRenderToken;
   fabricPreviewAsset = asset;
+  identityLabel.update(asset);
   if (fabricTextureState?.bitmap) fabricTextureState.bitmap.close();
   fabricTextureState = null;
   $('fabricPreviewZoom').hidden = true;
@@ -482,8 +475,8 @@ async function showFabricPreview(asset) {
   $('fabricPreviewTitle').textContent = asset.name || '面料详情';
   $('fabricPreviewCategory').textContent = asset.category || '面料';
   const fields = [
-    ['名称', 'name'], ['设计信息', 'designInfo'], ['供应商', 'supplier'],
-    ['物理尺寸', 'size'], ['表面参数', 'surface'], ['简介', 'description'],
+    ['名称', 'name'], ['色号', 'fabricColorCode'], ['设计信息', 'designInfo'],
+    ['供应商', 'supplier'], ['简介', 'description'],
   ];
   const host = $('fabricPreviewFields'); host.replaceChildren();
   fields.forEach(([label, key]) => {
@@ -498,6 +491,7 @@ async function showFabricPreview(asset) {
     const full = await getAsset(asset.id, { texturePreview: true });
     if (!fabricPreviewActive(token)) return;
     if (!full) throw new Error('资产已被删除');
+    identityLabel.update(full);
     const source = fabricPreviewSource(full);
     if (source) await loadFabricTexture(full, source, token);
     else if (previewOf(full)) await loadFabricTexture(full, previewOf(full), token, true);
@@ -535,6 +529,7 @@ $('fabricPreviewDialog').addEventListener('cancel', event => {
   closeFabricPreview();
 });
 $('fabricPreviewDialog').addEventListener('close', () => {
+  identityLabel.update(null);
   if (fabricPreviewClosingTimer) { clearTimeout(fabricPreviewClosingTimer); fabricPreviewClosingTimer = null; }
   $('fabricPreviewDialog').classList.remove('is-closing');
   fabricTextureRenderToken++;

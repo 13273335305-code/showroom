@@ -15,6 +15,8 @@ import { getAsset as readAsset, listAssets, saveAsset } from './shared/asset-sto
 const getAsset = id => readAsset(id, { runtime: true });
 import { MATERIAL_MAPS, readSurface, applySurface, readLegacyUV, applyLegacyUV } from './shared/material-data.js';
 import { createDesignWorkspace } from './design-workspace.js';
+import { mountFabricScanner } from './shared/fabric-scanner.js';
+import { validateScannedFabric } from './shared/fabric-identity.js';
 import { materialType, readPlacement, applyPlacement } from './shared/material-placement.js';
 import { materialSourceReference, resolveMaterialFile } from './shared/material-source.js';
 import { ENVIRONMENT_DEFAULTS, packScene, unpackScene, sceneName, sceneFilename } from './shared/scene-file.js';
@@ -901,6 +903,7 @@ async function prepareFabricEntry(asset,id,{loadMaps=false}={}){
  const generation=modelGeneration,entry=createLibraryEntry(id,asset.name);
  entry.previewUrl=asset.preview?assetImageUrl(asset.preview):null;entry.previewInfo=asset.previewInfo;entry.assetPreviewChecked=true;entry.fabricColorCodes=asset.fabricColorCodes|| (asset.fabricColorCode?[asset.fabricColorCode]:[]);
  entry.fabricVariants=asset.fabricVariants||[];entry.fabricColorCode=asset.fabricColorCode;entry.assetId=asset.id;
+ entry.assetRevision=asset.revision;
  entry.category=asset.category||'面布';const savedPhysical=readPhysical(asset.physical,true);entry.physical={...savedPhysical,sizeSource:'manual'};entry.repeat=asset.repeat||[1,1];entry.legacyMaps=asset.legacyMaps||{};
  try{
   entry.physical=savedPhysical;applySurface(entry.material,asset.surface||{});entry.flip=!!asset.surface?.flip;
@@ -990,7 +993,7 @@ async function saveSelectedToLibrary(){
  }catch(error){notify('保存资产失败：'+error.message,6000);}finally{button.disabled=false;}
 }
 function renderMaterials(){const host=$('materialList');host.replaceChildren();document.querySelectorAll('[data-fabric]').forEach(b=>{b.classList.toggle('active',b.dataset.fabric===activeFabric);b.setAttribute('aria-pressed',String(b.dataset.fabric===activeFabric));});for(const entry of entries.filter(e=>!e.removed&&fabricCategory(e)===activeFabric)){const button=document.createElement('button');button.className='material-item'+(entry===selected?' active':'');button.setAttribute('aria-pressed',String(entry===selected));button.draggable=false;button.dataset.entryId=entry.id;button.addEventListener('pointerdown',event=>startMaterialDrag(event,entry));button.addEventListener('dblclick',event=>{event.preventDefault();event.stopPropagation();endMaterialDrag();pulseMaterialUsage(entry);});button.setAttribute('aria-label','选择材质 '+entry.name);const swatch=document.createElement('div');swatch.className='material-thumb';decorateSwatch(swatch,entry);const ball=document.createElement('div');ball.className='material-ball'+(materialClickApplying===entry?' apply-loading':'');ball.append(swatch);if(materialClickApplying===entry)ball.append($('materialPreview').querySelector('.material-apply-progress').cloneNode(true));const name=document.createElement('strong');name.textContent=entry.name;button.append(ball,name);button.onclick=async()=>{if(suppressMaterialClick){suppressMaterialClick=false;return;}if(materialClickApplying)return;setPatternMode(false);designUI?.setType('fabric');beginMaterialClickLoading(entry,button);try{if(!await replaceCategoryMaterials(entry,activeFabric)){selectEntry(entry);showPanel('material');}}catch(error){notify('材质应用失败：'+error.message,5000);}finally{finishMaterialClickLoading(entry);}};designUI?.bindDockItem(button,{kind:'fabric',entry});host.append(button);}designUI?.syncDock();$('materialCount').textContent=String(entries.filter(e=>!e.removed).length).padStart(2,'0');}
-function stopMaterialPulse(){if(!materialPulse)return;cancelAnimationFrame(materialPulse.frame);for(const item of materialPulse.items){if(Array.isArray(item.mesh.material))item.mesh.material=item.original;else item.mesh.material=item.original;item.highlight.dispose();}materialPulse=null;}
+function stopMaterialPulse(){if(!materialPulse)return;const pulse=materialPulse;cancelAnimationFrame(pulse.frame);for(const item of pulse.items){if(item.mesh.material===item.highlightedMaterial)item.mesh.material=item.original;item.highlight.dispose();}materialPulse=null;pulse.resolve?.(false);}
 function beginMaterialClickLoading(entry,button){
  materialClickApplying=entry;const ball=button.querySelector('.material-ball');ball.classList.add('apply-loading');ball.append($('materialPreview').querySelector('.material-apply-progress').cloneNode(true));
 }
@@ -998,18 +1001,43 @@ function finishMaterialClickLoading(entry){
  if(materialClickApplying!==entry)return;materialClickApplying=null;
  for(const button of $('materialList').querySelectorAll('.material-item'))if(button.dataset.entryId===String(entry.id)){const ball=button.querySelector('.material-ball');ball.classList.remove('apply-loading');ball.querySelector('.material-apply-progress')?.remove();}
 }
-function pulseMaterialUsage(entry){
+function pulseMaterialSlots(slots,{duration=1600,cycles=2}={}){
  stopMaterialPulse();
- const items=[];
- for(const mesh of entry.meshes){
-  const original=mesh.material,slots=Array.isArray(original)?original.slice():[original],highlighted=false;
-  const next=slots.map(material=>{if(material!==entry.material)return material;const clone=material.clone();installRoughnessShader(clone);if('emissive' in clone){clone.emissive.set(0x78b7ff);clone.emissiveMap=null;clone.emissiveIntensity=0;clone.needsUpdate=true;}items.push({mesh,original,highlight:clone});return clone;});
-  if(items.some(item=>item.mesh===mesh))mesh.material=Array.isArray(original)?next:next[0];
+ const grouped=new Map();
+ for(const {mesh,slot} of slots){
+  if(!mesh?.isMesh||!Number.isInteger(slot))continue;
+  const key=mesh,original=mesh.material;
+  let item=grouped.get(key);
+  if(!item){item={mesh,original,slots:new Set()};grouped.set(key,item);}
+  item.slots.add(slot);
  }
- if(!items.length){notify('该材质当前没有应用到模型部件');return;}
- const pulse={items,started:performance.now(),frame:0};materialPulse=pulse;
- const tick=now=>{if(materialPulse!==pulse)return;const t=Math.min(1,(now-pulse.started)/2200);const wave=Math.pow((Math.sin(t*Math.PI*6-Math.PI/2)+1)/2,1.65);for(const item of items)item.highlight.emissiveIntensity=.15+2.4*wave;if(t<1)pulse.frame=requestAnimationFrame(tick);else stopMaterialPulse();};
- pulse.frame=requestAnimationFrame(tick);
+ const items=[];
+ for(const group of grouped.values()){
+  const originalSlots=Array.isArray(group.original)?group.original.slice():[group.original];
+  const next=originalSlots.slice();
+  for(const slot of group.slots){
+   const material=originalSlots[slot];if(!material?.isMaterial)continue;
+   const highlight=material.clone();installRoughnessShader(highlight);
+   if('emissive' in highlight){highlight.emissive.set(0x2f8cff);highlight.emissiveMap=null;highlight.emissiveIntensity=0;highlight.needsUpdate=true;}
+   next[slot]=highlight;items.push({mesh:group.mesh,original:group.original,highlight});
+  }
+  if(items.some(item=>item.mesh===group.mesh)){
+   group.mesh.material=Array.isArray(group.original)?next:next[0];
+   const highlightedMaterial=group.mesh.material;items.filter(item=>item.mesh===group.mesh).forEach(item=>item.highlightedMaterial=highlightedMaterial);
+  }
+ }
+ if(!items.length)return Promise.resolve(false);
+ return new Promise(resolve=>{
+  const pulse={items,started:performance.now(),frame:0,resolve};materialPulse=pulse;
+  const tick=now=>{if(materialPulse!==pulse)return;const t=Math.min(1,(now-pulse.started)/duration);const wave=Math.pow((Math.sin(t*Math.PI*cycles*2-Math.PI/2)+1)/2,1.45);for(const item of items)item.highlight.emissiveIntensity=.08+2.8*wave;if(t<1)pulse.frame=requestAnimationFrame(tick);else stopMaterialPulse();};
+  pulse.frame=requestAnimationFrame(tick);
+ });
+}
+function pulseMaterialUsage(entry){
+ const slots=[];
+ for(const mesh of entry.meshes){const materials=Array.isArray(mesh.material)?mesh.material:[mesh.material];materials.forEach((material,slot)=>{if(material===entry.material)slots.push({mesh,slot});});}
+ if(!slots.length){notify('该材质当前没有应用到模型部件');return;}
+ pulseMaterialSlots(slots,{duration:2200,cycles:3});
  notify('正在高亮显示「'+entry.name+'」应用的模型部件',2200);
 }
 function decorateSwatch(el,entry){const color='#'+entry.material.color.getHexString();el.style.background=color;const src=entry.previewUrl||(entry.assetPreviewChecked?null:entry.material.map&&(entry.uploads.map?.preview||entry.thumbnails.map));if(el.id==='compactSwatch'){renderFabricPreview(el,{source:src,info:entry.previewInfo,pending:entry.fabricColorPending,identity:entry});return;}el.replaceChildren();if(src){const img=new Image();img.src=src;img.alt='';img.draggable=false;if(el.classList.contains('material-thumb')&&!el.closest('.pattern-item')){renderConvexPreview(img,src,entry.previewInfo,color);}else if(entry.previewUrl){el.style.position='relative';fitMaterialPreview(img,entry.previewInfo,el.clientHeight?el.clientWidth/el.clientHeight:1);}el.append(img);}else if(entry.assetPreviewChecked){const empty=document.createElement('span');empty.className='material-preview-empty';empty.textContent='无预览图';el.append(empty);}}
@@ -1210,11 +1238,53 @@ async function replaceHitMaterial(hit,source){
  $('undoMaterial').disabled=false;
  return true;
 }
-async function replaceCategoryMaterials(source,type=activeFabric){
+function scannedFabricState(entry){
+ return JSON.stringify({name:entry.name,category:entry.category,colorCode:entry.fabricColorCode,surface:readSurface(entry.material),physical:entry.physical,repeat:entry.repeat,placement:entry.placement,legacyMaps:entry.legacyMaps,maps:MAPS.map(([key])=>[key,entry.material[key]?.uuid||null])});
+}
+async function applyScannedFabric(id,{isCurrent=()=>true}={}){
+ if(!model||loadingModel)throw new Error('请先完成模型载入');
+ const generation=modelGeneration;
+ const current=()=>generation===modelGeneration&&!!model&&!loadingModel&&isCurrent();
+ const summary=validateScannedFabric(await readAsset(id,{previewOnly:true}));
+ if(!current())throw new Error('扫码已取消或模型已切换，请重新扫描');
+ if(!materialSlotsForPartType(summary.category).length)throw new Error('当前模型尚未配置“'+summary.category+'”替换目标，请先进行部件配置');
+ let source=entries.find(entry=>!entry.removed&&entry.assetId===id&&entry.assetRevision===summary.revision&&entry.scanSavedState===scannedFabricState(entry)),prepared=null,inserted=false;
+ try{
+  if(!source){
+   const asset=validateScannedFabric(await getAsset(id));
+   if(!current())throw new Error('扫码已取消或模型已切换，请重新扫描');
+   if(!materialSlotsForPartType(asset.category).length)throw new Error('当前模型尚未配置“'+asset.category+'”替换目标，请先进行部件配置');
+   prepared=await prepareFabricEntry(asset,entries.length,{loadMaps:true});
+   if(!current())throw new Error('扫码已取消或模型已切换，请重新扫描');
+   source=prepared;source.id=entries.length;source.scanSavedState=scannedFabricState(source);entries.push(source);inserted=true;
+  }
+  setPatternMode(false);designUI?.setType('fabric');
+  if(!await replaceCategoryMaterials(source,source.category,{isCurrent:current})){
+   if(!current())throw new Error('扫码已取消或模型已切换，请重新扫描');
+   if(!materialSlotsForPartType(source.category).length)throw new Error('当前模型没有对应分类的替换目标');
+   return '“'+source.category+'”部位已使用「'+source.name+'」，无需重复替换';
+  }
+  return '已将“'+source.category+'”替换为「'+source.name+'」'+(source.fabricColorCode?' · '+source.fabricColorCode:'')+'，可继续扫描或撤销';
+ }finally{
+  if(prepared&&prepared.meshes.size===0){
+   if(inserted){const index=entries.indexOf(prepared);if(index===entries.length-1)entries.pop();else prepared.removed=true;}
+   // A model switch already disposes every entry from the previous model.
+   if(!inserted||generation===modelGeneration)disposePreparedFabric(prepared);
+   if(generation===modelGeneration)renderMaterials();
+  }
+ }
+}
+async function replaceCategoryMaterials(source,type=activeFabric,{isCurrent=()=>true}={}){
  const slots=materialSlotsForPartType(type),items=[],changed=[];
  if(!slots.length){notify('当前模型尚未配置“'+type+'”材质球，请先点击齿轮进行配置');return false;}
+ const targets=slots.filter(({mesh,slot})=>slotMaterial(mesh,slot)!==source.material);
+ if(!targets.length){notify('“'+type+'”部件已经使用这个材质');return false;}
+ const generation=modelGeneration;
+ await pulseMaterialSlots(targets,{duration:1600,cycles:2});
+ if(generation!==modelGeneration||!model||!isCurrent())return false;
  await loadMaterialMaps(source);
- for(const {mesh,slot,material} of slots){const entry=entries.find(candidate=>candidate.material===material);if(!entry||entry===source)continue;const previous=slotMaterial(mesh,slot);if(assignMaterial(mesh,slot,source.material)){items.push({mesh,slot,previous});changed.push({mesh,slot,previous});}}
+ if(generation!==modelGeneration||!model||!isCurrent())return false;
+ for(const {mesh,slot} of targets){const previous=slotMaterial(mesh,slot);if(previous===source.material)continue;if(assignMaterial(mesh,slot,source.material)){items.push({mesh,slot,previous});changed.push({mesh,slot,previous});}}
  if(!changed.length){notify('“'+type+'”部件已经使用这个材质');return false;}
  const sourceTypes=source.material.userData.partTypes instanceof Set?source.material.userData.partTypes:new Set();source.material.userData.partTypes=new Set([...sourceTypes,type]);
  playMaterialRevealBatch(items);assignmentHistory.push({batch:changed});if(assignmentHistory.length>30)assignmentHistory.shift();$('undoMaterial').disabled=false;rebuildMaterialUsage(model,entries);selectEntry(source);return true;
@@ -1648,6 +1718,7 @@ function removeUnusedDockItems(items){
  return removable.length;
 }
 function bindDesignWorkspace(){
+ mountFabricScanner({button:$('scanFabric'),apply:applyScannedFabric});
  designUI=createDesignWorkspace({notify,canRemove:canRemoveDockItem,prepareRemoval,removeUnused:removeUnusedDockItems,undo:undoMaterialAssignment,cancelPlacement:()=>setPatternMode(false),showScene:()=>{setPatternMode(false);showPanel('scene');},add:addDesignAsset,
  read:t=>({name:(t.entry||t.source||t.pattern).name,fabricColorCodes:t.entry?.fabricColorCodes||[],fabricVariants:t.entry?.fabricVariants,fabricColorCode:t.entry?.fabricColorCode,fabricColorPending:t.entry?.fabricColorPending,fabricColorCompleted:t.entry?.fabricColorCompleted,fabricColorProgress:t.entry?.fabricColorProgress,color:'#'+designMaterial(t).color.getHexString(),...designPlacement(t)}),
   switchFabricColor:(t,code)=>t.entry?switchFabricColor(t.entry,code):Promise.resolve(),

@@ -4,7 +4,7 @@ import { MATERIAL_MAPS } from './material-map-definitions.js';
 
 const TABLE = 'spenic_assets', FAVORITES = 'spenic_asset_favorites';
 const SUMMARY = 'id,owner_id,kind,name,category,library,parent_id,metadata,thumbnail_path,created_at,updated_at';
-const metadataFields = ['description', 'designInfo', 'supplier', 'materialType', 'fabricColorCode', 'fabricGroupId', 'fabricDefaultColorCode', 'surface', 'physical', 'repeat', 'density', 'legacyMaps', 'placement', 'previewInfo', 'partAssignments', 'uploadTaskId'];
+const metadataFields = ['description', 'designInfo', 'supplier', 'materialType', 'fabricIdentityVersion', 'fabricColorCode', 'fabricGroupId', 'fabricDefaultColorCode', 'surface', 'physical', 'repeat', 'density', 'legacyMaps', 'placement', 'previewInfo', 'partAssignments', 'uploadTaskId'];
 const channels = new Set(MATERIAL_MAPS.map(([key]) => key));
 export const isCloudAssetId = id => /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(id || '');
 
@@ -128,6 +128,8 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
     const fork = old && old.owner_id !== userId;
     const id = old && !fork ? old.id : isCloudAssetId(asset.createId) ? asset.createId : crypto.randomUUID();
     const metadata = Object.fromEntries(metadataFields.filter(key => asset[key] !== undefined).map(key => [key, asset[key]]));
+    // Enroll newly created fabrics only; updating an old asset does not issue a label.
+    if (asset.kind === 'material' && asset.materialType !== 'pattern' && (!old || fork || old.metadata?.fabricIdentityVersion === 1)) metadata.fabricIdentityVersion = 1;
     const library = asset.kind === 'folder' ? asset.library || 'fabric' : asset.kind === 'model' ? 'model' : asset.kind === 'texture' || asset.materialType === 'pattern' ? 'pattern' : 'fabric';
     const row = { id, kind: asset.kind, name: asset.name.trim(), category: asset.category || '',
       library, parent_id: fork || old && old.library !== library ? null : asset.parentId || null,

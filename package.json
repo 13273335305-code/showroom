@@ -8,9 +8,12 @@
     "test:entries": "node checks/entry-workflow.test.cjs",
     "test:design": "node checks/design-material-types.test.cjs",
     "test:editor": "node checks/editor-pbr-layout.test.cjs",
-    "test:sampling": "node checks/texture-sampling.test.cjs"
+    "test:sampling": "node checks/texture-sampling.test.cjs",
+    "test:scan": "node --test checks/fabric-identity.test.mjs checks/asset-cloud.test.mjs && node checks/fabric-scan-workflow.test.cjs"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.8"
+    "@electric-sql/pglite": "0.5.8",
+    "@zxing/library": "0.23.0",
+    "qrcode-generator": "2.0.4"
   }
 }

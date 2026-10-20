@@ -14,6 +14,7 @@
   <link rel="icon" type="image/png" sizes="64x64" href="assets/spenic-favicon.png">
   <link rel="stylesheet" href="workspace.css?v=fabric-instant-delete-20261015"><link rel="stylesheet" href="asset-library.css?v=fabric-instant-delete-20261015"><link rel="stylesheet" href="login.css?v=20261016-uiverse-login-4">
   <link rel="stylesheet" href="header-brand.css">
+  <link rel="stylesheet" href="fabric-scan.css">
   <link rel="stylesheet" href="workspace-developer.css">
   <script type="module" src="shared/workspace-developer.js"></script>
 </head>
@@ -132,7 +133,10 @@
           <h3 id="fabricPreviewDetailsTitle">面料信息</h3>
           <span id="fabricPreviewCategory"></span>
         </div>
-        <div id="fabricPreviewFields" class="fabric-preview-fields"></div>
+        <div class="fabric-preview-details-body">
+          <div id="fabricPreviewFields" class="fabric-preview-fields"></div>
+          <div id="fabricPreviewIdentity" hidden aria-label="面料二维码标签"></div>
+        </div>
       </section>
     </div>
   </dialog>

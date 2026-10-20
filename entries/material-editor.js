@@ -20,6 +20,7 @@ import { fabricInfoFromFilename } from '../shared/fabric-info.js';
 import { updateFabricColorSwatch, renderBatchFabricSwatches } from '../shared/fabric-color-swatch.js?v=fabric-default-color-20261015';
 import { planFabricBatch, enqueueFabricBatch } from '../shared/fabric-batch.js';
 import { enqueueMaterialUpload, getUpload, startUploadQueue, subscribeUploads } from '../shared/upload-queue.js';
+import { mountFabricLabel } from '../shared/fabric-label.js';
 
 const $ = id => document.getElementById(id);
 await requireAuth({ feature: 'material' });
@@ -29,6 +30,8 @@ let sheenPreview = false, flatPreviewView = null;
 let previewUv, previewPhysicalUv, previewPositions;
 let physical = { ...defaultPhysical(), sizeSource: 'manual', initialized: true }, repeat = [1, 1];
 let legacyMaps = {}, savedPlacement, libraryMetadata = {};
+const identityLabel = mountFabricLabel($('materialIdentity'));
+let committedIdentity = null;
 const files = {}, urls = {}, tokens = {}, density = {}, embeddedDensity = {};
 const patternPreview = createPatternPreview($('patternPreview'));
 let roughnessPreviewCache = null, savedPreview = null, savedPreviewInfo = null, previewGenerationCanvas = null;
@@ -159,6 +162,9 @@ function syncPhysicalControls() {
 }
 function syncMaterialType() {
   const pattern = $('materialType').value === 'pattern';
+  if (pattern) identityLabel.update(null);
+  else if (lastUploadTask) void syncMaterialUpload().catch(() => {});
+  else identityLabel.update(committedIdentity);
   document.querySelectorAll('[data-material-type]').forEach(button => { const active = button.dataset.materialType === $('materialType').value; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
   $('fabricCategoryRow').hidden = pattern;
   $('fabricColorCodeRow').hidden = pattern;
@@ -342,6 +348,7 @@ async function saveMaterialWithPreview() {
     if (generation === editGeneration) dirty = false;
     history.replaceState(null, '', '?asset=' + encodeURIComponent(assetId) + '&upload=' + encodeURIComponent(task.id));
     $('previewGenerationDialog').close(); status('已加入后台上传任务');
+    if (asset.materialType !== 'pattern') identityLabel.update(null, { state: 'pending', message: '面料正在上传，保存成功后可下载和打印二维码标签' });
     void syncMaterialUpload();
   } catch (error) { status('保存失败：' + error.message); }
   finally { submittingPreview = false; saveButton.disabled = false; $('saveMaterial').disabled = pending > 0; }
@@ -399,9 +406,25 @@ async function syncMaterialUpload() {
   if (task.status === 'completed') {
     assetId = task.result.id;
     libraryMetadata.revision = task.result.revision;
+    if (committedIdentity?.revision !== task.result.revision) {
+      let saved;
+      try { saved = await getAsset(task.result.id, { previewOnly: true }); }
+      catch {
+        if (id !== lastUploadTask) return;
+        status('面料已保存，二维码暂未载入，请重新打开面料或到资产库查看');
+        if ($('materialType').value !== 'pattern') identityLabel.update(null, { state: 'failed', message: '面料已保存，二维码暂未载入，请重新打开面料或到资产库查看' });
+        return;
+      }
+      if (id !== lastUploadTask) return;
+      committedIdentity = saved; libraryMetadata.fabricIdentityVersion = saved?.fabricIdentityVersion;
+    }
+    if ($('materialType').value !== 'pattern') identityLabel.update(committedIdentity);
     history.replaceState(null, '', '?asset=' + encodeURIComponent(task.result.id));
     if (!dirty && !pending) status('已生成预览图并保存到资产库');
-  } else if (task.status === 'failed') status('后台上传失败，可在资产库上传任务中重试。');
+  } else if (task.status === 'failed') {
+    status('后台上传失败，可在资产库上传任务中重试。');
+    if ($('materialType').value !== 'pattern') identityLabel.update(null, { state: 'failed', message: '上传失败，二维码标签暂不可用，请在资产库上传任务中重试' });
+  } else if ($('materialType').value !== 'pattern') identityLabel.update(null, { state: 'pending', message: '面料正在上传，保存成功后可下载和打印二维码标签' });
 }
 async function uploadMap(key, file, restoring = false) {
   if (!/\.(png|jpe?g|webp|bmp)$/i.test(file.name) && !['image/png', 'image/jpeg', 'image/webp', 'image/bmp', 'image/x-ms-bmp'].includes(file.type)) throw new Error('请选择 PNG、JPG、WebP 或 BMP 图片');
@@ -460,7 +483,8 @@ async function restoreAsset() {
   const asset = task?.asset ? { ...task.asset, id: task.targetAssetId, ownerId: task.ownerId } : await getAsset(task?.result?.id || id);
   if (task) lastUploadTask = task.id;
   if (!asset) throw new Error('资产不存在，可能已被删除');
-  libraryMetadata = { description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, fabricGroupId: asset.fabricGroupId, fabricDefaultColorCode: asset.fabricDefaultColorCode, parentId: asset.parentId, revision: asset.revision, ownerId: asset.ownerId };
+  libraryMetadata = { description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, fabricIdentityVersion: asset.fabricIdentityVersion, fabricGroupId: asset.fabricGroupId, fabricDefaultColorCode: asset.fabricDefaultColorCode, parentId: asset.parentId, revision: asset.revision, ownerId: asset.ownerId };
+  committedIdentity = task && task.status !== 'completed' ? null : asset;
   savedPreview = asset.preview || null; savedPreviewInfo = asset.previewInfo || null;
   savedPreviewCategory = asset.category;
   if (asset.kind === 'texture') { $('name').value = asset.name.replace(/\.[^.]+$/, ''); $('materialType').value = 'pattern'; await uploadMap('map', asset.file); syncMaterialType(); return; }

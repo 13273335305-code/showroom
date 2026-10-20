@@ -57,6 +57,25 @@ const material = () => ({ kind: 'material', name: '面料', materialType: 'fabri
   physical: { widthCm: 12, heightCm: 8 }, surface: { color: '#ffffff', roughness: .6 },
   maps: { map: new File(['original-color'], 'original.png', { type: 'image/png' }) }, preview: new Blob(['preview'], { type: 'image/png' }) });
 
+test('new fabric identities survive edits and forks while old assets are not enrolled', async () => {
+  const f = fixture(), created = await f.cloud.save(material());
+  assert.equal(created.fabricIdentityVersion, 1);
+  const updated = await f.cloud.save({ ...await f.cloud.get(created.id), name: '修改面料' });
+  assert.equal(updated.id, created.id); assert.equal(updated.fabricIdentityVersion, 1);
+  const row = f.rows.get(created.id); delete row.metadata.fabricIdentityVersion;
+  const legacy = await f.cloud.get(created.id); delete legacy.fabricIdentityVersion;
+  const savedLegacy = await f.cloud.save({ ...legacy, name: '旧面料编辑' });
+  assert.equal(savedLegacy.fabricIdentityVersion, undefined);
+  f.setUser(bob);
+  const copy = await f.cloud.save(await f.cloud.get(created.id));
+  assert.notEqual(copy.id, created.id); assert.equal(copy.fabricIdentityVersion, 1);
+  const pattern = await f.cloud.save({ ...material(), materialType: 'pattern' });
+  assert.equal(pattern.fabricIdentityVersion, undefined);
+  const variants = await Promise.all(['DBW', 'WBR'].map(fabricColorCode => f.cloud.save({ ...material(), fabricColorCode })));
+  assert.equal(new Set(variants.map(asset => asset.id)).size, 2);
+  assert.ok(variants.every(asset => asset.fabricIdentityVersion === 1));
+});
+
 test('fabric color codes survive saving, listing, reopening and metadata edits', async () => {
   const f = fixture(), saved = await f.cloud.save({ ...material(), fabricColorCode: 'DBW', fabricGroupId: 'batch-389', fabricDefaultColorCode: 'WBR' });
   assert.equal(f.rows.get(saved.id).metadata.fabricGroupId, 'batch-389');
