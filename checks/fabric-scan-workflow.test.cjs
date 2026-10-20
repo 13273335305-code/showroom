@@ -164,7 +164,7 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
     assert.ok((await design.locator('#fabricScanStatus').boundingBox()).width <= 1, 'Camera status is visually removed');
     assert.match(await scan(ids.edge), /已将“边布”/);
     assert.equal(await design.locator('#fabricScanTitle').textContent(), '扫码设置');
-    assert.ok((await design.locator('#fabricScanStatus').boundingBox()).width > 1, 'Status remains readable in settings');
+    assert.ok((await design.locator('#fabricScanStatus').boundingBox()).width <= 1, 'Settings status is visually removed');
     let value = await read(); assert.equal(value.slots[1].values[0].id, ids.edge); assert.equal(value.slots[0].values[0].id, null); assert.equal(value.history, 1);
     assert.match(await scan(ids.edge), /无需重复替换/); assert.equal((await read()).history, 1);
     assert.match(await scan(ids.face), /已将“面布”/); assert.match(await scan(ids.piping), /已将“包边条”/); assert.equal((await read()).history, 3);
@@ -244,6 +244,28 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
     assert.equal(await design.locator('#fabricScanStatus').getAttribute('data-state'), '');
     await design.locator('#scanFabric').click();
     await design.locator('#scanFabric').click();
+    // WebKit can collapse a dialog whose children are all absolutely positioned.
+    // Exercise the explicit height without relying on aspect-ratio sizing.
+    const tabletSizing = await design.addStyleTag({ content: '.fabric-scan-dialog:not(.is-settings){aspect-ratio:auto}' });
+    for (const [name, width, height] of [['landscape', 1194, 700], ['portrait', 834, 1080], ['landscape-toolbar-hidden', 1194, 780]]) {
+      await design.setViewportSize({ width, height });
+      await design.waitForFunction(() => {
+        const scan = document.getElementById('fabricScanDialog').getBoundingClientRect();
+        const dock = document.getElementById('materialDock').getBoundingClientRect();
+        return scan.height >= 120 && Math.abs(scan.width - scan.height) < 1 && scan.x >= 0 && scan.y >= 0 && scan.right <= innerWidth && scan.bottom < dock.top;
+      });
+      assert.equal((await design.locator('#fabricScanDialog').boundingBox()).height, 224, name + ': tablet camera keeps its height');
+      assert.ok((await design.locator('.fabric-scan-video').boundingBox()).height > 200, name + ': video is visible');
+      const guide = await design.locator('.fabric-scan-guide').boundingBox();
+      const view = await design.locator('.fabric-scan-camera-view').boundingBox();
+      assert.ok(Math.abs(guide.width / view.width - .8) < .01, name + ': guide stays at 80%');
+      await settings();
+      assert.ok((await design.locator('#fabricScanDialog').boundingBox()).height > 224, name + ': settings expands for its controls');
+      await design.getByRole('button', { name: '返回扫码', exact: true }).click();
+      assert.equal((await design.locator('#fabricScanDialog').boundingBox()).height, 224, name + ': returning restores the square camera');
+      await design.screenshot({ path: 'outputs/fabric-scan/scanner-ipad-' + name + '.png' });
+    }
+    await tabletSizing.evaluate(style => style.remove());
     await design.setViewportSize({ width: 390, height: 844 }); assert.equal(await design.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true); assert.equal(await design.locator('#scanFabric').isVisible(), true);
     const mobileCamera = await design.locator('#fabricScanDialog').boundingBox();
     assert.ok(Math.abs(mobileCamera.width - mobileCamera.height) < 1 && mobileCamera.x >= 0 && mobileCamera.y >= 0);

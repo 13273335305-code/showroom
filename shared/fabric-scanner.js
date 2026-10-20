@@ -23,7 +23,6 @@ export function mountFabricScanner({ button, apply }) {
         <label for="fabricScanInput">扫码枪 / 手动输入身份码</label>
         <div class="fabric-scan-input-row"><input id="fabricScanInput" name="identity" autocomplete="off" spellcheck="false" placeholder="扫描或输入身份码" aria-describedby="fabricScanStatus"><button class="fabric-scan-submit" type="submit">应用</button></div>
       </form>
-      <p class="fabric-scan-hint">扫码枪连接后，点击输入框扫码，设置为扫描后发送回车。按面料自身分类自动替换对应部位。</p>
     </section>
     <p id="fabricScanStatus" class="fabric-scan-status" role="status" aria-live="polite">正在开启摄像头…</p>`;
   document.body.append(dialog);
