@@ -1,5 +1,6 @@
 import { parseFabricIdentity } from './fabric-identity.js';
 import { createQrDecoder } from './qr-decoder.js';
+import { createScanFeedback } from './fabric-scan-feedback.js';
 
 export function mountFabricScanner({ button, apply }) {
   const dialog = document.createElement('dialog');
@@ -13,7 +14,11 @@ export function mountFabricScanner({ button, apply }) {
     </header>
     <div class="fabric-scan-camera-view">
       <video class="fabric-scan-video" muted playsinline autoplay aria-label="二维码扫描画面"></video>
-      <div class="fabric-scan-guide" aria-hidden="true"></div>
+      <div class="fabric-scan-guide" aria-hidden="true">
+        <div class="fabric-scan-camera-blur"><video muted playsinline aria-hidden="true"></video></div>
+        <div class="fabric-scan-outline"></div>
+        <div class="fabric-scan-feedback"><div class="fabric-scan-loading"></div><div class="fabric-scan-material"></div></div>
+      </div>
     </div>
     <section id="fabricScanSettings" class="fabric-scan-settings-page" aria-label="扫码设置" hidden>
       <label for="fabricScanCamera">摄像头</label>
@@ -32,6 +37,7 @@ export function mountFabricScanner({ button, apply }) {
   const settingsButton = dialog.querySelector('.fabric-scan-settings'), settingsPage = dialog.querySelector('.fabric-scan-settings-page');
   const backButton = dialog.querySelector('.fabric-scan-back'), title = dialog.querySelector('h2');
   const dock = button.closest('.material-dock');
+  const feedback = createScanFeedback(dialog.querySelector('.fabric-scan-guide'));
   const scanCanvas = document.createElement('canvas'), scanContext = scanCanvas.getContext('2d', { willReadFrequently: true });
   video.muted = true;
   let session = 0, cameraSession = 0, busy = false, starting = false, stream = null, decoder = null, timer = null, active = false;
@@ -52,6 +58,7 @@ export function mountFabricScanner({ button, apply }) {
     dialog.style.setProperty('--fabric-scan-space', `${Math.max(120, innerHeight - bottom - 76)}px`);
   }
   function showSettings(show, focus = true) {
+    if (show) feedback.reset();
     inSettings = show; settingsPage.hidden = !show; cameraView.hidden = show; backButton.hidden = !show; settingsButton.hidden = show;
     settingsButton.setAttribute('aria-expanded', String(show));
     dialog.classList.toggle('is-settings', show); title.textContent = show ? '扫码设置' : '扫码换面料';
@@ -64,6 +71,7 @@ export function mountFabricScanner({ button, apply }) {
     if (focus) (show ? (cameraSelect.disabled ? backButton : cameraSelect) : settingsButton).focus({ preventScroll: true });
   }
   function stopCamera() {
+    feedback.reset();
     cameraSession++; clearTimeout(timer); timer = null;
     stream?.getTracks().forEach(track => track.stop()); stream = null;
     video.pause(); video.srcObject = null; decoder?.reset(); decoder = null;
@@ -72,13 +80,18 @@ export function mountFabricScanner({ button, apply }) {
   async function accept(value, fromCamera = false) {
     if (busy || !dialog.open) return;
     busy = true; controls();
-    const token = session;
+    const token = session; let recognition = null;
     try {
       const id = parseFabricIdentity(value); message('正在读取面料并替换对应部位…');
-      const result = await apply(id, { isCurrent: () => dialog.open && token === session });
+      if (fromCamera) recognition = feedback.start();
+      const result = await apply(id, {
+        isCurrent: () => dialog.open && token === session,
+        onPreview: preview => { if (recognition) void feedback.preview(recognition, preview); }
+      });
       if (!dialog.open || token !== session) return;
+      if (recognition) feedback.succeed(recognition);
       input.value = ''; message(result || '面料已应用，可以继续扫描；支持撤销', 'success');
-    } catch (error) { if (dialog.open && token === session) message(error.message || '面料应用失败，请重试', 'error'); }
+    } catch (error) { if (dialog.open && token === session) { feedback.reset(); message(error.message || '面料应用失败，请重试', 'error'); } }
     finally { busy = false; controls(); if (dialog.open && token === session && !fromCamera && inSettings) input.focus({ preventScroll: true }); }
   }
   async function scan(token) {

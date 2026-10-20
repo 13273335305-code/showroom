@@ -1241,7 +1241,7 @@ async function replaceHitMaterial(hit,source){
 function scannedFabricState(entry){
  return JSON.stringify({name:entry.name,category:entry.category,colorCode:entry.fabricColorCode,surface:readSurface(entry.material),physical:entry.physical,repeat:entry.repeat,placement:entry.placement,legacyMaps:entry.legacyMaps,maps:MAPS.map(([key])=>[key,entry.material[key]?.uuid||null])});
 }
-async function applyScannedFabric(id,{isCurrent=()=>true}={}){
+async function applyScannedFabric(id,{isCurrent=()=>true,onPreview=()=>{}}={}){
  if(!model||loadingModel)throw new Error('请先完成模型载入');
  const generation=modelGeneration;
  const current=()=>generation===modelGeneration&&!!model&&!loadingModel&&isCurrent();
@@ -1258,6 +1258,7 @@ async function applyScannedFabric(id,{isCurrent=()=>true}={}){
    if(!current())throw new Error('扫码已取消或模型已切换，请重新扫描');
    source=prepared;source.id=entries.length;source.scanSavedState=scannedFabricState(source);entries.push(source);inserted=true;
   }
+  onPreview({id:source.assetId,name:source.name,source:source.previewUrl||source.uploads.map?.preview||source.thumbnails.map||null,info:source.previewInfo,color:'#'+source.material.color.getHexString()});
   setPatternMode(false);designUI?.setType('fabric');
   if(!await replaceCategoryMaterials(source,source.category,{isCurrent:current})){
    if(!current())throw new Error('扫码已取消或模型已切换，请重新扫描');
