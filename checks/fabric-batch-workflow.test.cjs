@@ -86,7 +86,7 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
     await (await noNormalChooser).setFiles(folder);
     await page.locator('#batchFabricCategoryDialog').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#batchFabricSwatches li').count(), 9);
-    await page.locator('#batchFabricCategory').selectOption('包边条');
+    await page.locator('#batchFabricCategory').selectOption('辅料');
     await page.locator('#confirmBatchFabric').click();
     await page.waitForFunction(async () => {
       const tasks = await (await import('./shared/upload-queue.js')).listUploads();
@@ -95,7 +95,7 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
     assert.equal(state.assets.size, 16);
     const plain = await page.evaluate(async () => {
       const store = await import('./shared/asset-store.js');
-      const cards = (await store.listAssets()).filter(asset => asset.category === '包边条');
+      const cards = (await store.listAssets()).filter(asset => asset.category === '辅料');
       return Promise.all(cards.map(async card => {
         const asset = await store.getAsset(card.id);
         return { normal: !!asset.maps.normalMap, previewInfo: asset.previewInfo };

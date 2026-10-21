@@ -12,6 +12,7 @@ import { updateFabricColorSwatch } from '../shared/fabric-color-swatch.js';
 import { fetchFabricColorPreview } from '../shared/fabric-color-preview.js';
 import { syncFabricColorProgress } from '../shared/fabric-color-progress.js';
 import { mountFabricLabel } from '../shared/fabric-label.js';
+import { normalizeAssetCategories, normalizeFabricCategory } from '../shared/fabric-category.js';
 const $ = id => document.getElementById(id);
 const identityLabel = mountFabricLabel($('fabricPreviewIdentity'), { compact: true });
 await requireAuth({ feature: 'assets' });
@@ -336,13 +337,13 @@ const FABRIC_TEXTURE_SURFACE = { width: 1200, height: 900 };
 const FABRIC_BOARD_CM = {
   面布: { width: 200, height: 150 },
   边布: { width: 36, height: 27 },
-  包边条: { width: 8, height: 6 },
+  辅料: { width: 8, height: 6 },
 };
 function fabricTextureRange(asset) {
-  const category = asset.category || '其他';
+  const category = normalizeFabricCategory(asset.category, '其他');
   if (category === '面布') return { category, board: FABRIC_BOARD_CM.面布, defaultWidth: 120, minWidth: 40, maxWidth: 200, step: 4, zoomable: true };
   if (category === '边布') return { category, board: FABRIC_BOARD_CM.边布, defaultWidth: 22, minWidth: 8, maxWidth: 36, step: 1, zoomable: true };
-  return { category, board: FABRIC_BOARD_CM.包边条, defaultWidth: 8, minWidth: 8, maxWidth: 8, step: 1, zoomable: false };
+  return { category, board: FABRIC_BOARD_CM.辅料, defaultWidth: 8, minWidth: 8, maxWidth: 8, step: 1, zoomable: false };
 }
 function clampFabricTextureWidth(state, value) {
   return Math.max(state.range.minWidth, Math.min(state.range.maxWidth, value));
@@ -617,7 +618,7 @@ function editAsset(asset, field) {
   $('materialEditFields').hidden = !isMaterial;
   if (isMaterial) {
     $('materialEditName').value = asset.name || '';
-    $('materialEditCategory').value = ['面布', '边布', '包边条', '其他'].includes(asset.category) ? asset.category : '其他';
+    $('materialEditCategory').value = normalizeFabricCategory(asset.category, '其他');
     $('materialEditDesignInfo').value = asset.designInfo || asset.description || '';
     $('materialEditSupplier').value = asset.supplier || '';
   }

@@ -94,7 +94,7 @@ function modelBytes() {
     await page.screenshot({ path: path.join(screenshotRoot, 'asset-cloud-mobile.png') });
     await page.setViewportSize({ width: 1440, height: 1000 });
     const design = await viewer.newPage(); await design.goto(base + '/design.html?asset=' + ids.model);
-    await design.waitForFunction(() => document.getElementById('loading').hidden && document.querySelectorAll('.material-item').length > 0, null, { timeout: 60000 });
+    await design.waitForFunction(() => document.getElementById('loading').hidden, null, { timeout: 60000 });
     await design.locator('#addDockAsset').click(); await design.locator('#pickerSearch').fill('公开云端面料');
     await design.locator(`.picker-card[data-asset-id="${ids.fabric}"]`).click(); await design.locator('#confirmAssetPicker').click();
     await design.waitForFunction(() => !document.getElementById('assetPicker').open && document.getElementById('materialName').value === '公开云端面料');

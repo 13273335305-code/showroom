@@ -48,14 +48,14 @@ test('colors without normals upload with the chosen category and do not inherit 
   try {
     const assets = [];
     const result = await enqueueFabricBatch(planFabricBatch([file('389DBW.jpg'), file('389WBR.jpg')]), {
-      ...template, category: '包边条', density: { normalMap: { widthCm: 99 } },
+      ...template, category: '辅料', density: { normalMap: { widthCm: 99 } },
     }, {
       enqueue: async asset => { assets.push(asset); },
       createPreview: async () => new Blob(['preview']),
     });
     assert.equal(result.queued, 2); assert.deepEqual(result.failures, []);
     for (const asset of assets) {
-      assert.equal(asset.category, '包边条');
+      assert.equal(asset.category, '辅料');
       assert.equal('normalMap' in asset.maps, false);
       assert.equal('normalMap' in asset.density, false);
       assert.equal('normalMap' in asset.legacyMaps, false);

@@ -13,7 +13,7 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
           {id:'low',category:'面布',pixels:[180,90],physical:{widthCm:20,heightCm:15}},
           {id:'high',category:'面布',pixels:[4200,2100],physical:{widthCm:20,heightCm:15}},
           {id:'edge',category:'边布',pixels:[200,150],physical:{widthCm:4,heightCm:3}},
-          {id:'binding',category:'包边条',pixels:[180,90],physical:{widthCm:8,heightCm:6}},
+          {id:'binding',category:'辅料',pixels:[180,90],physical:{widthCm:8,heightCm:6}},
         ].map(item => ({...item,kind:'material',name:item.id,preview:'./checks/fabric-no-dpi.png'}));
         export const listAssets = async () => fixtures;
         export async function getAsset(id,options) {

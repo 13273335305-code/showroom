@@ -1,7 +1,7 @@
 import { installRoughnessShader } from './roughness-map.js';
 
 export { MATERIAL_MAPS } from './material-map-definitions.js';
-export const CATEGORIES = ['面布', '边布', '包边条'];
+export const CATEGORIES = ['面布', '边布', '辅料'];
 export function readLegacyUV(texture) {
   return { repeat: texture.repeat.toArray(), offset: texture.offset.toArray(), center: texture.center.toArray(), rotation: texture.rotation, flipY: texture.flipY };
 }

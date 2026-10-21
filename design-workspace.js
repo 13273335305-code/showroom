@@ -15,6 +15,7 @@ export function createDesignWorkspace(api) {
   const scrollbarThumb = scrollbar => scrollbar?.querySelector('.dock-scrollbar-thumb');
   let removing = false;
   const checked = new Map(), dockItems = new WeakMap(), dock = document.querySelector('.material-dock');
+  const deleteZone = $('dockDeleteZone');
   const itemKey = item => item.entry || item.source || item.pattern;
   function syncRemoval() {
     for (const [key, item] of checked) if (!api.canRemove(item)) checked.delete(key);
@@ -36,12 +37,22 @@ export function createDesignWorkspace(api) {
       }
     }
     addButton.hidden = removing;
+    $('scanFabric').hidden = removing;
     $('dockTrash').hidden = removing; $('dockDeleteActions').hidden = !removing;
-    $('dockDeleteSelected').disabled = checked.size === 0;
-    $('dockDeleteSelected').textContent = checked.size ? `删除 (${checked.size})` : '删除';
+    $('dockDeleteActions').inert = !removing;
+    const deleteSelected = $('dockDeleteSelected');
+    deleteSelected.disabled = checked.size === 0;
+    deleteSelected.setAttribute('aria-label', checked.size ? `确定删除所选材质或图案，共 ${checked.size} 项` : '确定删除所选材质或图案');
+    deleteSelected.title = checked.size ? `确定删除所选项（${checked.size}）` : '确定删除所选项';
+    $('dockDeleteCount').hidden = checked.size === 0;
+    $('dockDeleteCount').textContent = checked.size ? String(checked.size) : '';
     dock.classList.toggle('removal-mode', removing);
   }
-  function exitRemoval() { removing = false; checked.clear(); syncRemoval(); }
+  function exitRemoval() {
+    const restoreFocus = removing && $('dockDeleteActions').contains(document.activeElement);
+    removing = false; checked.clear(); syncRemoval();
+    if (restoreFocus) $('dockTrash').focus({ preventScroll: true });
+  }
   function bindDockItem(button, item) {
     dockItems.set(button, { item, label: button.getAttribute('aria-label'), title: button.title, pressed: button.getAttribute('aria-pressed') });
     for (const name of ['pointerdown', 'dblclick']) button.addEventListener(name, event => { if (removing) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
@@ -53,7 +64,13 @@ export function createDesignWorkspace(api) {
       syncRemoval();
     }, true);
   }
-  $('dockTrash').onclick = () => { api.prepareRemoval(); removing = true; checked.clear(); syncRemoval(); };
+  const startRemoval = () => {
+    if (removing) return;
+    api.prepareRemoval(); removing = true; checked.clear(); syncRemoval();
+    $('dockCancelDelete').focus({ preventScroll: true });
+  };
+  $('dockTrash').onclick = startRemoval;
+  deleteZone?.addEventListener('click', event => { if (!event.target.closest('#dockDeleteActions')) startRemoval(); });
   $('dockCancelDelete').onclick = exitRemoval;
   $('dockDeleteSelected').onclick = () => {
     const count = api.removeUnused([...checked.values()]);
@@ -71,7 +88,10 @@ export function createDesignWorkspace(api) {
   }
   function syncDock() {
     const list = activeList();
-    if (list.lastElementChild !== addButton) list.append(addButton);
+    for (const [listId, emptyId] of [['materialList', 'fabricDockEmpty'], ['patternDock', 'patternDockEmpty']]) {
+      const empty = $(emptyId);
+      if (empty) empty.hidden = !!$(listId).querySelector('.material-item');
+    }
     addButton.dataset.type = type;
     const label = type === 'fabric' ? '面料' : '图案';
     addButton.setAttribute('aria-label', '从资产库新增' + label); addButton.title = '新增' + label;

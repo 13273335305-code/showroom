@@ -46,7 +46,7 @@
       <a id="libraryBack" class="library-back" href="./index.html" aria-label="返回上一级" title="返回上一级"><img src="./assets/library-back.svg" alt="" aria-hidden="true"></a>
     <div id="libraryBreadcrumb" class="library-breadcrumb" aria-label="当前位置"><span class="breadcrumb-link">面料库</span></div>
     <div class="library-sub-actions">
-      <select id="assetCategory" aria-label="筛选分类"><option value="all">全部分类</option><option>面布</option><option>边布</option><option>包边条</option><option>其他</option></select>
+      <select id="assetCategory" aria-label="筛选分类"><option value="all">全部分类</option><option>面布</option><option>边布</option><option>辅料</option><option>其他</option></select>
       <select id="assetSort" aria-label="排序方式"><option value="recent">最近更新</option><option value="oldest">最早更新</option><option value="nameAsc">名称升序</option><option value="nameDesc">名称降序</option></select>
       <button id="moreOptions" class="more-button" type="button" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false" title="更多操作"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="3.8" r="2.05"></circle><circle cx="12" cy="12" r="2.05"></circle><circle cx="12" cy="20.2" r="2.05"></circle></svg></button>
       <div id="moreMenu" class="more-menu" role="menu" hidden><button type="button" id="selectAllAssets" role="menuitem">全选</button><button type="button" id="moveSelectedAssets" role="menuitem">移动</button><button type="button" id="deleteSelectedAssets" role="menuitem">删除</button></div>
@@ -65,7 +65,7 @@
       <h2 id="assetDialogTitle"></h2><label id="assetTextLabel" for="assetText">名称</label><textarea id="assetText" rows="3"></textarea>
       <div id="materialEditFields" hidden>
         <label for="materialEditName">名称</label><input id="materialEditName" type="text" maxlength="120">
-        <label for="materialEditCategory">分类</label><select id="materialEditCategory"><option value="面布">面布</option><option value="边布">边布</option><option value="包边条">包边条</option><option value="其他">其他</option></select>
+        <label for="materialEditCategory">分类</label><select id="materialEditCategory"><option value="面布">面布</option><option value="边布">边布</option><option value="辅料">辅料</option><option value="其他">其他</option></select>
         <label for="materialEditDesignInfo">设计信息</label><textarea id="materialEditDesignInfo" rows="4" maxlength="1000"></textarea>
         <label for="materialEditSupplier">供应商</label><input id="materialEditSupplier" type="text" maxlength="200">
       </div>

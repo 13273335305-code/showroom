@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseFabricIdentity, hasFabricIdentity, validateScannedFabric } from '../shared/fabric-identity.js';
+import { FABRIC_CATEGORIES, parseFabricIdentity, hasFabricIdentity, validateScannedFabric } from '../shared/fabric-identity.js';
 import { fabricQrSvg, fabricLabelSvg } from '../shared/fabric-label.js';
 const id = '12345678-abcd-4321-8765-123456789abc';
 const fabric = { id, kind: 'material', materialType: 'fabric', fabricIdentityVersion: 1, category: '边布', name: '389<&', fabricColorCode: 'WBR' };
@@ -15,6 +15,10 @@ test('only enrolled fabric assets can be scanned; missing, pattern and invalid c
   assert.throws(() => validateScannedFabric({ ...fabric, materialType: 'pattern' }), /不是面料/);
   assert.throws(() => validateScannedFabric({ ...fabric, fabricIdentityVersion: undefined }), /没有可用/);
   assert.throws(() => validateScannedFabric({ ...fabric, category: '' }), /分类无效/);
+});
+test('legacy binding category scans as accessories under the current category label', () => {
+  assert.deepEqual(FABRIC_CATEGORIES, ['面布', '边布', '辅料', '其他']);
+  assert.equal(validateScannedFabric({ ...fabric, category: '包边条' }).category, '辅料');
 });
 test('downloaded label includes category, color and identity with escaped text and a quiet zone', () => {
   const svg = fabricLabelSvg(fabric);

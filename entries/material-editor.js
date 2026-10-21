@@ -21,6 +21,7 @@ import { updateFabricColorSwatch, renderBatchFabricSwatches } from '../shared/fa
 import { planFabricBatch, enqueueFabricBatch } from '../shared/fabric-batch.js';
 import { enqueueMaterialUpload, getUpload, startUploadQueue, subscribeUploads } from '../shared/upload-queue.js';
 import { mountFabricLabel } from '../shared/fabric-label.js';
+import { normalizeFabricCategory, normalizeAssetCategories } from '../shared/fabric-category.js';
 
 const $ = id => document.getElementById(id);
 await requireAuth({ feature: 'material' });
@@ -37,7 +38,7 @@ const patternPreview = createPatternPreview($('patternPreview'));
 let roughnessPreviewCache = null, savedPreview = null, savedPreviewInfo = null, previewGenerationCanvas = null;
 let savedPreviewCategory = null;
 let lastUploadTask = null, submittingPreview = false, batchingFabric = false, editGeneration = 0;
-const previewCategorySizes = { '面布': [120, 90], '边布': [40, 30], '包边条': [10, 7.5], '其他': [10, 7.5] };
+const previewCategorySizes = { '面布': [120, 90], '边布': [40, 30], '辅料': [10, 7.5], '其他': [10, 7.5] };
 const previewSizePairs = [
   { width: 'previewPhysicalWidth', height: 'previewPhysicalHeight', button: 'previewPhysicalLock', name: '物理尺寸', digits: 2, ratio: 1 },
   { width: 'previewPixelWidth', height: 'previewPixelHeight', button: 'previewPixelLock', name: '输出像素', digits: 0, ratio: 4 / 3 },
@@ -480,7 +481,7 @@ async function restoreAsset() {
   if (!id && !uploadId) return;
   const task = uploadId ? await getUpload(uploadId, { payload: true }) : null;
   if (uploadId && !task && !id) throw new Error('上传任务不可用，请返回原账号查看。');
-  const asset = task?.asset ? { ...task.asset, id: task.targetAssetId, ownerId: task.ownerId } : await getAsset(task?.result?.id || id);
+  const asset = normalizeAssetCategories(task?.asset ? { ...task.asset, id: task.targetAssetId, ownerId: task.ownerId } : await getAsset(task?.result?.id || id));
   if (task) lastUploadTask = task.id;
   if (!asset) throw new Error('资产不存在，可能已被删除');
   libraryMetadata = { description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, fabricIdentityVersion: asset.fabricIdentityVersion, fabricGroupId: asset.fabricGroupId, fabricDefaultColorCode: asset.fabricDefaultColorCode, parentId: asset.parentId, revision: asset.revision, ownerId: asset.ownerId };

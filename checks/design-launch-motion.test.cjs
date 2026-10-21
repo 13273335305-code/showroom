@@ -12,47 +12,61 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
       // Hold the launch screen independently of authentication and model loading.
       await context.route('**/design.html', async route => {
         const response = await route.fetch();
-        await route.fulfill({ response, body: (await response.text()).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '') });
+        await route.fulfill({ response, body: (await response.text()).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').replace('<html lang="zh-CN" class="auth-pending">', '<html lang="zh-CN">') });
       });
       const page = await context.newPage();
       await page.goto(`${base}/design.html`);
       assert.equal(await page.locator('.design-launch-card strong').textContent(), '正在进入设计台');
+      assert.equal(await page.locator('.design-platform-scene > span').count(), 9);
       const session = await context.newCDPSession(page);
       await session.send('Performance.enable');
       await session.send('Emulation.setCPUThrottlingRate', { rate: 4 });
       const layoutCount = async () => (await session.send('Performance.getMetrics')).metrics.find(metric => metric.name === 'LayoutCount').value;
       const before = await layoutCount();
-      const samples = await page.locator('.loading-228').evaluate(async el => {
+      const samples = await page.locator('.design-platform-scene').evaluate(async scene => {
         const result = [];
         for (let i = 0; i < 40; i++) {
-          const css = getComputedStyle(el, '::before'), rightCss = getComputedStyle(el, '::after'), rect = el.getBoundingClientRect();
-          const matrix = new DOMMatrix(css.transform);
-          const bounds = style => {
-            const transform = new DOMMatrix(style.transform);
-            const width = parseFloat(style.width) + (style.boxSizing === 'border-box' ? 0 : 2 * parseFloat(style.borderLeftWidth));
-            const center = rect.x + parseFloat(style.left) + width / 2 + transform.e;
-            return [center - width * transform.a / 2, center + width * transform.a / 2];
-          };
-          const left = bounds(css), right = bounds(rightCss), label = el.nextElementSibling.getBoundingClientRect();
-          const visualCenter = (Math.min(left[0], right[0]) + Math.max(left[1], right[1])) / 2;
-          result.push({ width: css.width, height: css.height, scale: matrix.a, x: matrix.e,
-            centerOffset: visualCenter - (label.x + label.width / 2),
-            rect: [rect.x, rect.y, rect.width, rect.height] });
+          const rect = scene.getBoundingClientRect();
+          const parts = [...scene.children].map(part => ({ opacity: Number(getComputedStyle(part).opacity), transform: getComputedStyle(part).transform }));
+          result.push({ rect: [rect.x, rect.y, rect.width, rect.height], parts });
           await new Promise(resolve => setTimeout(resolve, 100));
         }
         return result;
       });
       assert.equal(await layoutCount(), before, 'Animation must not trigger layout, including under CPU throttling');
-      assert.ok(samples.every(sample => sample.width === '132px' && sample.height === '88px'));
-      assert.ok(samples.every(sample => sample.scale >= .5 && sample.scale <= 1), 'Never enlarge the rasterized layer');
-      assert.ok(Math.max(...samples.map(sample => sample.scale)) - Math.min(...samples.map(sample => sample.scale)) > .4);
       assert.ok(samples.every(sample => JSON.stringify(sample.rect) === JSON.stringify(samples[0].rect)), 'Animation keeps its layout stable');
-      assert.ok(samples.every(sample => Math.abs(sample.centerOffset) < .1), 'Visible animation and label stay centered throughout the loop');
+      for (const index of [1, 2, 3, 4, 5, 6, 7]) {
+        assert.ok(Math.max(...samples.map(sample => sample.parts[index].opacity)) > .8, `Assembly part ${index} becomes visible`);
+        assert.ok(Math.min(...samples.map(sample => sample.parts[index].opacity)) < .1, `Assembly part ${index} resets for the next cycle`);
+      }
+      assert.ok(samples.some(sample => sample.parts[3].opacity > .8 && sample.parts[4].opacity < .1), 'The deck appears before the frame');
+      assert.ok(samples.some(sample => sample.parts[4].opacity > .8 && sample.parts[5].opacity < .1), 'The frame appears before the control panel');
+      assert.equal(await page.locator('.design-platform-loader').evaluate(el => getComputedStyle(el, '::before').content), 'none', 'The former twin-frame spinner is removed');
+      const alignment = await page.locator('.design-platform-scene').evaluate(async scene => {
+        for (const part of scene.children) for (const animation of part.getAnimations()) { animation.pause(); animation.currentTime = 2000; }
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        const center = selector => { const rect = scene.querySelector(selector).getBoundingClientRect(); return rect.x + rect.width / 2; };
+        const legs = scene.querySelector('.design-platform-legs'), base = scene.querySelector('.design-platform-base');
+        const leftLeg = legs.querySelector('.design-platform-leg-left').getBoundingClientRect();
+        const rightLeg = legs.querySelector('.design-platform-leg-right').getBoundingClientRect();
+        const baseRect = base.getBoundingClientRect();
+        return {
+          offsets: [
+            center('.design-platform-legs .design-platform-leg-left') - center('.design-platform-frame-left'),
+            center('.design-platform-legs .design-platform-leg-right') - center('.design-platform-frame-right'),
+          ],
+          behind: [...scene.children].indexOf(legs) < [...scene.children].indexOf(base),
+          overlapsBase: [leftLeg.top < baseRect.bottom && leftLeg.bottom > baseRect.bottom, rightLeg.top < baseRect.bottom && rightLeg.bottom > baseRect.bottom],
+        };
+      });
+      assert.ok(alignment.offsets.every(offset => Math.abs(offset) < .1), `Frame uprights and support legs share centerlines: ${alignment.offsets}`);
+      assert.equal(alignment.behind, true, 'Support legs are painted behind the tabletop base');
+      assert.ok(alignment.overlapsBase.every(Boolean), 'The tabletop base covers the top edge of each leg');
       await page.screenshot({ path: `checks/design-launch-${name}.png` });
       await page.emulateMedia({ reducedMotion: 'reduce' });
-      assert.equal(await page.locator('.loading-228').evaluate(el => getComputedStyle(el, '::before').animationName), 'none');
+      assert.equal(await page.locator('.design-platform-scene > span').evaluateAll(parts => parts.every(part => getComputedStyle(part).animationName === 'none')), true);
       assert.equal(await page.locator('.design-launch-card strong span').first().evaluate(el => getComputedStyle(el).animationName), 'none');
-      console.log(`PASS ${name}: graphic and text share the same center throughout two cycles, no layout under 4x CPU throttling, native resolution and reduced motion`);
+      console.log(`PASS ${name}: assembly order, stable layout, no layout under 4x CPU throttling and reduced motion`);
       await context.close();
     }
   } finally { await browser.close(); }

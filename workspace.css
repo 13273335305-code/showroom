@@ -266,15 +266,37 @@ body:not(.standalone) .topbar{z-index:30}.header-actions .button{white-space:now
 .dock-delete-tools.drop-ready{background:#ffe9eb;box-shadow:inset 0 0 0 2px #db7180}
 .dock-delete-tools.drop-ready .dock-trash{color:#c54858;border-color:#db7180;background:#fff4f5}
 .dock-delete-tools.drop-blocked{background:#edf0f3;box-shadow:inset 0 0 0 1px #aebac8}
-.fabric-categories{justify-content:space-between;gap:3px}
-.fabric-categories button{padding:5px 4px;line-height:18px}
+/* Align the primary switch and fabric filters as one compact navigation rail. */
+.material-dock .dock-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));flex:0 0 100px;width:100px;gap:2px;padding:3px;border-radius:11px;background:#dce6f18a;box-shadow:inset 0 0 0 1px #bdcddd40}
+.material-dock .dock-tabs button{display:flex;align-items:center;justify-content:center;min-width:0;height:26px;padding:0;border:0;border-radius:8px;background:transparent;color:#73859b;font-size:13px;font-weight:600;line-height:20px;white-space:nowrap}
+.material-dock .dock-tabs button.active{background:#fffffff0;color:#285fae;box-shadow:0 1px 4px #31496614}
+.material-dock .fabric-categories{width:112px;flex:0 0 112px;justify-content:center;gap:6px;padding-right:12px}
+.material-dock .pattern-categories{justify-content:flex-start;padding-top:6px}
+.material-dock .fabric-categories button{display:flex;align-items:center;justify-content:center;flex:0 0 32px;width:100%;height:32px;padding:6px 8px;border-radius:9px;background:transparent;color:#718196;font-size:12px;font-weight:500;line-height:20px;box-shadow:none}
+.material-dock .fabric-categories button.active{background:#e7f0fed9;color:#2564b8;box-shadow:inset 0 0 0 1px #84ade83b;font-weight:600}
+.material-dock .dock-tabs button:focus-visible,.material-dock .fabric-categories button:focus-visible{outline:2px solid #578ee6;outline-offset:2px}
+@media(hover:hover) and (pointer:fine){.material-dock .dock-tabs button:not(.active):hover,.material-dock .fabric-categories button:not(.active):hover{background:#ffffffa6;color:#365f92}.material-dock .dock-tabs button:active:not(:focus-visible),.material-dock .fabric-categories button:active:not(:focus-visible){transform:scale(.97)}}
+@media(prefers-reduced-motion:reduce){.material-dock .dock-tabs button:active:not(:focus-visible),.material-dock .fabric-categories button:active:not(:focus-visible){transform:none}}
 .fabric-browser{gap:0}
 .fabric-browser .dock-carousel{padding-left:0;overflow:visible}
+/* Include the tab row so the hint centers within the full browsing area. */
+.dock-empty-state{position:absolute;inset:-37px 16px -1px;display:flex;align-items:center;justify-content:center;margin:0;color:#5e728b;font-size:14px;font-weight:500;line-height:1.8;text-align:center;pointer-events:none}
+.dock-empty-state > span{position:relative;display:inline-block;max-width:100%;color:#8995a3}
+/* Counter-move the text inside a travelling soft mask so only its shading moves. */
+.dock-empty-state .dock-empty-sheen{position:absolute;inset:0;color:#354454;mask-image:linear-gradient(90deg,transparent 0%,#0003 25%,#000 50%,#0003 75%,transparent 100%);-webkit-mask-image:linear-gradient(90deg,transparent 0%,#0003 25%,#000 50%,#0003 75%,transparent 100%);mask-repeat:no-repeat;-webkit-mask-repeat:no-repeat;animation:dock-empty-shimmer 2.4s linear infinite}
+.dock-empty-sheen-text{display:block;width:100%;animation:dock-empty-shimmer-text 2.4s linear infinite}
+@keyframes dock-empty-shimmer{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+@keyframes dock-empty-shimmer-text{from{transform:translateX(100%)}to{transform:translateX(-100%)}}
+.removal-mode .dock-empty-state{display:none}
+@media(max-width:760px){.dock-empty-state{inset:-33px 12px 5px;font-size:12px}}
+@media(prefers-reduced-motion:reduce){.dock-empty-state .dock-empty-sheen{transform:none;animation:dock-empty-shimmer-reduced 5.6s ease infinite}.dock-empty-sheen-text{transform:none;animation:none}}
+@keyframes dock-empty-shimmer-reduced{0%,100%{opacity:.12}50%{opacity:.25}}
 .fabric-categories{border-right:0}
 .fabric-categories:after{content:'';position:absolute;right:-1px;top:-37px;bottom:-1px;width:1px;background:#899db02b;pointer-events:none}
-@media(max-width:760px){.material-dock,.material-dock.removal-mode{padding-right:66px}.fabric-browser .dock-carousel{padding-left:0}.fabric-categories:after{top:-33px;bottom:5px}.dock-carousel .material-list{padding-left:17px;padding-right:15px}.dock-delete-tools{right:0;width:66px}.dock-delete-tools #dockDeleteActions button{padding:7px 2px}}
+@media(max-width:760px){.material-dock,.material-dock.removal-mode{padding-right:66px}.material-dock .dock-tabs{width:92px;flex-basis:92px}.material-dock .dock-tabs button{font-size:12px}.material-dock .fabric-categories{width:104px;flex-basis:104px}.fabric-browser .dock-carousel{padding-left:0}.fabric-categories:after{top:-33px;bottom:5px}.dock-carousel .material-list{padding-left:17px;padding-right:15px}.dock-delete-tools{right:0;width:66px}.dock-delete-tools #dockDeleteActions button{padding:7px 2px}}
 
 /* Center pattern cards in the space below the tabs; scrolling stays available. */
+@media(max-width:760px){.material-dock .pattern-categories{padding-top:7px}}
 #patternScrollbar{display:none}
 .pattern-browser .material-list{align-items:center}
 .pattern-browser .material-item{margin-top:0}
@@ -513,3 +535,87 @@ body.standalone .topbar:after{display:none}
 /* Keep the capture toolbar controls at a 3:2 width ratio. */
 .capture-ai-toolbar .capture-ai-prompt-picker{flex:3 1 0}
 .capture-ai-toolbar .capture-ai-settings-shell{flex:2 1 0}
+
+/* Keep the add action with the fixed right-side dock controls. */
+#addDockAsset.dock-add{position:static;inset:auto;display:grid;place-items:center;align-self:center;flex:0 0 44px;width:44px;height:44px;margin:0;padding:0;border:0;border-radius:10px;background:transparent;color:#fff;font-size:0;line-height:0}
+#addDockAsset .dock-add-icon{display:grid;place-items:center;width:44px;height:44px;border:1px solid #2f71ee;border-radius:10px;background:#2f71ee;box-shadow:0 5px 12px #2f71ee35;transition:background-color .16s,border-color .16s,box-shadow .16s,transform .12s}
+#addDockAsset[data-type=pattern] .dock-add-icon{border-radius:12px}
+#addDockAsset .dock-add-icon svg{display:block;width:22px;height:22px;fill:none;stroke:#fff;stroke-width:2.5;stroke-linecap:round}
+#addDockAsset:hover .dock-add-icon{border-color:#235fcf;background:#235fcf;box-shadow:0 7px 16px #2f71ee45}
+#addDockAsset:active .dock-add-icon{transform:scale(.95);box-shadow:0 2px 7px #2f71ee35}
+#dockTrash.dock-trash{position:absolute;inset:0;display:grid;place-items:center;width:100%;height:100%;padding:0;border:0;border-radius:0;background:transparent;color:#c54858;box-shadow:none}
+#dockTrash.dock-trash:hover{background:transparent;color:#b83c4d;box-shadow:none}
+#dockTrash.dock-trash:active{transform:none}
+#dockTrash.dock-trash svg{transition:transform 120ms var(--ease-out,cubic-bezier(.23,1,.32,1))}
+.dock-delete-tools{--dock-delete-duration:400ms;top:0;right:0;bottom:0;width:88px;display:block;isolation:isolate;overflow:hidden;padding-top:20px;border-left:0;border-radius:0 15px 15px 0}
+.dock-delete-tools:before{content:'';position:absolute;top:10px;bottom:0;left:0;width:1px;background:#899db02b;pointer-events:none}
+/* The soft leading edge rises out of view, leaving a solid pale-red surface. */
+.dock-delete-tools:after{content:'';position:absolute;inset:-48px 0;z-index:0;background:linear-gradient(to bottom,transparent 0,#fff1f2 48px,#fff1f2 100%);pointer-events:none;opacity:0;transform:translateY(100%);transition:transform var(--dock-delete-duration) var(--ease-out,cubic-bezier(.23,1,.32,1)),opacity var(--dock-delete-duration) var(--ease-out,cubic-bezier(.23,1,.32,1))}
+.removal-mode .dock-delete-tools:after{opacity:1;transform:translateY(0)}
+.dock-delete-tools > #addDockAsset.dock-add,.dock-delete-tools > #scanFabric.fabric-scan-trigger,.dock-delete-zone > #dockTrash.dock-trash{opacity:1;transform:translateY(0);transition:opacity var(--dock-delete-duration) var(--ease-out,cubic-bezier(.23,1,.32,1)),transform var(--dock-delete-duration) var(--ease-out,cubic-bezier(.23,1,.32,1)),display var(--dock-delete-duration) allow-discrete}
+.dock-delete-tools > #addDockAsset.dock-add[hidden],.dock-delete-tools > #scanFabric.fabric-scan-trigger[hidden],.dock-delete-zone > #dockTrash.dock-trash[hidden]{pointer-events:none;opacity:0;transform:translateY(-6px)}
+@starting-style{.dock-delete-tools > #addDockAsset.dock-add,.dock-delete-tools > #scanFabric.fabric-scan-trigger,.dock-delete-zone > #dockTrash.dock-trash{opacity:0;transform:translateY(-6px)}}
+.dock-delete-tools #addDockAsset.dock-add{position:relative;inset:auto;display:grid;align-self:auto;flex:none;width:44px;height:44px;margin:0 auto 14px;padding:0}
+.dock-delete-tools #scanFabric.fabric-scan-trigger{position:relative;z-index:1;width:44px;height:44px;flex-basis:44px;margin:0 auto}
+.dock-delete-zone{position:absolute;top:min(160px,calc(74% + 2.6px));right:0;bottom:0;left:0;z-index:1;display:grid;place-items:center;border-top:0;background:transparent;cursor:pointer;transition:background .16s,box-shadow .16s}
+.dock-delete-zone:before{content:'';position:absolute;inset:-24px 0 0;background:linear-gradient(to bottom,transparent 0%,#fff8f8 75%,#fff8f8 100%);pointer-events:none;transition:opacity var(--dock-delete-duration) var(--ease-out,cubic-bezier(.23,1,.32,1))}
+.removal-mode .dock-delete-zone{top:0;pointer-events:none}
+.removal-mode .dock-delete-zone:before{opacity:0}
+.dock-delete-zone:hover{background:transparent}
+.dock-delete-zone.drop-ready{background:#ffe9eb;box-shadow:inset 0 0 0 2px #db7180}
+.dock-delete-zone.drop-blocked{background:#edf0f3;box-shadow:inset 0 0 0 1px #aebac8}
+.dock-delete-zone.drop-ready:before,.dock-delete-zone.drop-blocked:before{display:none}
+.dock-delete-tools #dockDeleteActions{position:absolute;inset:0;z-index:2;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;margin:0;padding:12px 8px;pointer-events:auto;opacity:1;transform:translateY(0);transition:opacity var(--dock-delete-duration) var(--ease-out,cubic-bezier(.23,1,.32,1)),transform var(--dock-delete-duration) var(--ease-out,cubic-bezier(.23,1,.32,1)),display var(--dock-delete-duration) allow-discrete}
+.dock-delete-tools #dockDeleteActions:not([hidden]){transition-delay:var(--dock-delete-duration),var(--dock-delete-duration),var(--dock-delete-duration)}
+.dock-delete-tools #dockDeleteActions[hidden]{pointer-events:none;opacity:0;transform:translateY(6px);transition-delay:0s,0s,0s}
+@starting-style{.dock-delete-tools #dockDeleteActions{opacity:0;transform:translateY(6px)}}
+.dock-delete-tools #dockDeleteActions button{position:relative;display:grid;place-items:center;min-width:0;min-height:0;width:44px;height:44px;flex:0 0 44px;padding:10px;border:1px solid #d0dcea;border-radius:10px;background:#fff;color:#62758d;cursor:pointer;transition:background-color 140ms ease,border-color 140ms ease,color 140ms ease,transform 120ms var(--ease-out,cubic-bezier(.23,1,.32,1))}
+.dock-delete-tools #dockDeleteActions button:active{transform:scale(.94)}
+.dock-delete-tools #dockDeleteActions svg{display:block;width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.dock-delete-tools #dockCancelDelete{background:#fff;color:#64758a}
+.dock-delete-tools #dockDeleteSelected{color:#c54858;border-color:#efc6cd;background:#fff}
+.dock-delete-tools #dockDeleteSelected:disabled{opacity:.45;cursor:default;transform:none}
+@media(hover:hover) and (pointer:fine){#dockTrash.dock-trash:hover svg{transform:scale(1.08)}.dock-delete-tools #dockCancelDelete:hover{background:#f3f7fb;border-color:#b7c7d8}.dock-delete-tools #dockDeleteSelected:enabled:hover{background:#fff1f2;border-color:#df7882}}
+.dock-delete-count{position:absolute;top:-7px;right:-7px;display:grid;place-items:center;min-width:16px;height:16px;padding:0 3px;border:1px solid white;border-radius:999px;background:#c54858;color:white;font-size:9px;font-weight:700;line-height:1}
+@media(max-width:760px){.dock-delete-tools{width:66px;border-radius:0 13px 13px 0}.dock-delete-tools #addDockAsset.dock-add{width:40px;height:40px;margin-bottom:10px}.dock-delete-tools #scanFabric.fabric-scan-trigger{width:40px;height:40px;flex-basis:40px}.dock-delete-zone{top:min(134px,calc(74% + 2.6px))}.dock-delete-tools #dockDeleteActions button{width:40px;height:40px;flex-basis:40px;padding:8px}}
+@media(prefers-reduced-motion:reduce){.dock-delete-tools:after,.removal-mode .dock-delete-tools:after{transform:none;transition:opacity var(--dock-delete-duration) ease}.dock-delete-tools #dockDeleteActions,.dock-delete-tools #dockDeleteActions[hidden],.dock-delete-tools > #addDockAsset.dock-add,.dock-delete-tools > #addDockAsset.dock-add[hidden],.dock-delete-tools > #scanFabric.fabric-scan-trigger,.dock-delete-tools > #scanFabric.fabric-scan-trigger[hidden],.dock-delete-zone > #dockTrash.dock-trash,.dock-delete-zone > #dockTrash.dock-trash[hidden]{transform:none;transition:opacity var(--dock-delete-duration) ease,display var(--dock-delete-duration) allow-discrete}@starting-style{.dock-delete-tools #dockDeleteActions,.dock-delete-tools > #addDockAsset.dock-add,.dock-delete-tools > #scanFabric.fabric-scan-trigger,.dock-delete-zone > #dockTrash.dock-trash{transform:none}}}
+@media(prefers-reduced-motion:reduce){#dockTrash.dock-trash svg{transition:none}}
+@media(prefers-reduced-motion:reduce){#addDockAsset .dock-add-icon{transition:none}}
+
+/* Design-table launch: a small assembly sequence that explains what is loading. */
+.design-launch-loading{background:linear-gradient(145deg,#f8fbff 0%,#eef4fa 56%,#e7eef6 100%);transition:opacity .42s cubic-bezier(.23,1,.32,1),visibility 0s linear 0s}
+.design-launch-loading.is-hidden{transition:opacity .42s cubic-bezier(.23,1,.32,1),visibility 0s linear .42s}
+.design-launch-card{gap:9px;padding:26px 24px 22px}
+.design-launch-card strong{font-weight:600;color:#65758a}
+.design-platform-loader{isolation:isolate;overflow:visible}
+.design-platform-loader:before,.design-platform-loader:after{content:none;animation:none}
+.design-platform-scene{position:absolute;z-index:2;top:50%;left:50%;width:214px;height:120px;transform:translate(-50%,-50%);pointer-events:none}
+.design-platform-scene>span{position:absolute;display:block;opacity:0;animation-duration:3.2s;animation-iteration-count:infinite;animation-fill-mode:both;animation-timing-function:cubic-bezier(.23,1,.32,1)}
+.design-platform-shadow{left:27px;right:27px;bottom:8px;height:17px;border-radius:50%;background:#2c5d9e25;filter:blur(5px);animation-name:design-platform-shadow}
+.design-platform-legs{left:28px;top:67px;width:158px;height:25px;animation-name:design-platform-base}
+.design-platform-base{left:28px;top:67px;width:158px;height:25px;border:1px solid #78a8ee;border-radius:8px;background:linear-gradient(145deg,#c8ddfb 0%,#80acf0 48%,#5b8fe3 100%);box-shadow:0 8px 17px #2f71ee2b;animation-name:design-platform-base}
+.design-platform-edge{position:absolute;left:9px;right:9px;top:5px;height:3px;border-radius:99px;background:#f8fbffb8}
+.design-platform-leg{position:absolute;bottom:-14px;width:8px;height:17px;border-radius:0 0 4px 4px;background:#86abe3;box-shadow:inset 1px 0 #d9e8ff66}
+.design-platform-leg-left{left:22px}.design-platform-leg-right{right:22px}
+.design-platform-deck{left:24px;top:50px;width:166px;height:29px;border:1px solid #8ab5f3;border-radius:7px;background:linear-gradient(135deg,#ffffff 0%,#eff6ff 58%,#dbeafa 100%);box-shadow:0 6px 13px #2f71ee1c;transform-origin:center bottom;animation-name:design-platform-deck}
+.design-platform-deck i{position:absolute;top:9px;width:6px;height:6px;border-radius:2px;background:#b7d2f7;box-shadow:0 0 0 2px #eaf3ff}
+.design-platform-deck i:nth-child(1){left:23px}.design-platform-deck i:nth-child(2){left:50%;transform:translateX(-50%);background:#2f71ee}.design-platform-deck i:nth-child(3){right:23px}
+.design-platform-frame{left:51px;top:16px;width:112px;height:49px;animation-name:design-platform-frame}
+.design-platform-frame-top{position:absolute;left:0;right:0;top:0;height:6px;border-radius:4px;background:#3a7cf0;box-shadow:0 2px 5px #2f71ee35}
+.design-platform-frame-left,.design-platform-frame-right{position:absolute;top:3px;width:6px;height:48px;border-radius:4px;background:#4a86ef;box-shadow:0 2px 5px #2f71ee2b}
+.design-platform-frame-left{left:0}.design-platform-frame-right{right:0}
+.design-platform-panel{left:67px;top:25px;width:80px;height:37px;border:1px solid #91baf3;border-radius:5px;background:linear-gradient(145deg,#f8fbff,#e3eefc);box-shadow:inset 0 0 0 3px #fff8;animation-name:design-platform-panel}
+.design-platform-panel-line{position:absolute;left:12px;right:12px;top:11px;height:3px;border-radius:4px;background:#a5c5f4;box-shadow:0 8px 0 #c2d8f7}
+.design-platform-panel-dot{position:absolute;right:10px;top:10px;width:5px;height:5px;border-radius:50%;background:#2f71ee;box-shadow:0 0 0 3px #d8e8ff}
+.design-platform-tool{width:10px;height:10px;border:2px solid #2f71ee;border-radius:3px;background:#fff;box-shadow:0 3px 7px #2f71ee2b;animation-name:design-platform-tool}
+.design-platform-tool-left{left:39px;top:40px}.design-platform-tool-right{right:37px;top:40px}
+.design-platform-scan{left:63px;top:19px;width:90px;height:2px;border-radius:99px;background:linear-gradient(90deg,transparent,#6fa5f7 22%,#2f71ee 50%,#6fa5f7 78%,transparent);filter:drop-shadow(0 0 4px #5d9af566);animation:design-platform-scan 2.4s ease-in-out infinite}
+@keyframes design-platform-shadow{0%,8%{opacity:0;transform:scale(.74)}20%,84%{opacity:.8;transform:scale(1)}96%,100%{opacity:0;transform:scale(.88)}}
+@keyframes design-platform-base{0%,8%{opacity:0;transform:translateY(11px) scale(.9)}22%,82%{opacity:1;transform:translateY(0) scale(1)}95%,100%{opacity:0;transform:translateY(5px) scale(.98)}}
+@keyframes design-platform-deck{0%,17%{opacity:0;transform:translateY(9px) scale(.93)}30%,84%{opacity:1;transform:translateY(0) scale(1)}96%,100%{opacity:0;transform:translateY(4px) scale(.98)}}
+@keyframes design-platform-frame{0%,28%{opacity:0;transform:translateY(8px) scale(.94)}42%,84%{opacity:1;transform:translateY(0) scale(1)}95%,100%{opacity:0;transform:translateY(4px) scale(.98)}}
+@keyframes design-platform-panel{0%,39%{opacity:0;transform:translateY(5px) scale(.95)}51%,87%{opacity:1;transform:translateY(0) scale(1)}97%,100%{opacity:0;transform:translateY(3px) scale(.98)}}
+@keyframes design-platform-tool{0%,53%{opacity:0;transform:translateY(5px) scale(.7)}64%,89%{opacity:1;transform:translateY(0) scale(1)}98%,100%{opacity:0;transform:translateY(2px) scale(.9)}}
+@keyframes design-platform-scan{0%,35%{opacity:0;transform:translateY(0) scaleX(.35)}48%{opacity:.8;transform:translateY(9px) scaleX(1)}62%{opacity:.95;transform:translateY(32px) scaleX(1)}78%,100%{opacity:0;transform:translateY(40px) scaleX(.6)}}
+@media(max-width:480px){.design-platform-scene{transform:translate(-50%,-50%) scale(.86)}}
+@media(prefers-reduced-motion:reduce){.design-platform-scene>span,.design-platform-scan{animation:none;opacity:1;transform:none;filter:none}.design-platform-shadow{opacity:.65}}

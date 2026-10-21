@@ -13,7 +13,7 @@ const path = require('node:path');
     { id: 'root-material', kind: 'material', name: '根目录面料', updatedAt: 1 },
     { id: 'patterns', kind: 'folder', library: 'pattern', name: '图案文件夹', updatedAt: 1 },
     { id: 'pattern', kind: 'material', materialType: 'pattern', parentId: 'patterns', name: '子目录图案', updatedAt: 1 },
-    ...Array.from({ length: 30 }, (_, index) => ({ id: 'extra-' + index, kind: 'material', parentId: 'inner', name: '面料 ' + index, category: ['面布', '边布', '包边条', '其他'][index % 4], surface: { color: ['#884ab1', '#edd086', '#235888', '#65a583'][index % 4] }, updatedAt: 1 })),
+    ...Array.from({ length: 30 }, (_, index) => ({ id: 'extra-' + index, kind: 'material', parentId: 'inner', name: '面料 ' + index, category: ['面布', '边布', '辅料', '其他'][index % 4], surface: { color: ['#884ab1', '#edd086', '#235888', '#65a583'][index % 4] }, updatedAt: 1 })),
   ];
   const browser = await chromium.launch({ headless: true, channel: 'msedge' });
   try {
@@ -142,7 +142,7 @@ const path = require('node:path');
       assert.equal(await categoryButton.evaluate(button => getComputedStyle(button).fontSize), width === 1440 ? '16px' : '14px');
       await categoryButton.click();
       assert.equal(await categoryMenu.isVisible(), true);
-      assert.deepEqual(await categoryMenu.locator('button').allTextContents(), ['全部', '面布', '边布', '包边条', '其他']);
+      assert.deepEqual(await categoryMenu.locator('button').allTextContents(), ['全部', '面布', '边布', '辅料', '其他']);
       await categoryMenu.evaluate(menu => Promise.all(menu.getAnimations().map(animation => animation.finished)));
       await categoryButton.evaluate(button => Promise.all(button.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => {}))));
       if (width !== 760) await page.locator('#assetPicker').screenshot({ path: path.join(__dirname, width === 1440 ? 'design-picker-category-dropdown.png' : 'design-picker-category-dropdown-mobile.png') });
@@ -161,7 +161,7 @@ const path = require('node:path');
       assert.equal(await page.locator('.picker-card').count(), 8);
       assert.equal(await page.locator('.picker-confirm-count').textContent(), '1', 'Category filtering keeps hidden selections');
       await categoryButton.click(); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
-      assert.equal(await page.locator('#pickerCategoryLabel').textContent(), '包边条');
+      assert.equal(await page.locator('#pickerCategoryLabel').textContent(), '辅料');
       assert.equal(await page.locator('.picker-card').count(), 7, 'Keyboard selection filters binding materials');
       const headerControlsFit = await page.evaluate(() => {
         const category = document.getElementById('pickerCategory').getBoundingClientRect(), search = document.querySelector('.picker-search').getBoundingClientRect(), close = document.getElementById('closeAssetPicker').getBoundingClientRect();

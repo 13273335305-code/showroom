@@ -1,5 +1,6 @@
 import qrcode from '../vendor/qrcode-generator/qrcode.js';
 import { hasFabricIdentity, parseFabricIdentity } from './fabric-identity.js';
+import { normalizeFabricCategory } from './fabric-category.js';
 import { downloadFile } from './navigation.js';
 
 const escapeXml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[char]);
@@ -15,7 +16,8 @@ export function fabricLabelSvg(asset) {
   const qr = fabricQrSvg(asset.id).replace('<svg ', '<svg x="52" y="20" ');
   // foreignObject is deliberately avoided so downloaded labels print in SVG tools too.
   const line = (text, y, size = 16) => `<text x="200" y="${y}" text-anchor="middle" font-size="${size}" textLength="${String(text).length > 24 ? 352 : Math.min(352, String(text).length * size)}" lengthAdjust="spacingAndGlyphs">${escapeXml(text)}</text>`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="430" viewBox="0 0 400 430"><rect width="400" height="430" fill="white"/>${qr}<g fill="#18212a" font-family="Arial,Microsoft YaHei,sans-serif">${line(asset.name, 340, 20)}${line(`${asset.category} · 色号 ${asset.fabricColorCode || '未填写'}`, 370)}${line(asset.id, 402, 11)}</g></svg>`;
+  const category = normalizeFabricCategory(asset.category, '');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="430" viewBox="0 0 400 430"><rect width="400" height="430" fill="white"/>${qr}<g fill="#18212a" font-family="Arial,Microsoft YaHei,sans-serif">${line(asset.name, 340, 20)}${line(`${category} · 色号 ${asset.fabricColorCode || '未填写'}`, 370)}${line(asset.id, 402, 11)}</g></svg>`;
 }
 export function mountFabricLabel(host, { compact = false } = {}) {
   host.classList.add('fabric-identity'); host.hidden = true;
@@ -72,7 +74,7 @@ export function mountFabricLabel(host, { compact = false } = {}) {
       current = { ...asset }; ready.hidden = false;
       host.querySelector('.fabric-identity-qr').src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(fabricQrSvg(asset.id));
       host.querySelector('.fabric-identity-code').textContent = asset.id;
-      host.querySelector('.fabric-identity-description').textContent = `${asset.name} · ${asset.category} · 色号 ${asset.fabricColorCode || '未填写'}`;
+      host.querySelector('.fabric-identity-description').textContent = `${asset.name} · ${normalizeFabricCategory(asset.category, '')} · 色号 ${asset.fabricColorCode || '未填写'}`;
       status.textContent = message || (compact ? '' : '已保存，可在设计台扫码换面料');
     },
   };

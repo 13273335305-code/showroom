@@ -8,8 +8,9 @@ const fs = require('node:fs/promises'), os = require('node:os'), path = require(
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' }), errors = [];
     await require('./project-test-server.cjs').installProjectFixture(page.context());
     page.on('pageerror', e => errors.push(e.message));
-    await page.goto(process.env.FORM_BASE_URL || 'http://127.0.0.1:4186');
-    await page.waitForFunction(() => document.getElementById('loading').hidden && document.querySelectorAll('#materialList .material-item').length === 9);
+    await page.goto(new URL('design.html', process.env.FORM_BASE_URL || 'http://127.0.0.1:4186').href);
+    await page.waitForFunction(() => document.getElementById('loading').hidden);
+    assert.equal(await page.locator('#materialList .material-item').count(), 0, 'Model-owned materials are hidden');
     async function checkPlus() {
       const center = await page.locator('.dock-add-icon').evaluate(el => {
         const s = getComputedStyle(el), p = getComputedStyle(el, '::before');
@@ -20,7 +21,11 @@ const fs = require('node:fs/promises'), os = require('node:os'), path = require(
     }
     await checkPlus();
     await page.locator('#dockTrash').click();
-    assert.equal(await page.locator('#materialList .material-item:disabled').count(), 9);
+    for (const id of ['dockCancelDelete', 'dockDeleteSelected']) {
+      assert.equal(await page.locator('#' + id + ' svg').count(), 1, `${id} uses an icon`);
+      assert.equal((await page.locator('#' + id).innerText()).trim(), '', `${id} has no visible text`);
+    }
+    assert.equal(await page.locator('#materialList .material-item:disabled').count(), 0);
     assert.equal(await page.locator('#materialList .dock-select-box').count(), 0);
     assert.equal(await page.locator('#dockDeleteSelected').isDisabled(), true);
     assert.equal(await page.locator('#addDockAsset').isVisible(), false);
@@ -51,21 +56,20 @@ const fs = require('node:fs/promises'), os = require('node:os'), path = require(
     await page.locator('#dockTrash').click();
     assert.equal(await page.locator('[data-entry-id="9"]').isDisabled(), true, 'Applied new fabric is protected');
     for (const id of [10, 11]) { await page.locator(`[data-entry-id="${id}"]`).click(); }
-    assert.equal(await page.locator('#dockDeleteSelected').textContent(), '删除 (2)');
+    assert.equal(await page.locator('#dockDeleteSelected').getAttribute('aria-label'), '确定删除所选材质或图案，共 2 项');
+    assert.equal(await page.locator('#dockDeleteCount').textContent(), '2');
     await page.locator('#dockCancelDelete').click();
-    assert.equal(await page.locator('#materialList .material-item').count(), 12);
+    assert.equal(await page.locator('#materialList .material-item').count(), 3);
     await page.locator('#dockTrash').click();
     assert.equal(await page.locator('#dockDeleteSelected').isDisabled(), true);
-    const unusedOriginal = page.locator('#materialList .material-item:not(:disabled)').filter({ hasNotText: '删除测试面料' }).first();
-    const originalId = Number(await unusedOriginal.getAttribute('data-entry-id'));
-    await unusedOriginal.click();
     for (const id of [10, 11]) await page.locator(`[data-entry-id="${id}"]`).click();
-    assert.equal(await page.locator('#dockDeleteSelected').textContent(), '删除 (3)');
+    assert.equal(await page.locator('#dockDeleteSelected').getAttribute('aria-label'), '确定删除所选材质或图案，共 2 项');
+    assert.equal(await page.locator('#dockDeleteCount').textContent(), '2');
     await page.screenshot({ path: path.join(temp, 'fabric-selection.png') });
     await page.locator('#dockDeleteSelected').click();
-    assert.equal(await page.locator('#materialList .material-item').count(), 9);
+    assert.equal(await page.locator('#materialList .material-item').count(), 1);
     assert.equal(await page.locator('[data-entry-id="9"]').count(), 1);
-    assert.equal(await page.locator('#dockUndo').isDisabled(), true, 'Undo cannot restore a removed original material');
+    assert.equal(await page.locator('#dockUndo').isDisabled(), false, 'Hidden original materials remain available to undo');
     assert.equal(await page.locator('#dockTrash').isVisible(), true);
     await add('pattern', 2); await checkPlus();
     await drop(page.locator('[data-pattern-kind="source"]').first());
@@ -80,13 +84,13 @@ const fs = require('node:fs/promises'), os = require('node:os'), path = require(
     const { saveOnlineProject, openOnlineProject } = require('./project-roundtrip.cjs');
     const project = await saveOnlineProject(page), config = project.manifest;
     assert.equal(config.materials[10].removed, true); assert.equal(config.materials[11].removed, true);
-    assert.equal(config.materials[originalId].removed, true);
+    assert.ok(config.materials.slice(0, 9).every(material => !material.removed), 'Original model materials are preserved');
     assert.ok(config.assignments.flat().includes(9));
     assert.equal(config.patternSources[0].key, config.patterns[0].sourceKey);
     await openOnlineProject(page, project);
     await page.waitForFunction(() => document.getElementById('loading').hidden && document.querySelectorAll('[data-pattern-kind="placed"]').length === 1);
     assert.equal(await page.locator('[data-entry-id="10"]').count(), 0); assert.equal(await page.locator('[data-entry-id="11"]').count(), 0);
-    assert.equal(await page.locator(`[data-entry-id="${originalId}"]`).count(), 0, 'Unused FBX material stays removed after reload');
+    for (let id = 0; id < 9; id++) assert.equal(await page.locator(`[data-entry-id="${id}"]`).count(), 0, 'Original model materials stay hidden after reload');
     await page.locator('#fabricDockTab').click(); await page.locator('#dockTrash').click();
     assert.equal(await page.locator('[data-entry-id="9"]').isDisabled(), true);
     await page.locator('#patternDockTab').click();

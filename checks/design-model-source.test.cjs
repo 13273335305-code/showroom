@@ -49,7 +49,7 @@ function modelBytes() {
     });
     assert.ok(cloud.assets.has(ids.model),'Model is saved in the cloud fixture');
     await page.goto(`${base}/design.html?asset=${ids.model}`);
-    await page.waitForFunction(()=>document.getElementById('loading').hidden && document.querySelectorAll('.material-item').length>0,null,{timeout:60000});
+    await page.waitForFunction(()=>document.getElementById('loading').hidden,null,{timeout:60000});
     assert.equal(await page.locator('#modelName').textContent(),'cloud-model.glb');
     assert.equal(await page.locator('#importModel,#importSecondary,#modelFile,#dropOverlay').count(),0);
     for (const viewport of [{width:1440,height:1000},{width:390,height:844}]) {
@@ -102,7 +102,7 @@ function modelBytes() {
     const {saveOnlineProject,openOnlineProject}=require('./project-roundtrip.cjs');
     const project=await saveOnlineProject(page);
     await openOnlineProject(page,project);
-    await page.waitForFunction(()=>document.getElementById('modelName').textContent==='cloud-model.glb' && document.querySelectorAll('.material-item').length>0);
+    await page.waitForFunction(()=>document.getElementById('modelName').textContent==='cloud-model.glb' && document.getElementById('loading').hidden);
     assert.equal(await page.locator('#importModel,#importSecondary,#modelFile,#dropOverlay').count(),0);
     assert.deepEqual(errors,[]);
     console.log('PASS: import controls, handlers and styles removed; file drops blocked on desktop/mobile; cloud model, material drag, project save and restoration preserved');

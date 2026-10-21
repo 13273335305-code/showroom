@@ -17,6 +17,7 @@ import { MATERIAL_MAPS, readSurface, applySurface, readLegacyUV, applyLegacyUV }
 import { createDesignWorkspace } from './design-workspace.js';
 import { mountFabricScanner } from './shared/fabric-scanner.js';
 import { validateScannedFabric } from './shared/fabric-identity.js';
+import { FABRIC_PART_TYPES, normalizeFabricCategory, normalizePartType } from './shared/fabric-category.js';
 import { materialType, readPlacement, applyPlacement } from './shared/material-placement.js';
 import { materialSourceReference, resolveMaterialFile } from './shared/material-source.js';
 import { ENVIRONMENT_DEFAULTS, packScene, unpackScene, sceneName, sceneFilename } from './shared/scene-file.js';
@@ -75,8 +76,8 @@ let inspectorTransition=null,inspectorOrigin=null;
 let cameraTween=null,annotationMode=false,rulerMode=false,rulerAnimating=false,rulerClosing=false,rulerAnimationTimer=null,selectedAnnotation=null,annotations=[],annotationMoving=false,annotationIdleTimer=null;
 let patterns=[],selectedPattern=null,patternAsset=null,patternPlaceMode=false,patternUploadToken=0;
 let activeFabric='其他';
-function fabricCategory(entry){return entry.category||(/包边|滚边|piping|binding/i.test(entry.name)?'包边条':/边布|侧布|side/i.test(entry.name)?'边布':'面布');}
-const PART_TYPES=['面布','边布','包边条'];
+function fabricCategory(entry){return normalizeFabricCategory(entry.category||(/包边|滚边|piping|binding/i.test(entry.name)?'辅料':/边布|侧布|side/i.test(entry.name)?'边布':'面布'));}
+const PART_TYPES=FABRIC_PART_TYPES;
 function restorePartAssignments(raw){
  partAssignments=new Map();if(!raw||typeof raw!=='object')return;
  const names=raw.__materialNames&&typeof raw.__materialNames==='object'?raw.__materialNames:{};
@@ -85,7 +86,7 @@ function restorePartAssignments(raw){
   if(key==='__materialNames')continue;
   const types=Array.isArray(value)?value:value?.types;
   if(!Array.isArray(types))continue;
-  const valid=types.filter(type=>PART_TYPES.includes(type));if(!valid.length)continue;
+  const valid=types.map(normalizePartType).filter(type=>PART_TYPES.includes(type));if(!valid.length)continue;
   const index=Number(key);if(Number.isInteger(index))partAssignments.set(index,new Set(valid));
   const name=names[key];if(typeof name==='string'&&name)pendingByName.push([name,new Set(valid)]);
  }
@@ -812,7 +813,7 @@ function convertMaterials(object){
  installRoughnessShader(material);
  for(const[key,,,color]of MAPS){if(!source[key])continue;const original=source[key];if(original.image?.src===placeholder)continue;material[key]=original.clone();material[key].colorSpace=color?THREE.SRGBColorSpace:THREE.NoColorSpace;configureTextureSampling(material[key],renderer);}
  if(source.alphaMap){material.alphaMap=source.alphaMap.clone();configureTextureSampling(material.alphaMap,renderer);}if(source.normalScale)material.normalScale.copy(source.normalScale);if(source.emissive)material.emissive.copy(source.emissive);material.emissiveIntensity=source.emissiveIntensity??1;material.bumpScale=source.bumpMap?Math.min(.2,source.bumpScale??.02):.02;
- const index=result.length,entry={id:index,category:'其他',name:source.name||'未命名材质 '+(index+1),material,meshes:new Set([o]),uploads:{},mapTokens:{},repeat:[1,1],physical:defaultPhysical(),pendingDpi:{},densityInfo:null,flip:false,baseline:material.clone(),thumbnails:{},previews:{}};
+ const index=result.length,entry={id:index,category:'其他',name:source.name||'未命名材质 '+(index+1),modelOwned:true,material,meshes:new Set([o]),uploads:{},mapTokens:{},repeat:[1,1],physical:defaultPhysical(),pendingDpi:{},densityInfo:null,flip:false,baseline:material.clone(),thumbnails:{},previews:{}};
  for(const[key]of MAPS)if(material[key]){entry.thumbnails[key]=source.userData.spenicPreviews?source.userData.spenicPreviews.thumbnails[key]:imageData(material[key]);entry.previews[key]=source.userData.spenicPreviews?source.userData.spenicPreviews.previews[key]:imageData(material[key],2048,.92);}result.push(entry);converted.set(source.uuid,entry);return material;
  });o.material=Array.isArray(o.material)?next:next[0];});
  if(!meshCount)throw new Error('模型不包含可显示的网格');return {entries:result,meshCount,triangles:Math.round(triangles),uvMissing:[...geometries].filter(g=>!g.attributes.uv).length};
@@ -904,7 +905,7 @@ async function prepareFabricEntry(asset,id,{loadMaps=false}={}){
  entry.previewUrl=asset.preview?assetImageUrl(asset.preview):null;entry.previewInfo=asset.previewInfo;entry.assetPreviewChecked=true;entry.fabricColorCodes=asset.fabricColorCodes|| (asset.fabricColorCode?[asset.fabricColorCode]:[]);
  entry.fabricVariants=asset.fabricVariants||[];entry.fabricColorCode=asset.fabricColorCode;entry.assetId=asset.id;
  entry.assetRevision=asset.revision;
- entry.category=asset.category||'面布';const savedPhysical=readPhysical(asset.physical,true);entry.physical={...savedPhysical,sizeSource:'manual'};entry.repeat=asset.repeat||[1,1];entry.legacyMaps=asset.legacyMaps||{};
+ entry.category=normalizeFabricCategory(asset.category);const savedPhysical=readPhysical(asset.physical,true);entry.physical={...savedPhysical,sizeSource:'manual'};entry.repeat=asset.repeat||[1,1];entry.legacyMaps=asset.legacyMaps||{};
  try{
   entry.physical=savedPhysical;applySurface(entry.material,asset.surface||{});entry.flip=!!asset.surface?.flip;
   if(loadMaps)await loadMaterialMaps(entry,asset,{generation});
@@ -992,7 +993,7 @@ async function saveSelectedToLibrary(){
   await saveAsset(asset);await refreshLibrary();notify('已保存「'+asset.name+'」到资产库');
  }catch(error){notify('保存资产失败：'+error.message,6000);}finally{button.disabled=false;}
 }
-function renderMaterials(){const host=$('materialList');host.replaceChildren();document.querySelectorAll('[data-fabric]').forEach(b=>{b.classList.toggle('active',b.dataset.fabric===activeFabric);b.setAttribute('aria-pressed',String(b.dataset.fabric===activeFabric));});for(const entry of entries.filter(e=>!e.removed&&fabricCategory(e)===activeFabric)){const button=document.createElement('button');button.className='material-item'+(entry===selected?' active':'');button.setAttribute('aria-pressed',String(entry===selected));button.draggable=false;button.dataset.entryId=entry.id;button.addEventListener('pointerdown',event=>startMaterialDrag(event,entry));button.addEventListener('dblclick',event=>{event.preventDefault();event.stopPropagation();endMaterialDrag();pulseMaterialUsage(entry);});button.setAttribute('aria-label','选择材质 '+entry.name);const swatch=document.createElement('div');swatch.className='material-thumb';decorateSwatch(swatch,entry);const ball=document.createElement('div');ball.className='material-ball'+(materialClickApplying===entry?' apply-loading':'');ball.append(swatch);if(materialClickApplying===entry)ball.append($('materialPreview').querySelector('.material-apply-progress').cloneNode(true));const name=document.createElement('strong');name.textContent=entry.name;button.append(ball,name);button.onclick=async()=>{if(suppressMaterialClick){suppressMaterialClick=false;return;}if(materialClickApplying)return;setPatternMode(false);designUI?.setType('fabric');beginMaterialClickLoading(entry,button);try{if(!await replaceCategoryMaterials(entry,activeFabric)){selectEntry(entry);showPanel('material');}}catch(error){notify('材质应用失败：'+error.message,5000);}finally{finishMaterialClickLoading(entry);}};designUI?.bindDockItem(button,{kind:'fabric',entry});host.append(button);}designUI?.syncDock();$('materialCount').textContent=String(entries.filter(e=>!e.removed).length).padStart(2,'0');}
+function renderMaterials(){const host=$('materialList');host.replaceChildren();const categories=[...document.querySelectorAll('[data-fabric]')];if(!categories.some(button=>button.dataset.fabric===activeFabric))activeFabric=categories[0]?.dataset.fabric||'面布';categories.forEach(b=>{b.classList.toggle('active',b.dataset.fabric===activeFabric);b.setAttribute('aria-pressed',String(b.dataset.fabric===activeFabric));});for(const entry of entries.filter(e=>!e.removed&&!e.modelOwned&&fabricCategory(e)===activeFabric)){const button=document.createElement('button');button.className='material-item'+(entry===selected?' active':'');button.setAttribute('aria-pressed',String(entry===selected));button.draggable=false;button.dataset.entryId=entry.id;button.addEventListener('pointerdown',event=>startMaterialDrag(event,entry));button.addEventListener('dblclick',event=>{event.preventDefault();event.stopPropagation();endMaterialDrag();pulseMaterialUsage(entry);});button.setAttribute('aria-label','选择材质 '+entry.name);const swatch=document.createElement('div');swatch.className='material-thumb';decorateSwatch(swatch,entry);const ball=document.createElement('div');ball.className='material-ball'+(materialClickApplying===entry?' apply-loading':'');ball.append(swatch);if(materialClickApplying===entry)ball.append($('materialPreview').querySelector('.material-apply-progress').cloneNode(true));const name=document.createElement('strong');name.textContent=entry.name;button.append(ball,name);button.onclick=async()=>{if(suppressMaterialClick){suppressMaterialClick=false;return;}if(materialClickApplying)return;setPatternMode(false);designUI?.setType('fabric');beginMaterialClickLoading(entry,button);try{if(!await replaceCategoryMaterials(entry,activeFabric)){selectEntry(entry);showPanel('material');}}catch(error){notify('材质应用失败：'+error.message,5000);}finally{finishMaterialClickLoading(entry);}};designUI?.bindDockItem(button,{kind:'fabric',entry});host.append(button);}designUI?.syncDock();$('materialCount').textContent=String(entries.filter(e=>!e.removed).length).padStart(2,'0');}
 function stopMaterialPulse(){if(!materialPulse)return;const pulse=materialPulse;cancelAnimationFrame(pulse.frame);for(const item of pulse.items){if(item.mesh.material===item.highlightedMaterial)item.mesh.material=item.original;item.highlight.dispose();}materialPulse=null;pulse.resolve?.(false);}
 function beginMaterialClickLoading(entry,button){
  materialClickApplying=entry;const ball=button.querySelector('.material-ball');ball.classList.add('apply-loading');ball.append($('materialPreview').querySelector('.material-apply-progress').cloneNode(true));
@@ -1172,7 +1173,7 @@ function endMaterialDrag(success=false, options={}){
  const durationMs=performance.now()-dragStartedAt;
  recordPerformanceOperation('拖拽松手：'+session.entry.name,{durationMs,pickMs:dragPickCount?dragPickMs/dragPickCount:0});
  draggedMaterial=null;clearTimeout(materialHoldTimer);
- document.querySelector('.dock-delete-tools').classList.remove('drop-ready','drop-blocked');
+ document.querySelector('.dock-delete-zone').classList.remove('drop-ready','drop-blocked');
  clearTimeout(materialHoverTimer);materialHoverTimer=null;$('materialPreview').classList.remove('jelly-ready');
  if(session.element.hasPointerCapture(session.pointerId))session.element.releasePointerCapture(session.pointerId);
  controls.enabled=true;syncAutoRotate();
@@ -1299,7 +1300,7 @@ function undoMaterialAssignment(){
  $('undoMaterial').disabled=assignmentHistory.length===0;notify('已撤销上一次材质替换');
 }
 function overDockTrash(event){
- const rect=document.querySelector('.dock-delete-tools').getBoundingClientRect();
+ const rect=document.querySelector('.dock-delete-zone').getBoundingClientRect();
  return event.clientX>=rect.left&&event.clientX<=rect.right&&event.clientY>=rect.top&&event.clientY<=rect.bottom;
 }
 function draggedDockItem(session){return session.patternTarget||{kind:'fabric',entry:session.entry};}
@@ -1319,7 +1320,7 @@ function bindMaterialDrop(){
   if(s.phase!=='dragging'&&Math.hypot(event.clientX-s.startX,event.clientY-s.startY)<8)return;
   clearTimeout(materialHoldTimer);suppressMaterialClick=true;s.element.classList.add('dragging');
   $('viewport').classList.add('material-drag-active');
-  const overTrash=overDockTrash(event),allowed=overTrash&&canRemoveDockItem(draggedDockItem(s)),trash=document.querySelector('.dock-delete-tools');
+  const overTrash=overDockTrash(event),allowed=overTrash&&canRemoveDockItem(draggedDockItem(s)),trash=document.querySelector('.dock-delete-zone');
   trash.classList.toggle('drop-ready',allowed);trash.classList.toggle('drop-blocked',overTrash&&!allowed);
   if(!dragMoveRecorded){dragMoveRecorded=true;recordPerformanceOperation('拖拽移动：'+s.entry.name);}
   moveMaterialPreview(event,overTrash?null:s.lastHit);schedulePick(event,overTrash);
@@ -1637,7 +1638,7 @@ async function openProject(config){
   for(const data of config.materials||[])if(entries[data.id]){entries[data.id].assetId=typeof data.assetId==='string'&&data.assetId?data.assetId:null;entries[data.id].assetMapsLoaded=data.assetMapsLoaded===true&&(!assignedMaterialIds||assignedMaterialIds.has(data.id));entries[data.id].legacyMaps=data.legacyMaps||{};entries[data.id].placement=readPlacement(data.placement);}
  if(config.physicalModel){const unit=config.physicalModel.cmPerUnit;if(!Number.isFinite(unit)||unit<=0||unit>1e9)throw new Error('模型单位无效');physicalModel.cmPerUnit=unit;physicalModel.calibrated=!!config.physicalModel.calibrated;updateModelDimensions();}
   for(const data of config.materials||[]){const entry=entries[data.id];if(!entry)continue;entry.physical=readPhysical(data.physical,true);entry.repeat=data.repeat||[1,1];const shouldRestoreMaps=!assignedMaterialIds||assignedMaterialIds.has(data.id);if(shouldRestoreMaps)for(const[key]of MAPS){const map=data.maps?.[key];if(map===null)removeTexture(entry,key);else if(map?.path){const descriptor=config.files[map.path];await uploadTexture(entry,key,await readFile(map.path),true,null,{density:data.density?.[key],prepared:descriptor.prepared===true,sourceRef:descriptor.reference,projectReference:descriptor});if(!entry.material[key])throw new Error('项目贴图未能载入：'+key);}}
- entry.name=String(data.name);entry.category=['面布','边布','包边条','其他'].includes(data.category)?data.category:fabricCategory(entry);entry.material.name=entry.name;entry.material.color.set('#'+data.color);entry.material.roughness=data.roughness;entry.material.metalness=data.metalness;entry.material.normalScale.set(data.normalStrength,data.normalStrength*(data.flip?-1:1));entry.material.aoMapIntensity=data.aoStrength;entry.material.emissive.set('#'+data.emissive);entry.material.emissiveIntensity=data.emissiveStrength;entry.material.bumpScale=data.bumpStrength;entry.flip=!!data.flip;entry.repeat=data.repeat||[1,1];for(const[key]of MAPS)if(entry.material[key]&&(entry.uploads[key]||entry.physical.mode==='legacy')){if(entry.material[key]===entry.baseline[key])entry.material[key]=entry.material[key].clone();configureTexture(entry,entry.material[key],key);}
+ entry.name=String(data.name);entry.category=normalizeFabricCategory(data.category,fabricCategory(entry));entry.material.name=entry.name;entry.material.color.set('#'+data.color);entry.material.roughness=data.roughness;entry.material.metalness=data.metalness;entry.material.normalScale.set(data.normalStrength,data.normalStrength*(data.flip?-1:1));entry.material.aoMapIntensity=data.aoStrength;entry.material.emissive.set('#'+data.emissive);entry.material.emissiveIntensity=data.emissiveStrength;entry.material.bumpScale=data.bumpStrength;entry.flip=!!data.flip;entry.repeat=data.repeat||[1,1];for(const[key]of MAPS)if(entry.material[key]&&(entry.uploads[key]||entry.physical.mode==='legacy')){if(entry.material[key]===entry.baseline[key])entry.material[key]=entry.material[key].clone();configureTexture(entry,entry.material[key],key);}
  }
  for(const data of config.materials||[]){const entry=entries[data.id];if(entry&&data.surface)applySurface(entry.material,data.surface);}
  restoreAssignments(model,entries,config.assignments);

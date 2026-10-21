@@ -1,6 +1,7 @@
 import { createProjectCloud, PROJECT_BUCKET } from './project-cloud.js';
 import { createRuntimeMaps, compressImageFile } from './asset-thumbnail.js';
 import { MATERIAL_MAPS } from './material-map-definitions.js';
+import { normalizeAssetCategories } from './fabric-category.js';
 
 const TABLE = 'spenic_assets', FAVORITES = 'spenic_asset_favorites';
 const SUMMARY = 'id,owner_id,kind,name,category,library,parent_id,metadata,thumbnail_path,created_at,updated_at';
@@ -19,9 +20,10 @@ function checked(result) {
 }
 function summary(row, preview = null) {
   if (!row) return null;
-  return { ...row.metadata, id: row.id, ownerId: row.owner_id, kind: row.kind, name: row.name, category: row.category,
+  const asset = normalizeAssetCategories({ ...row.metadata, id: row.id, ownerId: row.owner_id, kind: row.kind, name: row.name, category: row.category,
     library: row.library, parentId: row.parent_id, cloud: true, preview, cloudPreview: preview,
-    updatedAt: Date.parse(row.updated_at), revision: row.updated_at };
+    updatedAt: Date.parse(row.updated_at), revision: row.updated_at });
+  return asset;
 }
 function validateManifest(manifest) {
   if (manifest?.format !== 'SPENIC-ASSET' || manifest.version !== 1 || !manifest.files || Array.isArray(manifest.files)) throw new Error('资产清单无效');
@@ -123,6 +125,7 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
     return asset;
   }
   async function write(asset, manifest, old) {
+    asset = normalizeAssetCategories(asset);
     const { client, userId } = await access();
     if (asset.uploadOwnerId && asset.uploadOwnerId !== userId) throw new Error('账号已切换，请返回原账号继续上传。');
     const fork = old && old.owner_id !== userId;
@@ -151,6 +154,7 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
     manifest.files.thumbnail = await upload(await compressImageFile(preview, 320)); manifest.thumbnailPath = 'thumbnail';
   }
   async function save(asset, { onProgress = () => {} } = {}) {
+    asset = normalizeAssetCategories(asset);
     if (!['material', 'model', 'texture', 'folder'].includes(asset.kind) || !asset.name?.trim()) throw new Error('资产名称或类型无效');
     if (asset.kind === 'model' && asset.runtimeModel) throw new Error('请从部件配置保存原模型');
     const targetId = asset.id || asset.createId;
@@ -228,6 +232,7 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
     const { userId } = await access(), row = await read(id);
     if (!row) throw new Error('资产已删除');
     const { favorite: star, ...metadata } = changes;
+    if (metadata.category !== undefined && row.kind === 'material') metadata.category = normalizeAssetCategories({ kind: 'material', category: metadata.category }).category;
     if (Object.keys(metadata).length) {
       if (row.owner_id !== userId) throw new Error('只有上传者可以修改资产');
       const manifest = row.manifest ? structuredClone(row.manifest) : null;

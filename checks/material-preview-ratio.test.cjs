@@ -19,7 +19,7 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
     assert.equal(await physical.getAttribute('aria-pressed'), 'true'); assert.equal(await pixel.getAttribute('aria-pressed'), 'true');
     const sizes = () => page.evaluate(() => ['previewPhysicalWidth','previewPhysicalHeight','previewPixelWidth','previewPixelHeight'].map(id => Number(document.getElementById(id).value)));
     assert.deepEqual((await sizes()).slice(0,2), [120,90]);
-    for (const [category, expected] of [['边布',[40,30]],['包边条',[10,7.5]],['其他',[10,7.5]],['面布',[120,90]]]) {
+    for (const [category, expected] of [['边布',[40,30]],['辅料',[10,7.5]],['其他',[10,7.5]],['面布',[120,90]]]) {
       await page.locator('#cancelPreviewGeneration').click();
       await page.locator('#category').selectOption(category);
       await page.locator('#saveMaterial').click();
@@ -77,7 +77,7 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
     assert.deepEqual(await sizes(), [40,30,400,300]);
     assert.equal(await physical.getAttribute('aria-pressed'), 'true');
     await page.locator('#previewPhysicalWidth').fill('80'); assert.equal((await sizes())[1],60);
-    await page.locator('#cancelPreviewGeneration').click(); await page.locator('#category').selectOption('包边条'); await page.locator('#saveMaterial').click();
+    await page.locator('#cancelPreviewGeneration').click(); await page.locator('#category').selectOption('辅料'); await page.locator('#saveMaterial').click();
     assert.deepEqual((await sizes()).slice(0,2), [10,7.5], 'Changing classification uses its defaults instead of the previous saved size');
     assert.deepEqual(errors, []);
     console.log('Material preview ratio checks passed: category defaults, default locks, bidirectional changes, independent unlocks, relock, validation, saved dimensions, reload, centered icons on desktop/tablet/mobile.');
