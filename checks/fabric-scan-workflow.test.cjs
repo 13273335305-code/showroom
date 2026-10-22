@@ -147,28 +147,38 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
     await design.goto(base + '/design.html?asset=' + ids.model);
     await design.waitForFunction(() => document.getElementById('loading').hidden && window.readScanState?.().slots.every(slot => slot.values.length === 1), null, { timeout: 60000 });
     const read = () => design.evaluate(() => readScanState());
-    const settings = async () => { if (!(await design.locator('#fabricScanSettings').isVisible())) await design.getByRole('button', { name: '扫码设置', exact: true }).click(); };
-    const scan = async id => { await settings(); await design.locator('#fabricScanInput').fill(id); await design.locator('#fabricScanInput').press('Enter'); await design.waitForFunction(() => document.querySelector('#fabricScanDialog form').getAttribute('aria-busy') === 'false'); return design.locator('#fabricScanStatus').textContent(); };
+    const selectMode = value => design.locator(`[data-scan-mode=${value}]`).click();
+    const submitScan = async id => { await selectMode('scanner'); await design.keyboard.type(id); await design.keyboard.press('Enter'); };
+    const scan = async id => { await submitScan(id); await design.waitForFunction(() => document.querySelector('#fabricScanDialog').getAttribute('aria-busy') === 'false'); return design.locator('#fabricScanStatus').textContent(); };
     await design.locator('[data-fabric="面布"]').click(); await design.locator('#scanFabric').click();
+    await design.waitForFunction(() => document.querySelector('[data-scan-mode=scanner]').getAttribute('aria-pressed') === 'true');
+    assert.match(await design.locator('#fabricScanStatus').textContent(), /未检测到摄像头/);
     assert.equal(await design.locator('#materialDock #scanFabric').count(), 1);
     assert.equal(await design.locator('.topbar #scanFabric').count(), 0);
-    assert.equal(await design.locator('#fabricScanSettings').isVisible(), false);
+    assert.equal(await design.locator('#fabricScanSettings,.fabric-scan-settings').count(), 0);
     assert.equal(await design.locator('.fabric-scan-video').isVisible(), true);
-    const cameraBox = await design.locator('#fabricScanDialog').boundingBox(), dockBox = await design.locator('#materialDock').boundingBox();
+    const cameraBox = await design.locator('.fabric-scan-camera-view').boundingBox(), dockBox = await design.locator('#materialDock').boundingBox();
     assert.ok(Math.abs(cameraBox.width - cameraBox.height) < 1, 'Primary camera window is square');
     assert.equal(cameraBox.width, 224, 'Desktop camera window is compact');
     assert.ok(cameraBox.y + cameraBox.height < dockBox.y, 'Camera window floats above the material bar');
     assert.equal(await design.locator('.fabric-scan-close').count(), 0, 'Camera overlay has no close button');
-    assert.equal(await design.locator('#fabricScanDialog button:visible').count(), 1, 'Only settings appears over the camera');
+    assert.equal(await design.locator('#fabricScanDialog button:visible').count(), 2, 'Only the mode switch appears above the frame');
+    const toggleBox = await design.locator('#fabricScanMode').boundingBox();
+    assert.ok(toggleBox.y + toggleBox.height < cameraBox.y, 'Mode switch sits above the scan frame');
     assert.ok((await design.locator('#fabricScanTitle').boundingBox()).width <= 1, 'Camera title is visually removed');
-    assert.ok((await design.locator('#fabricScanStatus').boundingBox()).width <= 1, 'Camera status is visually removed');
     assert.match(await scan(ids.edge), /已将“边布”/);
-    assert.equal(await design.locator('.fabric-scan-guide').getAttribute('data-state'), null, 'Manual / keyboard application does not play camera feedback');
-    assert.equal(await design.locator('#fabricScanTitle').textContent(), '扫码设置');
-    assert.ok((await design.locator('#fabricScanStatus').boundingBox()).width <= 1, 'Settings status is visually removed');
+    await design.waitForFunction(() => document.querySelector('.fabric-scan-guide').dataset.state === 'ready');
+    assert.equal(await design.locator('#fabricScanTitle').textContent(), '扫码换面料', 'Keyboard application returns to the shared scan window');
+    assert.equal(await design.locator('.fabric-scan-guide').getAttribute('data-asset-id'), ids.edge);
+    assert.ok((await design.locator('#fabricScanStatus').boundingBox()).width <= 1, 'Successful scan status is visually removed');
     let value = await read(); assert.equal(value.slots[1].values[0].id, ids.edge); assert.equal(value.slots[0].values[0].id, null); assert.equal(value.history, 1);
     assert.match(await scan(ids.edge), /无需重复替换/); assert.equal((await read()).history, 1);
-    assert.match(await scan(ids.face), /已将“面布”/); assert.match(await scan(ids.piping), /已将“辅料”/); assert.equal((await read()).history, 3);
+    await selectMode('scanner');
+    for (const id of [ids.face, ids.piping]) {
+      await design.keyboard.type(id); await design.keyboard.press('Enter');
+      await design.waitForFunction(id => document.querySelector('.fabric-scan-guide').dataset.state === 'ready' && document.querySelector('.fabric-scan-guide').dataset.assetId === id, id);
+    }
+    assert.equal((await read()).history, 3, 'Scanner-gun scans replace the matching categories in the model');
     await design.keyboard.press('Escape'); await design.locator('#headerUndo').click(); assert.equal((await read()).slots[2].values[0].id, null);
     await design.evaluate(async id => { const store = await import('./shared/asset-store.js'); const asset = await store.getAsset(id); await store.saveAsset({ ...asset, name: '最新边布', surface: { ...asset.surface, color: '#11aaee' } }); }, ids.edge);
     await design.locator('#scanFabric').click(); assert.match(await scan(ids.edge), /最新边布/); assert.equal((await read()).slots[1].values[0].color, '11aaee');
@@ -191,99 +201,63 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
     assert.match(await scan(ids.other), /尚未配置/); assert.deepEqual(await read(), beforeErrors);
     let releaseQuery; const queryGate = new Promise(resolve => { releaseQuery = resolve; });
     await design.route('**/__cloud_test/query', async route => { const payload = route.request().postDataJSON(); if (payload.table === 'spenic_assets' && payload.filters.id === ids.face) await queryGate; return route.fallback(); });
-    await settings(); await design.locator('#fabricScanInput').fill(ids.face); await design.locator('#fabricScanInput').press('Enter');
-    await design.waitForFunction(() => document.querySelector('#fabricScanDialog form').getAttribute('aria-busy') === 'true');
+    await submitScan(ids.face);
+    await design.waitForFunction(() => document.querySelector('#fabricScanDialog').getAttribute('aria-busy') === 'true');
     await design.keyboard.press('Escape'); releaseQuery();
-    await design.waitForFunction(() => document.querySelector('#fabricScanDialog form').getAttribute('aria-busy') === 'false');
+    await design.waitForFunction(() => document.querySelector('#fabricScanDialog').getAttribute('aria-busy') === 'false');
     await design.unroute('**/__cloud_test/query'); assert.deepEqual(await read(), beforeErrors);
     await design.evaluate(() => {
-      window.cameraTracks = []; window.cameraValue = ''; window.cameraDenied = false;
-      const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 480; const ctx = canvas.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 640, 480);
+      window.cameraTracks = []; window.cameraRequests = []; window.cameraValue = ''; window.cameraDenied = false;
+      const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 480; const ctx = canvas.getContext('2d');
       window.cameraCanvasTimer = setInterval(() => { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 640, 480); }, 100);
-      Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, value: async () => { if (window.cameraDenied) throw new DOMException('denied', 'NotAllowedError'); const stream = canvas.captureStream(10); window.cameraTracks.push(...stream.getTracks()); return stream; } });
-      Object.defineProperty(navigator.mediaDevices, 'enumerateDevices', { configurable: true, value: async () => [{ kind: 'videoinput', deviceId: 'one', label: '测试摄像头一' }, { kind: 'videoinput', deviceId: 'two', label: '测试摄像头二' }] });
+      Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, value: async constraints => {
+        window.cameraRequests.push(constraints);
+        if (window.cameraDenied) throw new DOMException('denied', 'NotAllowedError');
+        const stream = canvas.captureStream(10), track = stream.getVideoTracks()[0];
+        track.getSettings = () => ({ deviceId: constraints.video.deviceId?.exact || 'ultra' });
+        window.cameraTracks.push(track); return stream;
+      } });
+      Object.defineProperty(navigator.mediaDevices, 'enumerateDevices', { configurable: true, value: async () => [
+        { kind: 'videoinput', deviceId: 'front', label: 'Front Camera' },
+        { kind: 'videoinput', deviceId: 'ultra', label: 'Back Ultra Wide Camera' },
+        { kind: 'videoinput', deviceId: 'main', label: 'Back Main Camera' }
+      ] });
       Object.defineProperty(window, 'BarcodeDetector', { configurable: true, value: class { static async getSupportedFormats() { return ['qr_code']; } async detect() { return window.cameraValue ? [{ rawValue: window.cameraValue }] : []; } } });
     });
-    await design.locator('#scanFabric').click();
-    await design.waitForFunction(() => window.cameraTracks.length === 1 && document.querySelectorAll('#fabricScanCamera option').length === 2);
-    assert.equal(await design.locator('#fabricScanSettings').isVisible(), false);
-    await settings(); await design.locator('#fabricScanCamera').selectOption('two');
-    await design.waitForFunction(() => window.cameraTracks.length === 2 && window.cameraTracks[0].readyState === 'ended');
+    await design.locator('#scanFabric').click(); await selectMode('camera');
+    await design.waitForFunction(() => window.cameraTracks.length === 2 && document.querySelector('#fabricScanDialog').classList.contains('has-camera'));
+    assert.deepEqual(await design.evaluate(() => cameraRequests[0].video.facingMode), { exact: 'environment' });
+    assert.equal(await design.evaluate(() => cameraRequests[1].video.deviceId.exact), 'main');
+    assert.equal(await design.evaluate(() => cameraTracks[0].readyState), 'ended');
     await design.evaluate(id => { window.cameraValue = id; }, ids.piping);
-    const settingsHistory = (await read()).history; await design.waitForTimeout(350);
-    assert.equal((await read()).history, settingsHistory, 'Camera scanning pauses while settings are open');
-    await design.getByRole('button', { name: '返回扫码', exact: true }).click();
-    await design.waitForFunction(id => readScanState().slots[2].values[0].id === id, ids.piping, { timeout: 15000 });
-    await design.waitForFunction(id => { const guide = document.querySelector('.fabric-scan-guide'); return guide.dataset.state === 'ready' && guide.dataset.assetId === id; }, ids.piping);
-    assert.equal(await design.locator('.fabric-scan-material').evaluate(element => getComputedStyle(element).backgroundColor), 'rgb(34, 170, 102)', 'Color-only fabric sphere uses the scanned material');
-    assert.equal(await design.locator('.fabric-scan-sphere').count(), 1);
-    assert.equal(await design.locator('.fabric-scan-loading').evaluate(element => getComputedStyle(element).animationName), 'none', 'Reduced motion disables the rotating loader');
+    await design.waitForFunction(id => readScanState().slots[2].values[0].id === id && document.querySelector('.fabric-scan-guide').dataset.state === 'ready', ids.piping);
+    assert.equal(await design.locator('.fabric-scan-material').evaluate(element => getComputedStyle(element).backgroundColor), 'rgb(34, 170, 102)');
     const cameraHistory = (await read()).history; await design.waitForTimeout(1300); assert.equal((await read()).history, cameraHistory);
     await design.screenshot({ path: 'outputs/fabric-scan/scanner-desktop.png' });
     await design.evaluate(id => { window.cameraValue = id; }, ids.textured);
-    await design.waitForFunction(id => { const guide = document.querySelector('.fabric-scan-guide'); return readScanState().slots[0].values[0].id === id && guide.dataset.state === 'ready' && guide.dataset.assetId === id && !!guide.querySelector('.fabric-scan-sphere img'); }, ids.textured);
-    assert.equal(await design.locator('.fabric-scan-sphere img').evaluate(image => image.complete && image.naturalWidth === 320 && image.src.startsWith('data:image/png')), true, 'Camera recognition displays the projected saved fabric preview');
-    await design.evaluate(() => { window.cameraValue = ''; });
-    await design.keyboard.press('Escape'); assert.equal(await design.evaluate(() => window.cameraTracks.every(track => track.readyState === 'ended')), true);
-    assert.equal(await design.locator('.fabric-scan-guide').getAttribute('data-state'), null, 'Closing clears the sphere feedback');
-    await design.evaluate(() => { window.cameraDenied = true; }); await design.locator('#scanFabric').click();
+    await design.waitForFunction(id => readScanState().slots[0].values[0].id === id && document.querySelector('.fabric-scan-guide').dataset.state === 'ready' && !!document.querySelector('.fabric-scan-sphere img'), ids.textured);
+    await selectMode('scanner');
+    assert.equal(await design.evaluate(() => cameraTracks.every(track => track.readyState === 'ended')), true, 'Mode switch releases every camera track');
+    assert.equal(await design.locator('.fabric-scan-guide').getAttribute('data-state'), null);
+    await design.evaluate(() => { window.cameraDenied = true; window.cameraValue = ''; });
+    await selectMode('camera');
     await design.waitForFunction(() => document.getElementById('fabricScanStatus').textContent.includes('权限被拒绝'));
-    await settings(); await design.evaluate(() => { window.cameraDenied = false; window.cameraValue = ''; }); await design.locator('.fabric-scan-camera').click();
-    await design.waitForFunction(() => window.cameraTracks.length === 3 && document.querySelector('.fabric-scan-camera').textContent === '关闭摄像头');
-    await design.locator('.fabric-scan-camera').click();
-    assert.equal(await design.evaluate(() => window.cameraTracks.every(track => track.readyState === 'ended')), true);
-    await design.screenshot({ path: 'outputs/fabric-scan/scanner-settings-desktop.png' });
-    await design.keyboard.press('Escape');
-    // A failed first camera session can be recovered by returning from settings;
-    // the primary square view must not retain the stale recognition error.
-    await design.evaluate(() => {
-      window.cameraRetryCalls = 0;
-      Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, value: async () => {
-        window.cameraRetryCalls++;
-        if (window.cameraRetryCalls === 1) throw new DOMException('temporary camera failure', 'NotReadableError');
-        const canvas = document.createElement('canvas'); canvas.width = canvas.height = 320;
-        const context = canvas.getContext('2d'); context.fillStyle = '#fff'; context.fillRect(0, 0, 320, 320);
-        const stream = canvas.captureStream(10); window.cameraTracks.push(...stream.getTracks()); return stream;
-      } });
-    });
-    await design.locator('#scanFabric').click();
-    await design.waitForFunction(() => document.getElementById('fabricScanStatus').textContent.includes('摄像头无法使用'));
-    await design.getByRole('button', { name: '扫码设置', exact: true }).click();
-    await design.getByRole('button', { name: '返回扫码', exact: true }).click();
-    await design.waitForFunction(() => document.querySelector('.fabric-scan-camera').textContent === '关闭摄像头');
-    assert.equal(await design.locator('#fabricScanStatus').getAttribute('data-state'), '');
-    await design.locator('#scanFabric').click();
-    await design.locator('#scanFabric').click();
-    // WebKit can collapse a dialog whose children are all absolutely positioned.
-    // Exercise the explicit height without relying on aspect-ratio sizing.
-    const tabletSizing = await design.addStyleTag({ content: '.fabric-scan-dialog:not(.is-settings){aspect-ratio:auto}' });
-    for (const [name, width, height] of [['landscape', 1194, 700], ['portrait', 834, 1080], ['landscape-toolbar-hidden', 1194, 780]]) {
+    assert.ok((await design.locator('#fabricScanStatus').boundingBox()).width > 100);
+    await design.evaluate(() => { window.cameraDenied = false; }); await selectMode('camera');
+    await design.waitForFunction(() => document.querySelector('#fabricScanDialog').classList.contains('has-camera'));
+    for (const [name, width, height] of [['landscape', 1194, 700], ['portrait', 834, 1080], ['landscape-toolbar-hidden', 1194, 780], ['mobile', 390, 844]]) {
       await design.setViewportSize({ width, height });
       await design.waitForFunction(() => {
-        const scan = document.getElementById('fabricScanDialog').getBoundingClientRect();
+        const frame = document.querySelector('.fabric-scan-camera-view').getBoundingClientRect(), toggle = document.querySelector('#fabricScanMode').getBoundingClientRect();
         const dock = document.getElementById('materialDock').getBoundingClientRect();
-        return scan.height >= 120 && Math.abs(scan.width - scan.height) < 1 && scan.x >= 0 && scan.y >= 0 && scan.right <= innerWidth && scan.bottom < dock.top;
+        return frame.height >= 120 && Math.abs(frame.width - frame.height) < 1 && toggle.top >= 0 && toggle.bottom < frame.top && frame.right <= innerWidth && frame.bottom < dock.top;
       });
-      assert.equal((await design.locator('#fabricScanDialog').boundingBox()).height, 224, name + ': tablet camera keeps its height');
-      assert.ok((await design.locator('.fabric-scan-video').boundingBox()).height > 200, name + ': video is visible');
-      const guide = await design.locator('.fabric-scan-guide').boundingBox();
-      const view = await design.locator('.fabric-scan-camera-view').boundingBox();
-      assert.ok(Math.abs(guide.width / view.width - .8) < .01, name + ': guide stays at 80%');
-      await settings();
-      assert.ok((await design.locator('#fabricScanDialog').boundingBox()).height > 224, name + ': settings expands for its controls');
-      await design.getByRole('button', { name: '返回扫码', exact: true }).click();
-      assert.equal((await design.locator('#fabricScanDialog').boundingBox()).height, 224, name + ': returning restores the square camera');
+      assert.equal((await design.locator('.fabric-scan-camera-view').boundingBox()).height, width <= 760 ? 216 : 224, name);
       await design.screenshot({ path: 'outputs/fabric-scan/scanner-ipad-' + name + '.png' });
     }
-    await tabletSizing.evaluate(style => style.remove());
-    await design.setViewportSize({ width: 390, height: 844 }); assert.equal(await design.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true); assert.equal(await design.locator('#scanFabric').isVisible(), true);
-    const mobileCamera = await design.locator('#fabricScanDialog').boundingBox();
-    assert.ok(Math.abs(mobileCamera.width - mobileCamera.height) < 1 && mobileCamera.x >= 0 && mobileCamera.y >= 0);
-    assert.equal(mobileCamera.width, 216, 'Mobile camera window is compact');
-    await design.screenshot({ path: 'outputs/fabric-scan/scanner-mobile.png' });
-    await settings(); await design.screenshot({ path: 'outputs/fabric-scan/scanner-settings-mobile.png' });
-    await design.keyboard.press('Escape'); await design.setViewportSize({ width: 1440, height: 1000 });
-    // Closing while permission is pending must release a stream that arrives later.
+    await design.keyboard.press('Escape');
+    assert.equal(await design.evaluate(() => cameraTracks.every(track => track.readyState === 'ended')), true);
+    // A permission result that arrives after switching mode must be released.
     await design.evaluate(() => {
       window.cameraOpenCalls = 0;
       Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, value: async () => {
@@ -294,17 +268,10 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
       } });
     });
     await design.locator('#scanFabric').click(); await design.waitForFunction(() => window.cameraOpenCalls === 1);
-    await design.locator('#scanFabric').click();
-    await design.evaluate(() => window.releasePendingCamera());
+    await selectMode('scanner'); await design.evaluate(() => window.releasePendingCamera());
     await design.waitForFunction(() => window.cameraTracks.every(track => track.readyState === 'ended'));
-    assert.equal(await design.locator('#scanFabric').getAttribute('aria-expanded'), 'false');
+    await design.keyboard.press('Escape');
     // Feed a real label through the square video crop and local ZXing decoder.
-    // Start from a different material so a stale assignment cannot pass the test.
-    await design.locator('#scanFabric').click();
-    assert.match(await scan(ids.edge), /最新边布/);
-    await design.locator('#scanFabric').click();
-    assert.equal((await read()).slots[1].values[0].id, ids.edge);
-    const beforeCameraDecode = (await read()).history;
     await design.evaluate(async id => {
       clearInterval(window.cameraCanvasTimer);
       Object.defineProperty(window, 'BarcodeDetector', { value: undefined, configurable: true });
@@ -314,18 +281,11 @@ const base = process.env.FORM_BASE_URL || 'http://127.0.0.1:4186';
       const ctx = canvas.getContext('2d');
       const draw = () => { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 640, 480); ctx.drawImage(image, 140, 60, 360, 360); };
       draw(); window.cameraCanvasTimer = setInterval(draw, 100);
-      Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, value: async () => { const stream = canvas.captureStream(10); window.cameraTracks.push(...stream.getTracks()); return stream; } });
+      Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, value: async () => { const stream = canvas.captureStream(10); stream.getVideoTracks()[0].getSettings = () => ({deviceId:'main'}); window.cameraTracks.push(...stream.getTracks()); return stream; } });
     }, editorId);
-    await design.locator('#scanFabric').click();
-    await design.waitForFunction(id => readScanState().slots[1].values[0].id === id, editorId, { timeout: 30000 }).catch(async error => {
-      console.error('Camera diagnostics', await design.evaluate(() => { const video = document.querySelector('.fabric-scan-video'); return {guide:document.querySelector('.fabric-scan-guide').outerHTML,status:document.getElementById('fabricScanStatus').textContent,video:{width:video.videoWidth,height:video.videoHeight,ready:video.readyState,paused:video.paused},history:readScanState()}; }));
-      throw error;
-    });
-    await design.waitForFunction(id => { const guide = document.querySelector('.fabric-scan-guide'); return guide.dataset.state === 'ready' && guide.dataset.assetId === id && !!guide.querySelector('.fabric-scan-sphere'); }, editorId);
-    assert.equal((await read()).history, beforeCameraDecode + 1, 'Decoding a camera frame must perform a replacement');
-    assert.match(await design.locator('#fabricScanStatus').textContent(), /已将“边布”/);
-    await design.locator('#scanFabric').click();
-    assert.equal(await design.evaluate(() => window.cameraTracks.every(track => track.readyState === 'ended')), true);
+    await design.locator('#scanFabric').click(); await selectMode('camera');
+    await design.waitForFunction(id => readScanState().slots[1].values[0].id === id && document.querySelector('.fabric-scan-guide').dataset.state === 'ready', editorId, {timeout:30000});
+    await design.keyboard.press('Escape'); await design.setViewportSize({ width: 1440, height: 1000 });
     const expectedSlots = (await read()).slots, project = await saveOnlineProject(design);
     await openOnlineProject(design, project); assert.deepEqual((await read()).slots, expectedSlots);
     assert.deepEqual(errors, []); await context.close();

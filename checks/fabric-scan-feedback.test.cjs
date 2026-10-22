@@ -16,7 +16,7 @@ const root = path.resolve(__dirname, '..');
     const file = path.resolve(root, '.' + pathname);
     if (!file.startsWith(root + path.sep)) { res.writeHead(403).end(); return; }
     try {
-      res.setHeader('Content-Type', { '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png' }[path.extname(file)] || 'application/octet-stream');
+      res.setHeader('Content-Type', { '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml' }[path.extname(file)] || 'application/octet-stream');
       res.end(await fs.readFile(file));
     } catch { res.writeHead(404).end(); }
   });
@@ -52,7 +52,10 @@ const root = path.resolve(__dirname, '..');
     const guide = page.locator('.fabric-scan-guide');
     const setCode = value => page.evaluate(value => { window.cameraValue = value; }, value);
     const waitPending = count => page.waitForFunction(count => pending.length === count, count);
-    const waitState = value => page.waitForFunction(value => document.querySelector('.fabric-scan-guide').dataset.state === value, value);
+    const waitState = value => page.waitForFunction(value => document.querySelector('.fabric-scan-guide').dataset.state === value, value).catch(async error => {
+      console.error('Scan feedback diagnostics', await page.evaluate(() => ({ state: document.querySelector('.fabric-scan-guide').dataset.state, stages: window.stages, status: document.querySelector('#fabricScanStatus').textContent, animations: document.getAnimations().map(animation => ({ id: animation.id, state: animation.playState, time: animation.currentTime, property: animation.transitionProperty })) })), errors);
+      throw error;
+    });
     const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444'];
     await fs.mkdir(path.join(root, 'outputs/fabric-scan'), { recursive: true });
     const cameraContrast = async () => {
@@ -166,19 +169,19 @@ const root = path.resolve(__dirname, '..');
     await page.evaluate(() => { pending[3].onPreview({ id: pending[3].id, source: '/missing-preview.png', color: '#cc2233' }); pending[3].resolve('已应用'); });
     await waitState('ready'); assert.equal(await page.locator('.fabric-scan-sphere img').count(), 0);
     assert.equal(await page.locator('.fabric-scan-material').evaluate(element => getComputedStyle(element).backgroundColor), 'rgb(204, 34, 51)');
-    // Entry into settings cancels an asynchronous image, even if application
+    // Switching modes cancels an asynchronous image, even if application
     // succeeds after returning to the camera.
     let releasePreview; const imageGate = new Promise(resolve => { releasePreview = resolve; });
     await page.route('**/slow-preview.svg', async route => { await imageGate; await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><path fill="blue" d="M0 0h32v32H0z"/></svg>' }); });
     await setCode(ids[0]); await waitPending(5);
     await page.evaluate(() => pending[4].onPreview({ id: pending[4].id, source: '/slow-preview.svg' }));
     await waitState('settling');
-    await page.getByRole('button', { name: '扫码设置', exact: true }).click();
+    await setCode(''); await page.locator('[data-scan-mode=scanner]').click();
     assert.equal(await guide.getAttribute('data-state'), null);
-    assert.equal(await page.locator('.fabric-scan-camera-blur video').evaluate(video => video.srcObject === null && video.paused), true, 'Settings releases the temporary blur playback');
-    assert.equal(await page.evaluate(() => document.getAnimations().some(animation => animation.id === 'fabric-scan-rebound')), false, 'Settings cancels the spring immediately');
+    assert.equal(await page.locator('.fabric-scan-camera-blur video').evaluate(video => video.srcObject === null && video.paused), true, 'Mode switching releases the temporary blur playback');
+    assert.equal(await page.evaluate(() => document.getAnimations().some(animation => animation.id === 'fabric-scan-rebound')), false, 'Mode switching cancels the spring immediately');
     await page.evaluate(() => pending[4].resolve('已应用'));
-    await page.getByRole('button', { name: '返回扫码', exact: true }).click(); releasePreview();
+    await page.locator('[data-scan-mode=camera]').click(); releasePreview();
     await page.waitForTimeout(500); assert.equal(await guide.getAttribute('data-state'), null);
     assert.equal(await page.locator('.fabric-scan-sphere').count(), 0);
     // Close and reopen while the old apply is pending: its callback must not
@@ -202,7 +205,94 @@ const root = path.resolve(__dirname, '..');
     await page.locator('#scan').click();
     assert.equal(await guide.getAttribute('data-state'), null);
     assert.equal(await page.locator('.fabric-scan-camera-blur video').evaluate(video => video.srcObject === null && video.paused), true, 'Closing releases the temporary blur playback');
+    // Scanner guns use the same square, morph, preview and return-to-scan flow.
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await setCode(''); await page.locator('#scan').click();
+    await setCode(''); await page.locator('[data-scan-mode=scanner]').click();
+    assert.equal(await page.locator('.fabric-scan-settings').count(), 0);
+    assert.equal(await page.locator('.fabric-scan-video').evaluate(video => video.srcObject), null);
+    assert.equal(await page.locator('#fabricScanDialog button:visible').count(), 2);
+    const toggleBox = await page.locator('#fabricScanMode').boundingBox(), viewBox = await page.locator('.fabric-scan-camera-view').boundingBox();
+    assert.ok(toggleBox.y + toggleBox.height < viewBox.y, 'Mode switch sits above the square frame');
+    assert.deepEqual(await page.locator('#fabricScanDialog').evaluate(panel => {
+      const heading = panel.querySelector('.fabric-scan-heading').getBoundingClientRect(), view = panel.querySelector('.fabric-scan-camera-view').getBoundingClientRect();
+      return { connected: heading.bottom === view.top, background: getComputedStyle(panel).backgroundColor, clipped: getComputedStyle(panel).overflow };
+    }), { connected: true, background: 'rgb(27, 42, 60)', clipped: 'hidden' }, 'Switch and scanning area share one continuous panel');
+    await page.locator('#fabricScanDialog').screenshot({ path: 'outputs/fabric-scan/scanner-gun-idle.png' });
+    await page.evaluate(() => {
+      window.leakedKeys = [];
+      document.addEventListener('keydown', event => leakedKeys.push(event.key));
+    });
+    const gunScan = async value => { await page.keyboard.type(value); await page.keyboard.press('Enter'); };
+    await gunScan(ids[0]); await waitPending(8);
+    assert.equal(await guide.getAttribute('data-state'), 'recognized');
+    await waitState('loading');
+    await page.locator('#fabricScanDialog').screenshot({ path: 'outputs/fabric-scan/scanner-gun-loading.png' });
+    await gunScan(ids[1]);
+    assert.equal(await page.evaluate(() => pending.length), 8, 'A busy scanner ignores extra scans');
+    await page.evaluate(() => { pending[7].onPreview({ id: pending[7].id, color: '#bc8749' }); pending[7].resolve('已应用'); });
+    await waitState('ready'); await page.waitForTimeout(260);
+    assert.equal(await guide.getAttribute('data-asset-id'), ids[0]);
+    assert.deepEqual(await page.evaluate(() => leakedKeys), [], 'Scanner keys do not reach design shortcuts');
+    await page.locator('#fabricScanDialog').screenshot({ path: 'outputs/fabric-scan/scanner-gun-material.png' });
+    await page.waitForFunction(() => !document.querySelector('.fabric-scan-guide').dataset.state);
+    await gunScan(ids[1]); await waitPending(9);
+    await page.evaluate(() => pending[8].reject(new Error('测试扫码枪失败')));
+    await page.waitForFunction(() => document.getElementById('fabricScanStatus').dataset.state === 'error');
+    assert.equal(await guide.getAttribute('data-state'), null);
+    assert.ok((await page.locator('#fabricScanStatus').boundingBox()).width > 100, 'Scanner-gun failures are visible');
+    await gunScan(ids[1]); await waitPending(10);
+    await page.evaluate(() => { pending[9].onPreview({ id: pending[9].id, color: '#22aa66' }); pending[9].resolve('已应用'); });
+    await waitState('ready');
+    assert.equal(await guide.getAttribute('data-asset-id'), ids[1], 'A failed code can be scanned again');
+    // Scanner-gun input must leave real text editors and closed windows alone.
+    await page.evaluate(() => { const input = document.createElement('input'); input.id = 'externalInput'; document.body.append(input); input.focus(); });
+    await gunScan(ids[2]);
+    assert.equal(await page.locator('#externalInput').inputValue(), ids[2]);
+    assert.equal(await page.evaluate(() => pending.length), 10);
+    await page.locator('#externalInput').evaluate(input => input.remove());
+    await page.locator('#scan').click();
+    await page.locator('body').evaluate(body => { body.tabIndex = -1; body.focus(); });
+    await gunScan(ids[2]); assert.equal(await page.evaluate(() => pending.length), 10);
+    await page.locator('#scan').click(); await gunScan(ids[2]); await waitPending(11);
+    await page.locator('#scan').click();
+    assert.equal(await page.evaluate(() => pending[10].isCurrent()), false);
+    await page.locator('#scan').click();
+    await page.evaluate(() => { pending[10].onPreview({ id: pending[10].id, color: '#ff0000' }); pending[10].resolve('过期结果'); });
+    await page.waitForFunction(() => document.querySelector('#fabricScanDialog').getAttribute('aria-busy') === 'false');
+    assert.equal(await guide.getAttribute('data-state'), null, 'A closed scanner cannot restore stale feedback');
+    await page.reload(); await page.waitForFunction(() => window.mounted); await page.locator('#scan').click();
+    assert.equal(await page.locator('[data-scan-mode=scanner]').getAttribute('aria-pressed'), 'true', 'Scanner mode persists after reload');
+    assert.equal(await page.locator('.fabric-scan-dialog').getAttribute('class').then(value => value.includes('has-camera')), false);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const gunBox = await page.locator('.fabric-scan-camera-view').boundingBox();
+    assert.equal(gunBox.width, 216); assert.equal(gunBox.height, 216);
+    await page.locator('#fabricScanDialog').screenshot({ path: 'outputs/fabric-scan/scanner-gun-mobile.png' });
+    await page.locator('[data-scan-mode=camera]').click();
+    await page.waitForFunction(() => document.querySelector('#fabricScanDialog').classList.contains('has-camera'));
+    await page.locator('#scan').click();
+    // Missing hardware and missing browser camera support both select the gun
+    // automatically, and that selected mode must immediately accept scans.
+    for (const unavailable of ['missing-device', 'unsupported-api']) {
+      const missing = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+      missing.on('pageerror', error => errors.push(error.message));
+      await missing.addInitScript(kind => {
+        localStorage.removeItem('spenic-fabric-scan-mode');
+        if (kind === 'unsupported-api') Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: undefined });
+        else Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, value: async () => { throw new DOMException('No camera', 'NotFoundError'); } });
+      }, unavailable);
+      await missing.goto(page.url()); await missing.waitForFunction(() => window.mounted); await missing.locator('#scan').click();
+      await missing.waitForFunction(() => document.querySelector('[data-scan-mode=scanner]').getAttribute('aria-pressed') === 'true');
+      assert.match(await missing.locator('#fabricScanStatus').textContent(), /已切换到扫码枪/);
+      assert.equal(await missing.locator('#fabricScanStatus').getAttribute('data-state'), '');
+      await missing.keyboard.type(ids[0]); await missing.keyboard.press('Enter');
+      await missing.waitForFunction(() => pending.length === 1);
+      await missing.evaluate(() => { pending[0].onPreview({ id: pending[0].id, color: '#22aa66' }); pending[0].resolve('已应用'); });
+      await missing.waitForFunction(() => document.querySelector('.fabric-scan-guide').dataset.state === 'ready');
+      await missing.locator('#fabricScanDialog').screenshot({ path: `outputs/fabric-scan/scanner-fallback-${unavailable}.png` });
+      await missing.close();
+    }
     assert.deepEqual(errors, []);
-    console.log('PASS: blue square → circle → projected fabric sphere, application gating, continuous scanning, color/image fallback, failure, settings/close cancellation and reduced motion');
+    console.log('PASS: camera/scanner-gun square → circle → fabric sphere, continuous scanning, busy isolation, retry, editor isolation, mode persistence, mobile, cancellation and reduced motion');
   } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

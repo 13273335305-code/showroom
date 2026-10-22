@@ -166,6 +166,9 @@ body:not(.standalone) .topbar{z-index:30}.header-actions .button{white-space:now
 .dock-carousel .material-item{margin-top:-8px}
 .dock-carousel .material-item:hover .material-thumb{transform:scale(1.1);transform-origin:center;z-index:1}
 .dock-carousel .material-item:hover .material-ball.apply-loading .material-thumb{transform:none;z-index:auto}
+/* Only the round fabric preview receives pointer input; events still bubble to its button. */
+#materialList .material-item{pointer-events:none}
+#materialList .material-item:not(:disabled) .material-thumb{pointer-events:auto}
 @media(max-width:760px){.material-dock{padding-right:14px}.dock-carousel{padding:0;height:122px}.dock-carousel .dock-add{width:88px;flex-basis:88px;height:76px}.dock-add-icon{width:76px;height:76px}}
 .dock-add-icon{position:relative;font-size:0;line-height:0}
 .dock-add-icon svg{display:block;width:32px;height:32px;fill:currentColor}

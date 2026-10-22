@@ -93,7 +93,7 @@ export function createScanFeedback(guide) {
     // Reuse the stream only during recognition. Filtering this video instead
     // of its backdrop keeps WebKit / Chromium from blurring the clear cutout.
     blurredVideo.srcObject = cameraVideo.srcObject;
-    void blurredVideo.play().catch(() => {});
+    if (blurredVideo.srcObject) void blurredVideo.play().catch(() => {});
     current = request; guide.dataset.state = 'recognized';
     void (async () => {
       if (!reduceMotion.matches && !await delay(160, request).promise) return;
