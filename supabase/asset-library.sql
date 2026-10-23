@@ -54,7 +54,9 @@ grant execute on function public.spenic_can_read_resource(text) to authenticated
 drop policy if exists spenic_assets_read on public.spenic_assets;
 create policy spenic_assets_read on public.spenic_assets for select to authenticated using (true);
 drop policy if exists spenic_assets_delete on public.spenic_assets;
-create policy spenic_assets_delete on public.spenic_assets for delete to authenticated using (owner_id = auth.uid());
+-- Asset deletion is available to every authenticated account. Ownership still
+-- controls edits and moves through spenic_save_asset and the client UI.
+create policy spenic_assets_delete on public.spenic_assets for delete to authenticated using (true);
 drop policy if exists spenic_asset_files_read on public.spenic_asset_files;
 create policy spenic_asset_files_read on public.spenic_asset_files for select to authenticated using (true);
 drop policy if exists spenic_favorites_read on public.spenic_asset_favorites;

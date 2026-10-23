@@ -103,7 +103,6 @@ test('public assets share only published resources, protect authors and retain f
     assert.equal((await db.query('select * from storage.objects')).rows.length, 1);
     await assert.rejects(save({ ...data, name: 'takeover' }, published.updated_at), /owner required/);
     await assert.rejects(db.query('update spenic_assets set name=$1 where id=$2', ['overwrite', assetId]), /permission denied/);
-    assert.equal((await db.query('delete from spenic_assets where id=$1 returning *', [assetId])).rows.length, 0);
     await db.query('insert into spenic_asset_favorites(owner_id,asset_id) values($1,$2) on conflict do nothing returning *', [bob, assetId]);
     await assert.rejects(db.query('insert into spenic_asset_favorites(owner_id,asset_id) values($1,$2)', [alice, assetId]), /row-level security/);
     await login(alice); assert.equal((await db.query('select * from spenic_asset_favorites')).rows.length, 0);
@@ -113,7 +112,7 @@ test('public assets share only published resources, protect authors and retain f
     const projectId = crypto.randomUUID();
     const projectData = { id: projectId, kind: 'project', name: 'using asset', visibility: 'personal', manifest: { format: 'SPENIC-PROJECT', version: 1, files: { map: ref } } };
     await db.query('select * from spenic_save_project($1::jsonb)', [JSON.stringify(projectData)]);
-    await login(alice); await db.query('delete from spenic_assets where id=$1', [assetId]);
+    assert.equal((await db.query('delete from spenic_assets where id=$1 returning *', [assetId])).rows.length, 1, 'Any authenticated account can delete an asset');
     await login(bob); await db.query('delete from spenic_assets where id=$1', [copyId]);
     assert.equal((await db.query('select * from storage.objects')).rows.length, 1, 'Project retains access after all asset records are removed');
     await db.query('delete from spenic_projects where id=$1', [projectId]);

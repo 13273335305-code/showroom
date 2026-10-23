@@ -94,6 +94,29 @@ export async function retryUpload(id) {
   });
   if (task) { changed(); void kick(); }
 }
+export async function deleteFailedUpload(id) {
+  const owner = ownerId();
+  const removed = await transaction(['tasks', 'payloads'], 'readwrite', (tx, result) => {
+    const store = tx.objectStore('tasks'), request = store.getAll();
+    request.onsuccess = () => {
+      const task = request.result.find(item => item.id === id && item.ownerId === owner);
+      if (!task || task.status !== 'failed') { result(false); return; }
+      store.delete(id); tx.objectStore('payloads').delete(id);
+      // A later save must stay visible and removable instead of waiting forever
+      // for the deleted task to finish.
+      for (const next of request.result) if (next.ownerId === owner && next.dependsOn === id) {
+        next.dependsOn = null;
+        if (next.status === 'queued') {
+          next.status = 'failed'; next.error = '前一上传任务已删除，请重新保存。';
+        }
+        next.updatedAt = Date.now(); store.put(next);
+      }
+      result(true);
+    };
+  });
+  if (removed) changed();
+  return removed;
+}
 export async function clearCompletedUploads() {
   const owner = ownerId();
   await transaction(['tasks', 'payloads'], 'readwrite', tx => {

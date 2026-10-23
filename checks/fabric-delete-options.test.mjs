@@ -7,7 +7,7 @@ const start = source.indexOf('async function deleteFabric(');
 const end = source.indexOf('function folderContains', start);
 function setup({ cancel = false, failAt, wait } = {}) {
   const deleted = [], removed = [], messages = [], statuses = [];
-  const context = { canEdit: asset => asset.ownerId === 'me', askDelete: async (asset, message) => { messages.push(message); return !cancel; },
+  const context = { canDelete: () => true, askDelete: async (asset, message) => { messages.push(message); return !cancel; },
     deleteAsset: async id => { if (wait) await wait; if (id === failAt) throw new Error('删除失败'); deleted.push(id); },
     assets: [], selectedAssetIds:new Set(), hiddenDeletedAssetIds:new Set(), render() {},
     removeAssetsFromView: (asset, ids) => { removed.push(...ids); context.assets = context.assets.filter(candidate => !ids.includes(candidate.id)); }, status: message => statuses.push(message) };

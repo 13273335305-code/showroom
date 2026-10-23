@@ -12,7 +12,7 @@
   </style>
   <title>Spenic · 资产库</title>
   <link rel="icon" type="image/png" sizes="64x64" href="assets/spenic-favicon.png">
-  <link rel="stylesheet" href="workspace.css?v=fabric-instant-delete-20261015"><link rel="stylesheet" href="asset-library.css?v=fabric-instant-delete-20261015"><link rel="stylesheet" href="login.css?v=20261016-uiverse-login-4">
+  <link rel="stylesheet" href="workspace.css?v=fabric-instant-delete-20261015"><link rel="stylesheet" href="asset-library.css?v=asset-upload-delete-failed-20261023"><link rel="stylesheet" href="login.css?v=20261016-uiverse-login-4">
   <link rel="stylesheet" href="header-brand.css">
   <link rel="stylesheet" href="fabric-scan.css">
   <link rel="stylesheet" href="workspace-developer.css">
@@ -143,7 +143,7 @@
   <div id="status" class="status-bar" role="status"></div>
   <div class="asset-library-footer">
     <nav id="assetPagination" class="asset-pagination" aria-label="资产库翻页" hidden></nav>
-    <div class="upload-tasks-control">
+    <div class="upload-tasks-control" hidden>
       <button id="uploadTasksButton" class="upload-tasks-button" type="button" title="上传任务" aria-label="上传任务" aria-expanded="false" aria-controls="uploadTasksPanel"><img src="assets/upload-task.svg" alt="" aria-hidden="true"><span id="uploadTasksBadge" class="upload-tasks-badge" hidden></span></button>
       <section id="uploadTasksPanel" class="upload-tasks-panel" aria-labelledby="uploadTasksTitle" hidden>
         <header><h2 id="uploadTasksTitle">上传任务</h2><button type="button" class="upload-tasks-close" data-close-uploads aria-label="关闭上传任务" title="关闭">×</button></header>
@@ -153,6 +153,6 @@
     </div>
   </div>
   <script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
-  <script type="module" src="entries/asset-library.js?v=20261019-batch-actions"></script>
+  <script type="module" src="entries/asset-library.js?v=asset-upload-delete-failed-20261023"></script>
 </body>
 </html>

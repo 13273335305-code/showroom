@@ -6,7 +6,7 @@ import { createAssetLoading } from '../shared/asset-loading.js';
 import { requireAuth, authState } from '../shared/auth.js';
 import { fitMaterialPreview, assetImageUrl } from '../shared/material-preview.js';
 import { compressImageFile } from '../shared/asset-thumbnail.js';
-import { mountUploadTasks } from '../shared/upload-tasks-ui.js';
+import { mountUploadTasks } from '../shared/upload-tasks-ui.js?v=20261023-delete-failed';
 import { groupFabricCards } from '../shared/fabric-card-groups.js';
 import { updateFabricColorSwatch } from '../shared/fabric-color-swatch.js';
 import { fetchFabricColorPreview } from '../shared/fabric-color-preview.js';
@@ -37,6 +37,9 @@ let fabricPreviewLoadingUrl = null;
 const status = message => { $('status').textContent = message; };
 const previewOf = asset => asset?.kind === 'material' ? asset.preview || null : asset.preview || asset.thumbnail || (asset.kind === 'texture' ? asset.file : asset.maps?.map);
 const canEdit = asset => asset?.cloud && asset.ownerId === authState()?.id;
+// Every authenticated account may remove a cloud asset. Editing and moving
+// remain owner-only, so keep deletion as a separate capability check.
+const canDelete = asset => Boolean(asset?.cloud);
 function imageUrl(blob) { return assetImageUrl(blob); }
 function folderChildren(folderId) { return assets.filter(asset => (asset.parentId || null) === folderId && libraryType(asset) === activeLibrary); }
 function folderById(id) { return assets.find(asset => asset.id === id && asset.kind === 'folder'); }
@@ -113,7 +116,7 @@ function removeAssetsFromView(asset, removedIds = [asset.id], background = false
 }
 async function deleteFabric(asset, wholeFabric) {
   const targets = wholeFabric ? asset.fabricVariants || [asset] : [asset];
-  if (targets.some(target => !canEdit(target))) throw new Error('只有上传者可以删除面料');
+  if (targets.some(target => !canDelete(target))) throw new Error('资产不可删除');
   const message = wholeFabric
     ? `确定删除面料「${asset.name}」及其全部 ${targets.length} 个色号？`
     : `确定删除面料「${asset.name}」的色号「${asset.fabricColorCode || '未填写'}」？`;
@@ -241,7 +244,7 @@ function createMenu(asset, card) {
     if (!full) throw new Error('资产已被删除');
     downloadFile(full.file, full.file.name); for (const file of full.resources || []) downloadFile(file, file.name);
   }));
-  if (canEdit(asset)) {
+  if (canDelete(asset)) {
     if (isMaterial && libraryType(asset) === 'fabric') {
       for (const [label, wholeFabric] of [['删除色号', false], ['删除面料', true]]) {
         const remove = action(label, () => deleteFabric(asset, wholeFabric));
@@ -1100,7 +1103,7 @@ $('deleteSelectedAssets').onclick = async () => {
   if ($('deleteSelectedAssets').disabled) return;
   const selected = selectedAssetsForBatchAction(); closeMoreMenu();
   if (!selected.length) return status('请先选择要删除的资产');
-  if (selected.some(asset => !canEdit(asset))) return status('只有上传者可以删除资产');
+  if (selected.some(asset => !canDelete(asset))) return status('资产不可删除');
   $('deleteSelectedAssets').disabled = true;
   const removedIds = [];
   try {

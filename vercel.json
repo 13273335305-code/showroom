@@ -1,4 +1,7 @@
 {
+  "functions": {
+    "api/capture-ai.js": { "maxDuration": 300 }
+  },
   "headers": [
     {
       "source": "/(.*)",

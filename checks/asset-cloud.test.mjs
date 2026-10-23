@@ -163,15 +163,16 @@ test('public asset lists load metadata and thumbnails; source maps and runtime m
   assert.equal(asset.physical.widthCm, 12);
 });
 
-test('metadata updates do not download textures; stale writers and nonowners cannot change originals', async () => {
+test('metadata updates do not download textures; nonowners cannot change but can delete originals', async () => {
   const f = fixture(), saved = await f.cloud.save(material());
   await f.cloud.update(saved.id, { name: '修改名称', supplier: '供应商' });
   assert.equal(f.downloads.length, 0); assert.equal(f.rows.get(saved.id).metadata.supplier, '供应商');
   await assert.rejects(f.cloud.save({ ...saved, name: 'stale' }), /其他页面更新/);
   f.setUser(bob);
   await assert.rejects(f.cloud.update(saved.id, { name: 'overwrite' }), /上传者/);
-  await assert.rejects(f.cloud.remove(saved.id), /上传者/);
   assert.equal(f.rows.get(saved.id).name, '修改名称');
+  await f.cloud.remove(saved.id);
+  assert.equal(f.rows.has(saved.id), false, 'Any authenticated account can delete an asset');
 });
 
 test('texture previews skip missing auxiliary maps without poisoning full material loads', async () => {

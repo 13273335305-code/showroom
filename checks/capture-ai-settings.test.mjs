@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { CAPTURE_AI_DEFAULTS, CAPTURE_AI_DEFAULT_BASE } from '../shared/capture-ai-store.js';
 
 const app=await readFile(new URL('../app.js',import.meta.url),'utf8');
-const source=app.slice(app.indexOf('const captureAiStore='),app.indexOf('function buildCaptureAiUrl('));
+const source=app.slice(app.indexOf('const captureAiStore='),app.indexOf('function cleanCaptureBase64('));
 function harness(){
  const nodes={};
  for(const id of ['captureAiKey','captureAiModel','captureAiBase','captureAiAspect','captureAiSize','captureAiPrompt','captureAiGenerate','captureAiStatus','captureAiSettingsStatus','captureMainPage','captureAiSettingsPage','captureAiSettingsOpen','captureAiSettingsBack','capturePanel'])

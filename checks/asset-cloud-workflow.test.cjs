@@ -73,7 +73,7 @@ function modelBytes() {
     assert.equal(requests.some(req => req.path.endsWith('.formmat')), false);
     await card.locator('.asset-menu-trigger').click();
     assert.equal(await card.getByRole('menuitem', { name: '另存副本', exact: true }).count(), 1);
-    assert.equal(await card.getByRole('menuitem', { name: '删除', exact: true }).count(), 0);
+    assert.equal(await card.getByRole('menuitem', { name: '删除', exact: true }).count(), 1);
     await card.getByRole('menuitem', { name: '收藏', exact: true }).click();
     await page.waitForFunction(id => document.querySelector('[data-asset-id="' + id + '"]').classList.contains('is-favorite'), ids.fabric);
     await setup.reload(); await ready(setup);

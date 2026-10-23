@@ -4,6 +4,7 @@ $root=[IO.Path]::GetFullPath($PSScriptRoot)
 $partsViewFile=Join-Path $root 'parts-default-view.json'
 $designViewFile=Join-Path $root 'design-default-view.json'
 $fabricColorsFile=Join-Path $root 'fabric-colors.json'
+. (Join-Path $root 'utils/capture-ai-proxy.ps1')
 function Read-FabricColors([string]$json){
  if(-not $json.TrimStart().StartsWith('[')){throw 'Invalid color list'}
  # Validate standalone JSON, then preserve arrays as a property on both PS versions.
@@ -85,7 +86,8 @@ for($candidate=$Port;$candidate -lt $Port+20;$candidate++){
    $viewProbe=Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$candidate/__form_parts_view" -TimeoutSec 1
    $designViewProbe=Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$candidate/__form_design_view" -TimeoutSec 1
    $colorsProbe=Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$candidate/__form_fabric_colors" -TimeoutSec 1
-   if($viewProbe.StatusCode -eq 200 -and $designViewProbe.StatusCode -eq 200 -and $colorsProbe.StatusCode -eq 200){if(-not $NoBrowser){Start-Process "http://127.0.0.1:$candidate/"};exit 0}
+   $aiProbe=Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$candidate/api/capture-ai" -TimeoutSec 1
+   if($viewProbe.StatusCode -eq 200 -and $designViewProbe.StatusCode -eq 200 -and $colorsProbe.StatusCode -eq 200 -and $aiProbe.Content -eq '{"ready":true}'){if(-not $NoBrowser){Start-Process "http://127.0.0.1:$candidate/"};exit 0}
   }
  }catch{}
  try{$listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$candidate);$listener.Start();$Port=$candidate;break}catch{$listener=$null}
@@ -108,7 +110,28 @@ try{
    $headers=@{};$headerSize=0
    while($line=$reader.ReadLine()){$headerSize+=$line.Length;if($headerSize -gt 16384){throw 'Request headers too large'};$colon=$line.IndexOf(':');if($colon -gt 0){$headers[$line.Substring(0,$colon).Trim()]=$line.Substring($colon+1).Trim()}}
    $method=$parts[0];$path=[Uri]::UnescapeDataString(($parts[1] -split '\?')[0]);$status='200 OK';$type='text/plain; charset=utf-8';$bytes=$null;$cacheControl='no-store';$cacheHeaders=''
-   if($path -eq '/__form_parts_view'){
+   if($path -eq '/api/capture-ai'){
+    $type='application/json; charset=utf-8'
+    if($method -eq 'GET'){$bytes=[Text.Encoding]::UTF8.GetBytes('{"ready":true}')}
+    elseif($method -eq 'POST'){
+     $bodyLength=0;$validLength=[int]::TryParse($headers['Content-Length'],[ref]$bodyLength);$allowedOrigin=$true
+     if($headers['Origin']){try{$origin=[Uri]$headers['Origin'];$allowedOrigin=$origin.Scheme -eq 'http' -and $origin.Authority -eq $headers['Host']}catch{$allowedOrigin=$false}}
+     if(-not $allowedOrigin){$status='403 Forbidden';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":{"message":"请求来源无效"}}')}
+     elseif($headers['Content-Type'] -notmatch '^application/json(?:\s*;|$)'){$status='415 Unsupported Media Type';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":{"message":"请求须使用 JSON"}}')}
+     elseif(-not $validLength -or $bodyLength -le 0 -or $bodyLength -gt 4194304 -or $headers['Transfer-Encoding']){$status='413 Payload Too Large';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":{"message":"参考图过大，请降低拍摄尺寸后重试"}}')}
+     else{
+      $body=New-Object char[] $bodyLength;$read=0
+      while($read -lt $bodyLength){$count=$reader.Read($body,$read,$bodyLength-$read);if($count -le 0){throw 'Incomplete AI request body'};$read+=$count}
+      $text=[Text.Encoding]::UTF8.GetString($wireEncoding.GetBytes((-join $body)))
+      $reply=Invoke-CaptureAiProxy $text $headers['Authorization'] $root
+      $bytes=$reply.Bytes
+      $reason=@{200='OK';400='Bad Request';401='Unauthorized';403='Forbidden';404='Not Found';413='Payload Too Large';429='Too Many Requests';500='Internal Server Error';502='Bad Gateway';503='Service Unavailable';504='Gateway Timeout'}
+      $phrase=$reason[[int]$reply.Code];if(-not $phrase){$phrase='AI Response'}
+      $status=([string]$reply.Code)+' '+$phrase
+     }
+    }else{$status='405 Method Not Allowed';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":{"message":"只支持 POST 请求"}}')}
+   }
+   elseif($path -eq '/__form_parts_view'){
     $type='application/json; charset=utf-8'
     if($method -in @('GET','HEAD')){
      try{$value=$null;if([IO.File]::Exists($partsViewFile)){$value=Read-PartsView ([IO.File]::ReadAllText($partsViewFile,[Text.Encoding]::UTF8) | ConvertFrom-Json)};$bytes=[Text.Encoding]::UTF8.GetBytes(($value | ConvertTo-Json -Depth 5 -Compress));if(-not $value){$bytes=[Text.Encoding]::UTF8.GetBytes('null')}}

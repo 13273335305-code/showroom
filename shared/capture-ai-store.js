@@ -1,8 +1,9 @@
 export const CAPTURE_AI_DEFAULT_BASE = 'http://64.186.244.43:12001';
 import { createCaptureAiPromptStore } from './capture-ai-prompts.js';
+import { CAPTURE_AI_MODEL, CAPTURE_AI_REQUEST_LIMIT, captureAiModelId } from './capture-ai-protocol.js';
 export { CAPTURE_AI_PROMPT_DEFAULTS, readCaptureAiPrompts, createCaptureAiPromptStore } from './capture-ai-prompts.js';
 
-export const CAPTURE_AI_DEFAULTS = Object.freeze({ apiKey: '', model: 'gemini-3.1-flash-image-preview', aspect: 'AUTO', size: '1K' });
+export const CAPTURE_AI_DEFAULTS = Object.freeze({ apiKey: '', model: CAPTURE_AI_MODEL, aspect: 'AUTO', size: '1K' });
 const SITE = 'spenic_capture_ai_site', ACCOUNTS = 'spenic_capture_ai_accounts';
 const missingSchema = error => ['42P01', 'PGRST202', 'PGRST205'].includes(error?.code);
 
@@ -18,7 +19,9 @@ export function validateCaptureAiBase(value) {
   return base;
 }
 function accountConfig(value = {}) {
-  return Object.fromEntries(Object.entries(CAPTURE_AI_DEFAULTS).map(([key, fallback]) => [key, typeof value[key] === 'string' ? value[key] : fallback]));
+  const config = Object.fromEntries(Object.entries(CAPTURE_AI_DEFAULTS).map(([key, fallback]) => [key, typeof value[key] === 'string' ? value[key] : fallback]));
+  config.model = captureAiModelId(config.model);
+  return config;
 }
 export function createCaptureAiStore({ access }) {
   const promptStore = createCaptureAiPromptStore({ access });
@@ -63,5 +66,21 @@ export function createCaptureAiStore({ access }) {
     if (row?.base !== base) throw new Error('未收到全站 API 地址的保存确认，请重试');
     return base;
   }
-  return { load, loadSite, saveAccount, saveSite, loadPrompts: promptStore.load, savePrompts: promptStore.save, assertAccount };
+  async function generate(ownerId, model, body, signal) {
+    const { client } = await assertAccount(ownerId);
+    const { data, error } = await client.auth.getSession();
+    const session = data?.session;
+    if (error || session?.user?.id !== ownerId || !session?.access_token) throw new Error('登录已失效，请重新登录后使用 AI 绘图');
+    const payload = JSON.stringify({ model, body });
+    if (new Blob([payload]).size > CAPTURE_AI_REQUEST_LIMIT) throw new Error('参考图过大，请降低拍摄尺寸后重试');
+    await assertAccount(ownerId);
+    signal?.throwIfAborted();
+    try {
+      return await fetch(new URL('../api/capture-ai', import.meta.url), { method: 'POST', signal, cache: 'no-store', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: payload });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      throw new Error('无法连接 AI 服务，请检查网络后重试');
+    }
+  }
+  return { load, loadSite, saveAccount, saveSite, generate, loadPrompts: promptStore.load, savePrompts: promptStore.save, assertAccount };
 }

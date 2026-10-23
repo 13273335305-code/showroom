@@ -13,7 +13,7 @@ function checked(result) {
   if (result.error) {
     if (['42P01', 'PGRST202', 'PGRST205'].includes(result.error.code)) throw new Error('公开资产库尚未初始化，请先执行 Supabase 资产库配置脚本');
     if (result.error.code === '40001') throw new Error('资产已在其他页面更新，请重新打开后保存');
-    if (result.error.code === '42501') throw new Error('只有上传者可以修改、移动或删除资产');
+    if (result.error.code === '42501') throw new Error('只有上传者可以修改或移动资产');
     throw new Error('云端资产操作失败：' + (result.error.message || '请稍后重试'));
   }
   return result.data;
@@ -242,9 +242,9 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
     if (star !== undefined) await favorite(id, star);
   }
   async function remove(id) {
-    const { client, userId } = await access();
-    const rows = checked(await client.from(TABLE).delete().eq('id', id).eq('owner_id', userId).select('id'));
-    if (!rows.length) throw new Error('资产已删除或只有上传者可以删除');
+    const { client } = await access();
+    const rows = checked(await client.from(TABLE).delete().eq('id', id).select('id'));
+    if (!rows.length) throw new Error('资产已删除或没有删除权限');
   }
   async function source(reference) {
     if (!reference?.cloud || !reference.files) throw new Error('源材质引用无效');

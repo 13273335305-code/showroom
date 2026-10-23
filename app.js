@@ -235,7 +235,7 @@ const captureAiFields=['captureAiKey','captureAiModel','captureAiAspect','captur
 let captureAiLoaded=null,captureAiLoading=null,captureAiSaving=null,captureAiVersion=0,captureAiRequest=null;
 const captureAiPromptFallback=[{label:'极简摄影棚',prompt:'将这个产品放在极简摄影棚中，柔和侧光，高级电商产品图'},{label:'自然生活场景',prompt:'将这个产品融入自然、克制的生活方式场景，光线柔和，画面高级且真实'},{label:'材质细节特写',prompt:'突出这个产品的材质、纹理和工艺细节，使用干净的近距离产品摄影构图'}];
 let captureAiPrompts=captureAiPromptFallback.map(item=>({...item})),captureAiPromptsLoading=null,captureAiPromptsVersion=0,captureAiPromptIndex=0;
-function restoreCaptureAiModel(value){const select=$('captureAiModel');if(!select)return;const model=value||'gemini-3.1-flash-image-preview';if(!Array.from(select.options).some(option=>option.value===model))select.add(new Option(model,model));select.value=model}
+function restoreCaptureAiModel(value){const select=$('captureAiModel');if(!select)return;const model=value||CAPTURE_AI_DEFAULTS.model;if(!Array.from(select.options).some(option=>option.value===model))select.add(new Option(model,model));select.value=model}
 function applyCaptureAiConfig(config){
  $('captureAiKey').value=config.apiKey;restoreCaptureAiModel(config.model);$('captureAiBase').value=config.base;
  $('captureAiAspect').value=config.aspect;$('captureAiSize').value=config.size;
@@ -371,13 +371,6 @@ async function loadCaptureAiPrompts(){
  return captureAiPromptsLoading;
 }
 function setCaptureAiBusy(busy){const button=$('captureAiGenerate');button.disabled=busy||!captureAiLoaded;button.setAttribute('aria-busy',String(busy));button.querySelector('.capture-ai-button-label').textContent=busy?'生成中…':'AI'}
-function buildCaptureAiUrl(base,model){
- const root=String(base||'').trim().replace(/\/+$/,''); if(!root)throw new Error('请填写 API 地址'); if(!model)throw new Error('请填写模型');
- if(root.includes('{{model}}'))return root.replace('{{model}}',encodeURIComponent(model));
- if(root.includes(':generate'))return root;
- if(root.includes('/models/'))return root+':generateContent';
- return `${root}/v1beta/models/${encodeURIComponent(model)}:generateContent`;
-}
 function cleanCaptureBase64(value){return String(value||'').replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/,'').replace(/\s/g,'')}
 function captureBase64Blob(data,mime='image/png'){const binary=atob(data),bytes=new Uint8Array(binary.length);for(let index=0;index<binary.length;index++)bytes[index]=binary.charCodeAt(index);return new Blob([bytes],{type:mime})}
 function extractCaptureImage(payload,text=''){
@@ -405,6 +398,7 @@ async function captureAiGenerate(){
  const width=Math.round(Number($('captureWidth').value)),height=Math.round(Number($('captureHeight').value));
  if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width>8192||height>8192)return setCaptureAiStatus('拍摄尺寸无效','error');
  const version=captureAiVersion,ownerId=captureAiLoaded.ownerId,request=new AbortController();
+ let timedOut=false;const timeout=setTimeout(()=>{timedOut=true;request.abort()},185000);
  captureAiRequest=request;setCaptureAiBusy(true);$('captureAiSettingsOpen').disabled=true;
  const photoName=captureFilename(),shootWasDisabled=$('captureShoot').disabled;$('captureShoot').disabled=true;
  let key='';
@@ -420,15 +414,19 @@ async function captureAiGenerate(){
   setCaptureAiStatus('正在拍摄透明底图并请求 AI…');
   const input=await captureFrameBlob({transparent:true,width,height});
   const encoded=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(cleanCaptureBase64(reader.result));reader.onerror=()=>reject(new Error('读取输入图片失败'));reader.readAsDataURL(input)});
-  const generationConfig={responseModalities:['IMAGE'],imageConfig:{imageSize:size}};
+  const generationConfig={topP:.95,responseModalities:['IMAGE'],imageConfig:{imageSize:size}};
   if(aspect&&aspect!=='AUTO')generationConfig.imageConfig.aspectRatio=aspect;
   const body={contents:[{role:'user',parts:[{text:prompt},{inlineData:{mimeType:'image/png',data:encoded}}]}],generationConfig};
-  // Read the shared endpoint again immediately before sending this account's Key.
-  const base=await captureAiStore.loadSite(ownerId);await checkAccount();
-  const response=await fetch(buildCaptureAiUrl(base,model),{method:'POST',signal:request.signal,headers:{Accept:'application/json','Content-Type':'application/json',Authorization:`Bearer ${key}`,'X-API-Key':key,'X-Banana-Client':'comfyui-banana-li'},body:JSON.stringify(body)});
+  await checkAccount();
+  const response=await captureAiStore.generate(ownerId,model,body,request.signal);
   const text=await response.text();await checkAccount();
   let payload={};try{payload=text?JSON.parse(text):{}}catch{payload={raw:text}}
-  if(!response.ok)throw new Error(`AI 请求失败（HTTP ${response.status}），请检查当前账号的 Key 与模型配置`);
+  if(!response.ok){
+   if([404,405].includes(response.status)&&!payload?.error?.message)throw new Error('AI 转发服务尚未更新，请重新启动本地编辑器或更新网站部署');
+   if(response.status===413)throw new Error('参考图过大，请降低拍摄尺寸后重试');
+   const detail=payload?.error?.message;
+   throw new Error(typeof detail==='string'?detail.slice(0,300):`AI 请求失败（HTTP ${response.status}），请检查当前账号的 Key 与模型配置`);
+  }
   const image=extractCaptureImage(payload,text);if(!image)throw new Error('AI 返回中没有找到图片');
   setCaptureAiStatus('正在保存成品到图册…');
   const source=image.url?await fetch(image.url,{signal:request.signal}).then(r=>{if(!r.ok)throw new Error('AI 成品图片读取失败');return r.blob()}):captureBase64Blob(image.data,image.mime);
@@ -439,10 +437,10 @@ async function captureAiGenerate(){
   await addPhoto(png,{name:photoName,width:resultWidth,height:resultHeight,transparent:false,source:'ai',ownerId});
   await checkAccount();setCaptureAiStatus(`已生成 ${resultWidth} × ${resultHeight} 并保存到云端图册`,'ok');notify('AI 成品已保存到云端图册，仅当前账号可见');
  }catch(error){
-  const message=error.name==='AbortError'?'账号已变更，本次生成已终止':error.message||'AI 绘画失败，请重试';
+  const message=timedOut?'AI 生成超时，请稍后重试':error.name==='AbortError'?'账号已变更，本次生成已终止':error.message||'AI 绘画失败，请重试';
   setCaptureAiStatus(key?message.split(key).join('***'):message,'error');
  }finally{
-  captureAiRequest=null;setCaptureAiBusy(false);$('captureAiSettingsOpen').disabled=false;$('captureShoot').disabled=shootWasDisabled;
+  clearTimeout(timeout);captureAiRequest=null;setCaptureAiBusy(false);$('captureAiSettingsOpen').disabled=false;$('captureShoot').disabled=shootWasDisabled;
  }
 }
 function formatCount(n){return n>=10000?(n/10000).toFixed(1)+' 万':n.toLocaleString();}
