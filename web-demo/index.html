@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BMP 面料线圈渲染原型</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">TEXTILE LOOP RENDERER</p>
+        <h1>BMP → JPG 面料纹理</h1>
+        <p class="subtitle">将 BMP 组织图织成连续穿套的线圈，用纱线弧度、交叠与明暗呈现面料的立体质感。</p>
+      </div>
+      <div class="status-pill" id="statusPill">等待输入</div>
+    </header>
+
+    <section class="workspace">
+      <aside class="panel controls">
+        <div class="control-group">
+          <h2>1. 输入</h2>
+          <label class="file-picker">
+            <span>选择 BMP</span>
+            <input id="fileInput" type="file" accept=".bmp,image/bmp">
+          </label>
+          <button id="loadSample" class="secondary" type="button">加载案例 BMP</button>
+          <p class="help">一个 BMP 像素在同一物理格内上下分成两个线圈；两个线圈共享该像素的颜色，相邻行的线圈上下穿套。</p>
+        </div>
+
+        <div class="control-group">
+          <h2>2. BMP 色号映射</h2>
+          <p class="help palette-help">载入 BMP 后自动按实际像素颜色建立色号，像素数量最多的颜色为 0 号。勾选“凹陷”即可让该色号的每个像素生成一个径向渐变凹点。</p>
+          <div id="paletteControls" class="palette-controls"><div class="palette-empty">等待 BMP 色号</div></div>
+          <button id="resetPalette" class="secondary" type="button" disabled>恢复 BMP 原色</button>
+          <div class="color-row"><label for="backgroundColor">背景色</label><input id="backgroundColor" type="color" value="#ffffff"><output id="backgroundColorValue" for="backgroundColor">#FFFFFF</output></div>
+          <p class="help">背景色用于线圈之间的空隙，并同步到整图、局部预览和下载图片。</p>
+        </div>
+
+        <div class="control-group">
+          <h2>3. 荆棘渐变高度图</h2>
+          <div class="number-row"><label for="reliefRadius">渐变半径</label><input id="reliefRadius" type="number" min="0.05" step="0.05" value="1"><span>BMP 像素</span></div>
+          <div class="range-row"><label for="reliefDepth">凹陷深度</label><input id="reliefDepth" type="range" min="0" max="100" step="1" value="78"><output id="reliefDepthValue">78</output></div>
+          <p class="help">按参考图的 Shape 荆棘轮廓生成尖中心渐变，反相为白底凹陷；每个渐变用正片叠底合成。中心越暗表示越深；半径不设上限，大于 0.5 时可与相邻像素的渐变重叠。</p>
+        </div>
+
+        <div class="control-group">
+          <h2>4. 输出尺寸</h2>
+          <div class="number-row"><label for="dpi">输出 DPI</label><input id="dpi" type="number" min="1" max="1200" step="1" value="100"><span>DPI</span></div>
+          <div class="number-row"><label for="bmpPixelsPerCmY">纵向 BMP</label><input id="bmpPixelsPerCmY" type="number" min="0.01" step="0.01" value="6"><span>像素/cm</span></div>
+          <p class="help">横向固定为 10 BMP 像素/cm；纵向 BMP 像素/cm 可编辑，默认 6。纹理、高度、法线三张 JPG 共用物理尺寸、输出像素、DPI 与 JPG 质量；下载文件写入对应 DPI。</p>
+          <p class="physical-size" id="physicalSizeInfo">等待 BMP · 物理尺寸 —</p>
+        </div>
+
+        <div class="control-group">
+          <h2>5. 纹理参数</h2>
+          <div class="range-row"><label for="texture">微纹理</label><input id="texture" type="range" min="0" max="100" step="1" value="30"><output id="textureValue">30</output></div>
+          <div class="range-row"><label for="contrast">线圈立体感</label><input id="contrast" type="range" min="0" max="100" step="1" value="66"><output id="contrastValue">66</output></div>
+          <div class="range-row"><label for="angle">线圈方向</label><input id="angle" type="range" min="-35" max="35" step="1" value="0"><output id="angleValue">0°</output></div>
+          <div class="range-row"><label for="quality">JPG 质量</label><input id="quality" type="range" min="60" max="100" step="1" value="92"><output id="qualityValue">92</output></div>
+          <p class="help">布料预览仍使用线圈参数；高度图与法线图使用上面的径向参数，不包含线圈细小纹理。</p>
+        </div>
+
+        <div class="actions">
+          <button id="renderButton" class="primary" type="button" disabled>渲染纹理</button>
+          <button id="downloadButton" class="secondary" type="button" disabled>下载 JPG</button>
+        </div>
+        <div class="normal-actions">
+          <button id="normalButton" class="primary" type="button" disabled>生成高度图 + 法线图</button>
+          <button id="normalDownloadButton" class="secondary" type="button" disabled>下载法线 JPG</button>
+          <button id="heightDownloadButton" class="secondary" type="button" disabled>下载高度图 JPG</button>
+        </div>
+        <p class="normal-info" id="normalInfo">等待 BMP</p>
+        <p class="help" id="paletteInfo">还没有读取 BMP。</p>
+      </aside>
+
+      <section class="panel preview-panel">
+        <div class="preview-header">
+          <div><h2>预览</h2><span id="renderInfo">等待 BMP</span></div>
+          <span class="badge">面料预览</span>
+        </div>
+        <div class="preview-grid">
+          <div class="preview-card">
+            <div class="preview-title">输入组织图</div>
+            <div class="canvas-wrap checker"><canvas id="inputCanvas"></canvas></div>
+          </div>
+          <div class="preview-card output-card">
+            <div class="preview-title preview-title-controls">
+              <span>面料全图</span>
+              <label class="zoom-control" for="previewZoom"><span>显示</span><select id="previewZoom"><option value="fit">适应全图</option><option value="actual">实际像素</option></select></label>
+            </div>
+            <div id="outputWrap" class="canvas-wrap"><canvas id="outputCanvas" aria-label="面料全图，点击查看线圈局部"></canvas><div id="emptyState" class="empty-state">上传 BMP 或加载案例开始渲染</div></div>
+          </div>
+        </div>
+        <div class="preview-card detail-card">
+          <div class="preview-title detail-title">
+            <div><span>线圈局部</span><span id="detailInfo" class="detail-info">等待面料渲染</span></div>
+            <button id="downloadDetailButton" class="secondary" type="button" disabled>下载局部 PNG</button>
+          </div>
+          <p class="detail-help">点击面料全图，查看该位置的线圈穿套与纱线明暗。局部按每个 BMP 像素宽 28 像素、上下两个线圈重新渲染。</p>
+          <div class="canvas-wrap detail-wrap"><canvas id="detailCanvas" aria-label="线圈局部细节"></canvas><div id="detailEmptyState" class="empty-state">渲染后点击面料全图查看局部</div></div>
+        </div>
+        <div class="preview-grid map-grid">
+          <div class="preview-card map-card"><div class="preview-title">荆棘高度图（白底 · 正片叠底）</div><div class="canvas-wrap checker map-wrap"><canvas id="heightPreviewCanvas" aria-label="荆棘高度图"></canvas><div id="heightEmptyState" class="empty-state">点击“生成高度图 + 法线图”</div></div></div>
+          <div class="preview-card map-card"><div class="preview-title">OpenGL 法线图</div><div class="canvas-wrap map-wrap"><canvas id="normalPreviewCanvas" aria-label="OpenGL 法线图"></canvas><div id="normalEmptyState" class="empty-state">等待法线图</div></div></div>
+        </div>
+        <div class="legend">
+          <span><i class="dot bg"></i>一个 BMP 像素 = 上下两个线圈</span>
+          <span><i class="dot main"></i>同色号位置同步换色</span>
+          <span><i class="dot accent"></i>纱线弯曲交叠，上下线圈穿套</span>
+        </div>
+      </section>
+    </section>
+
+    <footer>全图查看花型与配色，局部查看纱线的圆润截面、穿套关系和阴影。输出 DPI 决定 JPG 像素尺寸，物理尺寸由 BMP 标定换算。</footer>
+  </main>
+  <script src="./knit-renderer.js"></script>
+  <script src="./render-task.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

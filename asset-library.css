@@ -253,14 +253,14 @@
 .asset-card::after{content:"";position:absolute;inset:-1px;z-index:20;box-sizing:border-box;border:3px solid transparent;border-radius:18px;pointer-events:none}
 .asset-card:hover::after,.asset-card.is-pressing::after,.asset-card.is-clicking::after{border-color:var(--card-accent)}
 .asset-card.is-favorite::before{content:"";position:absolute;z-index:21;top:0;right:0;width:0;height:0;border-top:34px solid var(--favorite-color,#3978ed);border-left:34px solid transparent;pointer-events:none;filter:drop-shadow(-1px 2px 2px #203b5724)}
-.asset-library-page .asset-select-control{position:absolute;top:6px;left:10px;z-index:22;display:grid;place-items:center;width:42px;height:42px;margin:0;padding:0;border:0;border-radius:9px;background:transparent;box-shadow:none;opacity:0;cursor:pointer;transform:scale(.8);transform-origin:center;transition:opacity .16s ease,transform .16s ease}
+.asset-library-page .asset-select-control{position:absolute;top:6px;left:10px;z-index:22;display:grid;place-items:center;width:44px;height:44px;margin:0;padding:0;border:1px solid #ffffffa8;border-radius:50%;background:#ffffff70;box-shadow:0 2px 8px #203b5726,inset 0 1px 0 #ffffffa8;backdrop-filter:blur(8px) saturate(125%);-webkit-backdrop-filter:blur(8px) saturate(125%);opacity:0;cursor:pointer;transform:scale(.8);transform-origin:center;transition:opacity .16s ease,transform .16s ease,background-color .16s ease}
 .asset-select-control::before,.asset-select-control::after{content:"";position:absolute;left:50%;top:50%;border-radius:50%;transform:translate(-50%,-50%)}
-.asset-select-control::before{width:32px;height:32px;border:3px solid var(--card-accent,#3978ed);background:#fff}
-.asset-select-control::after{width:22.4px;height:22.4px;background:var(--card-accent,#3978ed);transform:translate(-50%,-50%) scale(0);transition:transform .18s cubic-bezier(.2,.8,.2,1)}
+.asset-select-control::before{width:30px;height:30px;border:3px solid var(--card-accent,#3978ed);background:#fff}
+.asset-select-control::after{width:21px;height:21px;background:var(--card-accent,#3978ed);transform:translate(-50%,-50%) scale(0);transition:transform .18s cubic-bezier(.2,.8,.2,1)}
 .asset-card:hover .asset-select-control,.asset-card.selected .asset-select-control,.asset-select-control:focus-visible{opacity:1}
 .asset-card.selected .asset-select-control::after{transform:translate(-50%,-50%) scale(1)}
 .asset-select-control:focus-visible{outline:2px solid var(--card-accent,#3978ed);outline-offset:3px}
-@media(max-width:700px){.asset-library-page .asset-select-control{top:5px;left:7px;width:36px;height:36px;border-radius:8px}.asset-library-page .asset-select-control::before{width:28px;height:28px;border-width:2.5px}.asset-library-page .asset-select-control::after{width:19.6px;height:19.6px}}
+@media(max-width:700px){.asset-library-page .asset-select-control{top:5px;left:7px;width:38px;height:38px;border-radius:50%}.asset-library-page .asset-select-control::before{width:26px;height:26px;border-width:2.5px}.asset-library-page .asset-select-control::after{width:18.2px;height:18.2px}}
 
 /* The add control opens both import and folder creation actions. */
 .asset-library-page .asset-top-actions{position:relative}

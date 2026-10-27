@@ -1,10 +1,21 @@
 import * as T from './vendor/three/build/three.module.js';
 
+// Keep the projector's vertical axis aligned with world up. A shortest-arc
+// rotation from +Z to the surface normal can roll 180 degrees on back-facing
+// surfaces, which makes the decal appear vertically inverted.
+export function surfacePatternOrientation(normal) {
+ const z=new T.Vector3().copy(normal).normalize();
+ const reference=Math.abs(z.y)<.999?new T.Vector3(0,1,0):new T.Vector3(0,0,1);
+ const y=reference.addScaledVector(z,-reference.dot(z)).normalize();
+ const x=new T.Vector3().crossVectors(y,z).normalize();
+ return new T.Quaternion().setFromRotationMatrix(new T.Matrix4().makeBasis(x,y,z));
+}
+
 // Clip the actual model triangles to a projector box. Output retains the
 // model surface and normals; it is not a plane hovering above the mesh.
 export function surfacePatternGeometry(host,slot,point,normal,width,height,angle=0){
  host.updateWorldMatrix(true,false);
- const orientation=new T.Quaternion().setFromUnitVectors(new T.Vector3(0,0,1),normal);
+ const orientation=surfacePatternOrientation(normal);
  orientation.multiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0,0,1),angle));
  const projector=new T.Matrix4().compose(point,orientation,new T.Vector3(1,1,1)),inverse=projector.clone().invert();
  const local=host.matrixWorld.clone().invert(),nm=new T.Matrix3().getNormalMatrix(host.matrixWorld);
