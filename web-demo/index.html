@@ -26,6 +26,10 @@
             <input id="fileInput" type="file" accept=".bmp,image/bmp">
           </label>
           <button id="loadSample" class="secondary" type="button">加载案例 BMP</button>
+          <div class="input-preview-card">
+            <div class="preview-title">组织图预览</div>
+            <div id="inputPreviewWrap" class="sidebar-canvas-wrap checker"><canvas id="inputCanvas" aria-label="输入组织图"></canvas><div id="inputEmptyState" class="empty-state">等待 BMP</div></div>
+          </div>
           <p class="help">一个 BMP 像素在同一物理格内上下分成两个线圈；两个线圈共享该像素的颜色，相邻行的线圈上下穿套。</p>
         </div>
 
@@ -80,30 +84,27 @@
           <div><h2>预览</h2><span id="renderInfo">等待 BMP</span></div>
           <span class="badge">面料预览</span>
         </div>
-        <div class="preview-grid">
-          <div class="preview-card">
-            <div class="preview-title">输入组织图</div>
-            <div class="canvas-wrap checker"><canvas id="inputCanvas"></canvas></div>
-          </div>
-          <div class="preview-card output-card">
+        <div class="preview-switch" role="tablist" aria-label="预览图切换">
+          <button type="button" class="active" data-preview-map="fabric" aria-selected="true">面料全图</button>
+          <button type="button" data-preview-map="height" aria-selected="false">荆棘高度图</button>
+          <button type="button" data-preview-map="normal" aria-selected="false">OpenGL 法线图</button>
+        </div>
+        <div id="previewStage" class="preview-stage">
+          <div id="fabricPreviewPanel" class="texture-preview-panel">
             <div class="preview-title preview-title-controls">
               <span>面料全图</span>
-              <label class="zoom-control" for="previewZoom"><span>显示</span><select id="previewZoom"><option value="fit">适应全图</option><option value="actual">实际像素</option></select></label>
+              <span id="textureZoomLabel" class="texture-zoom-label">适应窗口</span>
             </div>
-            <div id="outputWrap" class="canvas-wrap"><canvas id="outputCanvas" aria-label="面料全图，点击查看线圈局部"></canvas><div id="emptyState" class="empty-state">上传 BMP 或加载案例开始渲染</div></div>
+            <div id="outputWrap" class="texture-viewport"><canvas id="outputCanvas" aria-label="面料全图，拖动平移，滚轮缩放"></canvas><div id="emptyState" class="empty-state">上传 BMP 或加载案例开始渲染</div></div>
           </div>
-        </div>
-        <div class="preview-card detail-card">
-          <div class="preview-title detail-title">
-            <div><span>线圈局部</span><span id="detailInfo" class="detail-info">等待面料渲染</span></div>
-            <button id="downloadDetailButton" class="secondary" type="button" disabled>下载局部 PNG</button>
+          <div id="heightPreviewPanel" class="texture-preview-panel" hidden>
+            <div class="preview-title preview-title-controls"><span>荆棘高度图</span><span class="texture-zoom-label">拖动平移，滚轮缩放</span></div>
+            <div id="heightPreviewWrap" class="texture-viewport checker"><canvas id="heightPreviewCanvas" aria-label="荆棘高度图"></canvas><div id="heightEmptyState" class="empty-state">点击右侧“生成高度图 + 法线图”</div></div>
           </div>
-          <p class="detail-help">点击面料全图，查看该位置的线圈穿套与纱线明暗。局部按每个 BMP 像素宽 28 像素、上下两个线圈重新渲染。</p>
-          <div class="canvas-wrap detail-wrap"><canvas id="detailCanvas" aria-label="线圈局部细节"></canvas><div id="detailEmptyState" class="empty-state">渲染后点击面料全图查看局部</div></div>
-        </div>
-        <div class="preview-grid map-grid">
-          <div class="preview-card map-card"><div class="preview-title">荆棘高度图（白底 · 正片叠底）</div><div class="canvas-wrap checker map-wrap"><canvas id="heightPreviewCanvas" aria-label="荆棘高度图"></canvas><div id="heightEmptyState" class="empty-state">点击“生成高度图 + 法线图”</div></div></div>
-          <div class="preview-card map-card"><div class="preview-title">OpenGL 法线图</div><div class="canvas-wrap map-wrap"><canvas id="normalPreviewCanvas" aria-label="OpenGL 法线图"></canvas><div id="normalEmptyState" class="empty-state">等待法线图</div></div></div>
+          <div id="normalPreviewPanel" class="texture-preview-panel" hidden>
+            <div class="preview-title preview-title-controls"><span>OpenGL 法线图</span><span class="texture-zoom-label">拖动平移，滚轮缩放</span></div>
+            <div id="normalPreviewWrap" class="texture-viewport"><canvas id="normalPreviewCanvas" aria-label="OpenGL 法线图"></canvas><div id="normalEmptyState" class="empty-state">等待法线图</div></div>
+          </div>
         </div>
         <div class="legend">
           <span><i class="dot bg"></i>一个 BMP 像素 = 上下两个线圈</span>

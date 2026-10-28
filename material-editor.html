@@ -24,7 +24,14 @@
   <div id="authBootLoading" class="auth-boot-loading" role="status" aria-label="正在验证登录..."></div>
   <header class="topbar">
     <a class="brand" href="./index.html"><img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic"><span class="brand-divider"></span><strong class="brand-title">材质编辑器</strong></a>
-    <div class="header-actions"><button id="newMaterial">新建材质</button><button id="exportMaterial">导出材质</button><button id="saveMaterial" class="primary" disabled>保存到资产库</button></div>
+    <div class="header-actions">
+      <button id="newMaterial">新建材质</button>
+      <div class="editor-mode-switch" role="group" aria-label="编辑模式">
+        <button id="materialEditorMode" type="button" class="active" aria-pressed="true">材质编辑器</button>
+        <button id="exportMaterial" type="button" aria-pressed="false">程序化材质</button>
+      </div>
+      <button id="saveMaterial" class="primary" disabled>保存到资产库</button>
+    </div>
   </header>
   <main class="editor-layout">
     <section id="previewPane" class="preview-pane" aria-label="材质预览">
@@ -85,6 +92,9 @@
       <div id="editorScrollbar" class="editor-scrollbar" aria-hidden="true" hidden><span class="editor-scrollbar-thumb"></span></div>
     </div>
   </main>
+  <section id="proceduralWorkspace" class="procedural-workspace" hidden aria-label="程序化材质工具">
+    <iframe id="proceduralFrame" title="程序化材质工具" loading="lazy"></iframe>
+  </section>
   <div id="status" class="status-bar" role="status"></div>
   <dialog id="batchFabricCategoryDialog" class="preview-generation-dialog batch-fabric-category-dialog" aria-labelledby="batchFabricCategoryTitle">
     <form method="dialog">

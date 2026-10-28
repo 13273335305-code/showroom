@@ -1,5 +1,5 @@
 import { MATERIAL_MAPS } from './material-map-definitions.js';
-import { compressImageFile } from './asset-thumbnail.js';
+import { compressImageFile, RUNTIME_TEXTURE_MAX_SIZE } from './asset-thumbnail.js';
 
 const channels = new Set(MATERIAL_MAPS.map(([key]) => key));
 const runtimeConfigs = new Map(), runtimeFiles = new Map();
@@ -31,7 +31,10 @@ export function validateProjectManifest(config) {
   requireFile(config.modelPath);
   if (config.files[config.modelPath].kind !== 'cloud') throw new Error('项目模型引用无效');
   for (const resource of config.resources || []) requireFile(resource.path);
-  for (const entry of config.materials || []) for (const map of Object.values(entry.maps || {})) if (map?.path) requireFile(map.path);
+  for (const entry of config.materials || []) {
+    for (const map of Object.values(entry.maps || {})) if (map?.path) requireFile(map.path);
+    if (entry.proceduralSource?.path) requireFile(entry.proceduralSource.path);
+  }
   for (const pattern of config.patterns || []) {
     requireFile(pattern.path);
     for (const map of Object.values(pattern.pbr?.maps || {})) requireFile(map.path);
@@ -51,7 +54,7 @@ export function retainProjectSources(config) {
 }
 export async function createProjectResource(file, reference, upload) {
   if (reference?.runtimeUrl) {
-    if (localResource(reference.runtimeUrl)) return { ...await upload(await compressImageFile(file, 2048)), prepared: true };
+    if (localResource(reference.runtimeUrl)) return { ...await upload(await compressImageFile(file, RUNTIME_TEXTURE_MAX_SIZE)), prepared: true };
     return { kind: 'runtime', reference: { ...reference }, name: file.name, type: file.type, prepared: true };
   }
   return upload(file);
@@ -92,7 +95,7 @@ export async function resolveProjectResource(descriptor, download) {
     const blob = await response.blob();
     if (!blob.size || blob.size > 64 * 1024 * 1024) throw new Error('运行贴图大小无效');
     const file = new File([blob], map.name || descriptor.name, { type: map.type });
-    return map.prepared === true ? file : compressImageFile(file, 2048);
+    return map.prepared === true ? file : compressImageFile(file, RUNTIME_TEXTURE_MAX_SIZE);
   }).catch(error => { runtimeFiles.delete(key); throw error; }));
   return runtimeFiles.get(key);
 }

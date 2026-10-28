@@ -8,6 +8,8 @@
  */
 
 const $ = (id) => document.getElementById(id);
+const embeddedInMaterialEditor = new URLSearchParams(location.search).get("embed") === "1";
+document.body.classList.toggle("embedded", embeddedInMaterialEditor);
 const inputCanvas = $("inputCanvas");
 const outputCanvas = $("outputCanvas");
 const inputCtx = inputCanvas.getContext("2d", { willReadFrequently: true });
@@ -40,16 +42,117 @@ const state = {
   renderId: 0,
   renderedId: 0,
   jpegEncodeId: 0,
-  detailId: 0,
   renderJob: null,
   normalJob: null,
   normalRenderId: 0,
   heightJob: null,
   recessedClasses: new Set(),
-  detailJob: null,
   renderOptions: null,
-  detailPosition: null
+  sourceFile: null,
+  sourceName: "",
+  requestId: null
 };
+
+function proceduralMappingSnapshot() {
+  const options = state.renderOptions || currentRenderOptions();
+  return {
+    version: 1,
+    sourceName: state.sourceName || state.sourceFile?.name || "source.bmp",
+    width: state.width,
+    height: state.height,
+    palette: state.palette.map(entry => ({ index: entry.index, sourceHex: entry.sourceHex, loopHex: entry.loopHex, count: entry.count, sourceIndex: entry.sourceIndex })),
+    recessedClasses: [...state.recessedClasses],
+    options: {
+      background: options.background,
+      contrast: options.contrast,
+      texture: options.texture,
+      angle: options.angle,
+      dpi: options.dpi,
+      pixelsPerCmY: options.pixelsPerCmY,
+      reliefRadius: options.reliefRadius,
+      reliefDepth: options.reliefDepth,
+      quality: Number($("quality")?.value || 92) / 100
+    }
+  };
+}
+
+function postProceduralState(includeSource = false) {
+  if (!embeddedInMaterialEditor || !state.sourceFile) return;
+  window.parent.postMessage({
+    type: "procedural-state",
+    sourceFile: includeSource ? state.sourceFile : undefined,
+    mapping: proceduralMappingSnapshot()
+  }, "*");
+}
+
+const previewViewports = [];
+function mountPreviewViewport(viewport, canvas, label) {
+  if (!viewport || !canvas) return null;
+  const view = { viewport, canvas, scale: 1, fitScale: 1, offsetX: 0, offsetY: 0, initialized: false, dragging: null };
+  const renderView = () => {
+    if (!canvas.width || !canvas.height) return;
+    const bounds = viewport.getBoundingClientRect();
+    const fitScale = Math.min((bounds.width - 24) / canvas.width, (bounds.height - 24) / canvas.height);
+    if (!(fitScale > 0)) return;
+    view.fitScale = Math.max(.02, Math.min(8, fitScale));
+    if (!view.initialized) { view.scale = view.fitScale; view.initialized = true; }
+    canvas.style.width = `${canvas.width}px`;
+    canvas.style.height = `${canvas.height}px`;
+    canvas.style.transform = `translate(calc(-50% + ${view.offsetX}px),calc(-50% + ${view.offsetY}px)) scale(${view.scale})`;
+    if (label) label.textContent = `${Math.round(view.scale / view.fitScale * 100)}%`;
+  };
+  const reset = () => { view.initialized = false; view.offsetX = view.offsetY = 0; renderView(); };
+  viewport.addEventListener('wheel', event => {
+    if (!canvas.width) return;
+    event.preventDefault();
+    const bounds = viewport.getBoundingClientRect();
+    const cursorX = event.clientX - bounds.left - bounds.width / 2 - view.offsetX;
+    const cursorY = event.clientY - bounds.top - bounds.height / 2 - view.offsetY;
+    const next = Math.max(view.fitScale * .35, Math.min(view.fitScale * 12, view.scale * (event.deltaY < 0 ? 1.12 : .89)));
+    const factor = next / view.scale;
+    view.offsetX -= cursorX * (factor - 1);
+    view.offsetY -= cursorY * (factor - 1);
+    view.scale = next;
+    renderView();
+  }, { passive: false });
+  viewport.addEventListener('pointerdown', event => {
+    if (!canvas.width || event.button !== 0) return;
+    view.dragging = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    viewport.setPointerCapture?.(event.pointerId);
+    viewport.classList.add('is-panning');
+  });
+  viewport.addEventListener('pointermove', event => {
+    if (!view.dragging || view.dragging.pointerId !== event.pointerId) return;
+    view.offsetX += event.clientX - view.dragging.x;
+    view.offsetY += event.clientY - view.dragging.y;
+    view.dragging.x = event.clientX; view.dragging.y = event.clientY;
+    renderView();
+  });
+  const stop = event => {
+    if (!view.dragging || (event.pointerId !== undefined && view.dragging.pointerId !== event.pointerId)) return;
+    view.dragging = null; viewport.classList.remove('is-panning');
+  };
+  viewport.addEventListener('pointerup', stop); viewport.addEventListener('pointercancel', stop); viewport.addEventListener('lostpointercapture', stop);
+  new ResizeObserver(renderView).observe(viewport);
+  view.render = renderView; view.reset = reset;
+  previewViewports.push(view);
+  return view;
+}
+
+const outputViewport = mountPreviewViewport($('outputWrap'), outputCanvas, $('textureZoomLabel'));
+const heightViewport = mountPreviewViewport($('heightPreviewWrap'), heightPreviewCanvas);
+const normalViewport = mountPreviewViewport($('normalPreviewWrap'), normalPreviewCanvas);
+const previewPanels = { fabric: $('fabricPreviewPanel'), height: $('heightPreviewPanel'), normal: $('normalPreviewPanel') };
+function setPreviewMap(mode) {
+  for (const [key, panel] of Object.entries(previewPanels)) if (panel) panel.hidden = key !== mode;
+  document.querySelectorAll('[data-preview-map]').forEach(button => {
+    const active = button.dataset.previewMap === mode;
+    button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active));
+  });
+  requestAnimationFrame(() => previewViewports.forEach(view => view.render?.()));
+}
+document.querySelectorAll('[data-preview-map]').forEach(button => { button.addEventListener('click', () => setPreviewMap(button.dataset.previewMap)); });
+setPreviewMap('fabric');
 
 function outputDpi() {
   const input = $("dpi");
@@ -172,6 +275,7 @@ function renderPaletteControls() {
     input.addEventListener("input", () => {
       entry.loopHex = input.value.toUpperCase();
       entry.loopRgb = hexToRgb(entry.loopHex);
+      postProceduralState();
       requestRender();
     });
     row.append(relief, id, source, input, count);
@@ -222,18 +326,20 @@ async function loadFile(file) {
   if (!file) return;
   setStatus("读取 BMP…", false);
   try {
+    state.sourceFile = file;
+    state.sourceName = file.name || "source.bmp";
     const buffer = await file.arrayBuffer();
     const indexedBmp = parseIndexedBmp(buffer);
     const bitmap = await createImageBitmap(new Blob([buffer], { type: file.type || "image/bmp" }));
     state.bitmap?.close();
     state.bitmap = bitmap;
-    state.detailPosition = null;
     state.width = bitmap.width;
     state.height = bitmap.height;
     inputCanvas.width = state.width;
     inputCanvas.height = state.height;
     inputCtx.clearRect(0, 0, state.width, state.height);
     inputCtx.drawImage(bitmap, 0, 0);
+    $("inputEmptyState").hidden = true;
     state.imageData = inputCtx.getImageData(0, 0, state.width, state.height);
     state.pixels = state.width * state.height;
     const usableIndexedBmp = indexedBmp && indexedBmp.width === state.width && indexedBmp.height === state.height ? indexedBmp : null;
@@ -243,6 +349,7 @@ async function loadFile(file) {
     $("normalButton").disabled = false;
     invalidateNormal("已载入 BMP，可生成径向高度图和 OpenGL 法线图");
     setStatus(`已载入 ${file.name}`, true);
+    postProceduralState(true);
     render();
   } catch (error) {
     console.error(error);
@@ -266,6 +373,60 @@ function setStatus(text, ready) {
   $("statusPill").textContent = text;
   $("statusPill").classList.toggle("ready", ready);
 }
+
+function applyProceduralMapping(mapping = {}) {
+  const options = mapping.options || {};
+  const setValue = (id, value) => {
+    const input = $(id);
+    if (input && value !== undefined && value !== null && Number.isFinite(Number(value))) input.value = String(value);
+  };
+  setValue("texture", Number(options.texture || 0) * 100);
+  setValue("contrast", Number(options.contrast || 0) * 100);
+  setValue("angle", options.angle);
+  setValue("dpi", options.dpi);
+  setValue("bmpPixelsPerCmY", options.pixelsPerCmY);
+  setValue("reliefRadius", options.reliefRadius);
+  setValue("reliefDepth", Number(options.reliefDepth || 0) * 100);
+  if (typeof options.quality === "number") setValue("quality", options.quality * 100);
+  if (options.background) {
+    const background = rgbToHex(options.background.r, options.background.g, options.background.b);
+    $("backgroundColor").value = background;
+    $("backgroundColorValue").value = background;
+  }
+  if (Array.isArray(mapping.palette)) {
+    const byIndex = new Map(mapping.palette.map(entry => [Number(entry.index), entry]));
+    for (const entry of state.palette) {
+      const saved = byIndex.get(entry.index);
+      if (!saved || !/^#[\da-f]{6}$/i.test(saved.loopHex || "")) continue;
+      entry.loopHex = saved.loopHex.toUpperCase();
+      entry.loopRgb = hexToRgb(entry.loopHex);
+    }
+    renderPaletteControls();
+  }
+  if (Array.isArray(mapping.recessedClasses)) state.recessedClasses = new Set(mapping.recessedClasses.map(Number).filter(Number.isInteger));
+  updateRangeOutput("texture"); updateRangeOutput("contrast"); updateRangeOutput("angle", v => `${v}°`); updateRangeOutput("quality"); updateRangeOutput("reliefDepth"); updatePhysicalSizeInfo();
+  invalidateNormal("色号映射已更新，可重新生成法线图");
+  requestRender();
+  postProceduralState();
+}
+
+window.addEventListener("message", async event => {
+  const data = event.data;
+  if (!data || !["procedural-load", "procedural-update"].includes(data.type)) return;
+  try {
+    state.requestId = data.requestId ?? null;
+    const source = data.sourceFile;
+    if (source && (!state.sourceFile || state.sourceFile.size !== source.size || state.sourceFile.name !== (source.name || state.sourceName))) {
+      const file = source instanceof File ? source : new File([source], source.name || "source.bmp", { type: source.type || "image/bmp" });
+      await loadFile(file);
+    }
+    if (!state.imageData) throw new Error("尚未载入 BMP 源图");
+    applyProceduralMapping(data.mapping || {});
+  } catch (error) {
+    console.error(error);
+    window.parent.postMessage({ type: "procedural-error", requestId: state.requestId, message: error.message }, "*");
+  }
+});
 
 function invalidateNormal(message = "等待生成 OpenGL 法线图") {
   state.normalJob?.cancel();
@@ -369,6 +530,7 @@ async function replaceMapUrl(kind, image, settings, id) {
   state[key] = URL.createObjectURL(jpeg);
   const button = $(kind === "height" ? "heightDownloadButton" : "normalDownloadButton");
   if (button) button.disabled = false;
+  if (kind === "normal" && embeddedInMaterialEditor) void applyRenderedNormal();
 }
 
 function clearMapResults() {
@@ -407,6 +569,7 @@ async function renderNormal() {
     let { image: heightImage } = await heightJob.promise;
     if (id !== state.normalRenderId) return;
     showMapPreview(heightPreviewCanvas, heightPreviewCtx, heightImage);
+    heightViewport?.reset();
     $("heightEmptyState").hidden = true;
     $("normalInfo").textContent = `${metrics.outW}×${metrics.outH} · 正在编码高度 JPG…`;
     await replaceMapUrl("height", heightImage, jpegSettings, id);
@@ -428,6 +591,7 @@ async function renderNormal() {
     const { image: normalImage } = await normalJob.promise;
     if (id !== state.normalRenderId) return;
     showMapPreview(normalPreviewCanvas, normalPreviewCtx, normalImage);
+    normalViewport?.reset();
     $("normalEmptyState").hidden = true;
     $("normalInfo").textContent = `${metrics.outW}×${metrics.outH} · 正在编码法线 JPG…`;
     await replaceMapUrl("normal", normalImage, jpegSettings, id);
@@ -449,53 +613,6 @@ function render() {
   requestAnimationFrame(() => { state.renderQueued = false; renderNow(); });
 }
 function requestRender() { render(); }
-
-function detailSettings() {
-  const columns = Math.min(26, state.width);
-  const rows = Math.min(14, state.height);
-  const center = state.detailPosition || { x: state.width * .5, y: state.height * .5 };
-  const originX = clamp(Math.round(center.x - columns * .5), 0, state.width - columns);
-  const originY = clamp(Math.round(center.y - rows * .5), 0, state.height - rows);
-  const cellW = 28;
-  const sourceCellW = Number(state.renderOptions?.cellW);
-  const sourceCellH = Number(state.renderOptions?.cellH);
-  const cellH = Number.isFinite(sourceCellW) && sourceCellW > 0 && Number.isFinite(sourceCellH) && sourceCellH > 0
-    ? cellW * sourceCellH / sourceCellW
-    : cellW * 6.5617 / 3.9369;
-  return {
-    originX, originY,
-    outW: columns * cellW,
-    outH: Math.round(rows * cellH),
-    cellW,
-    cellH,
-    loopsY: LOOPS_Y_PER_PIXEL
-  };
-}
-
-async function renderDetail() {
-  if (!state.renderOptions) return;
-  state.detailJob?.cancel();
-  const id = ++state.detailId;
-  const settings = detailSettings();
-  $("detailInfo").textContent = "正在渲染线圈细节…";
-  $("downloadDetailButton").disabled = true;
-  try {
-    const job = state.detailJob = KnitRenderJob.start({ ...state.renderOptions, ...settings });
-    const { image } = await job.promise;
-    if (id !== state.detailId) return;
-    const canvas = $("detailCanvas");
-    canvas.width = image.width; canvas.height = image.height;
-    canvas.getContext("2d").putImageData(new ImageData(image.data, image.width, image.height), 0, 0);
-    $("detailEmptyState").hidden = true;
-    $("detailInfo").textContent = `第 ${settings.originX + 1} 列、第 ${settings.originY + 1} 行起 · 每个 BMP 像素上下 2 个线圈 · 每个线圈宽 28 像素 · 点击全图更换位置`;
-    $("downloadDetailButton").disabled = false;
-  } catch (error) {
-    if (id !== state.detailId || error.name === "AbortError") return;
-    console.error(error);
-    $("detailInfo").textContent = "局部渲染失败：" + error.message;
-    $("detailEmptyState").textContent = "局部渲染失败，请点击面料全图重试。";
-  }
-}
 
 async function applyJpegDpi(blob, dpi) {
   if (!blob?.arrayBuffer) return blob;
@@ -546,7 +663,50 @@ async function exportJpeg(id) {
     if (state.jpegUrl) URL.revokeObjectURL(state.jpegUrl);
     state.jpegUrl = URL.createObjectURL(jpeg);
     $("downloadButton").disabled = false;
+    if (embeddedInMaterialEditor) void applyRenderedMaterial();
   } catch (error) { fail(error); }
+}
+
+async function applyRenderedMaterial() {
+  if (!embeddedInMaterialEditor || !state.jpegUrl) return;
+  try {
+    const response = await fetch(state.jpegUrl);
+    if (!response.ok) throw new Error("无法读取生成的 JPG");
+    const file = await response.blob();
+    const metrics = state.renderOptions && physicalMetrics(state.renderOptions.dpi);
+    window.parent.postMessage({
+      type: "procedural-material",
+      name: "procedural-material.jpg",
+      file,
+      requestId: state.requestId,
+      physical: metrics ? { widthCm: metrics.widthCm, heightCm: metrics.heightCm } : null
+    }, "*");
+    setStatus("纹理 JPG 已自动应用到材质编辑器", true);
+  } catch (error) {
+    console.error(error);
+    setStatus("应用 JPG 失败：" + error.message, false);
+  }
+}
+
+async function applyRenderedNormal() {
+  if (!embeddedInMaterialEditor || !state.normalUrl) return;
+  try {
+    const response = await fetch(state.normalUrl);
+    if (!response.ok) throw new Error("无法读取生成的法线 JPG");
+    const file = await response.blob();
+    const metrics = state.renderOptions && physicalMetrics(state.renderOptions.dpi);
+    window.parent.postMessage({
+      type: "procedural-normal-material",
+      name: "procedural-normal-opengl.jpg",
+      file,
+      requestId: state.requestId,
+      physical: metrics ? { widthCm: metrics.widthCm, heightCm: metrics.heightCm } : null
+    }, "*");
+    setStatus("法线 JPG 已自动应用到材质编辑器", true);
+  } catch (error) {
+    console.error(error);
+    setStatus("应用法线 JPG 失败：" + error.message, false);
+  }
 }
 
 async function renderNow() {
@@ -571,12 +731,11 @@ async function renderNow() {
         }
       }
     });
-    // Detail startup has its own error handling and cannot interrupt the main job.
-    void renderDetail();
     const { image, elapsed } = await job.promise;
     if (id !== state.renderId) return;
     outputCanvas.width = image.width; outputCanvas.height = image.height;
     outputCtx.putImageData(new ImageData(image.data, image.width, image.height), 0, 0);
+    outputViewport?.reset();
     state.renderedId = id;
     $("emptyState").hidden = true;
     const loopCellH = cellH / LOOPS_Y_PER_PIXEL;
@@ -606,25 +765,6 @@ $("heightDownloadButton").addEventListener("click", () => {
   const a = document.createElement("a");
   a.href = state.heightUrl; a.download = "fabric-height-radial.jpg"; a.click();
 });
-$("downloadDetailButton").addEventListener("click", () => {
-  $("detailCanvas").toBlob((blob) => {
-    if (!blob) return;
-    const url = URL.createObjectURL(blob), a = document.createElement("a");
-    a.href = url; a.download = "fabric-detail.png"; a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, "image/png");
-});
-$("previewZoom").addEventListener("change", () => {
-  $("outputWrap").classList.toggle("is-actual", $("previewZoom").value === "actual");
-});
-outputCanvas.addEventListener("click", (event) => {
-  if (!state.renderOptions) return;
-  const bounds = outputCanvas.getBoundingClientRect();
-  state.detailPosition = { x: (event.clientX - bounds.left) / bounds.width * state.width, y: (event.clientY - bounds.top) / bounds.height * state.height };
-  renderDetail();
-});
-
-
 $("fileInput").addEventListener("change", (event) => {
   const file = event.target.files[0];
   // Reset the input so choosing the same BMP again still triggers a reload.
@@ -639,6 +779,7 @@ $("resetPalette").addEventListener("click", () => {
     entry.loopRgb = hexToRgb(entry.loopHex);
   }
   renderPaletteControls();
+  postProceduralState();
   requestRender();
 });
 $("backgroundColor").addEventListener("input", () => {
@@ -659,19 +800,23 @@ for (const id of ["texture", "contrast", "angle", "quality"]) {
       // shading and yarn-angle changes do not invalidate a completed result.
       requestRender();
     }
+    postProceduralState();
   });
 }
 $("reliefDepth").addEventListener("input", () => {
   updateRangeOutput("reliefDepth");
   invalidateNormal("径向凹陷深度已修改，请重新生成高度图和法线图");
+  postProceduralState();
 });
 $("reliefRadius").addEventListener("input", () => {
   invalidateNormal("径向渐变半径已修改，请重新生成高度图和法线图");
+  postProceduralState();
 });
 $("dpi").addEventListener("input", () => {
   updatePhysicalSizeInfo();
   if (state.heightJob || state.normalJob || state.heightUrl || state.normalUrl) invalidateNormal("DPI 已修改，请重新生成高度图和法线图");
   requestRender();
+  postProceduralState();
 });
 $("bmpPixelsPerCmY").addEventListener("input", () => {
   updatePhysicalSizeInfo();
@@ -679,6 +824,7 @@ $("bmpPixelsPerCmY").addEventListener("input", () => {
     invalidateNormal("纵向 BMP 像素/cm 已修改，请重新生成高度图和法线图");
   }
   requestRender();
+  postProceduralState();
 });
 updateRangeOutput("texture");
 updateRangeOutput("contrast");

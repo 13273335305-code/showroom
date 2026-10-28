@@ -1,11 +1,11 @@
 import { createProjectCloud, PROJECT_BUCKET } from './project-cloud.js';
-import { createRuntimeMaps, compressImageFile } from './asset-thumbnail.js';
+import { createRuntimeMaps, compressImageFile, RUNTIME_TEXTURE_MAX_SIZE } from './asset-thumbnail.js';
 import { MATERIAL_MAPS } from './material-map-definitions.js';
 import { normalizeAssetCategories } from './fabric-category.js';
 
 const TABLE = 'spenic_assets', FAVORITES = 'spenic_asset_favorites';
 const SUMMARY = 'id,owner_id,kind,name,category,library,parent_id,metadata,thumbnail_path,created_at,updated_at';
-const metadataFields = ['description', 'designInfo', 'supplier', 'materialType', 'fabricIdentityVersion', 'fabricColorCode', 'fabricGroupId', 'fabricDefaultColorCode', 'surface', 'physical', 'repeat', 'density', 'legacyMaps', 'placement', 'previewInfo', 'partAssignments', 'uploadTaskId'];
+const metadataFields = ['description', 'designInfo', 'supplier', 'materialType', 'fabricIdentityVersion', 'fabricColorCode', 'fabricGroupId', 'fabricDefaultColorCode', 'surface', 'physical', 'repeat', 'density', 'legacyMaps', 'placement', 'previewInfo', 'partAssignments', 'uploadTaskId', 'proceduralMapping'];
 const channels = new Set(MATERIAL_MAPS.map(([key]) => key));
 export const isCloudAssetId = id => /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(id || '');
 
@@ -31,7 +31,7 @@ function validateManifest(manifest) {
   for (const maps of [manifest.maps, manifest.runtimeMaps]) for (const [key, path] of Object.entries(maps || {})) {
     if (!channels.has(key)) throw new Error('资产贴图通道无效'); need(path);
   }
-  for (const path of [manifest.filePath, manifest.runtimePath, manifest.previewPath, manifest.thumbnailPath].filter(Boolean)) need(path);
+  for (const path of [manifest.filePath, manifest.runtimePath, manifest.previewPath, manifest.thumbnailPath, manifest.proceduralSourcePath].filter(Boolean)) need(path);
   if (manifest.modelRuntimeVersion !== undefined && (manifest.modelRuntimeVersion !== 1 || !manifest.runtimePath)) throw new Error('模型运行版本无效');
   for (const resource of manifest.resources || []) need(resource.path);
   return manifest;
@@ -77,6 +77,7 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
     const asset = { ...summary(row, previews.get(previewPath)), assetManifest: manifest, previewReference: refs[manifest.previewPath] || refs[manifest.thumbnailPath], previewExpiresAt: Date.now() + 3300000 };
     if (previewOnly) return asset;
     if (row.kind === 'material') {
+      if (manifest.proceduralSourcePath) asset.proceduralSource = await resources.download(refs[manifest.proceduralSourcePath]);
       const sourceRefs = Object.fromEntries(Object.entries(manifest.maps || {}).map(([key, path]) => [key, refs[path]]));
       asset.sourcePackage = { cloud: true, files: sourceRefs, version: row.updated_at, name: row.name };
       asset.maps = {}; asset.projectRefs = {};
@@ -181,7 +182,7 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
     const manifest = { format: 'SPENIC-ASSET', version: 1, files: {} };
     if (asset.kind === 'material') {
       manifest.maps = {}; manifest.runtimeMaps = {};
-      const runtimeMaps = asset.runtimeOnly ? asset.runtimeMaps : await createRuntimeMaps(asset, 2048);
+      const runtimeMaps = asset.runtimeOnly ? asset.runtimeMaps : await createRuntimeMaps(asset, RUNTIME_TEXTURE_MAX_SIZE);
       for (const [key, file] of Object.entries(asset.maps || {})) {
         if (!channels.has(key) || !(file instanceof Blob) || file.size > 64 * 1024 * 1024) throw new Error('材质贴图无效或超过 64 MB');
         const path = 'source/' + key, runtimePath = 'runtime/' + key;
@@ -189,10 +190,15 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
         manifest.files[runtimePath] = asset.runtimeOnly && asset.projectRefs?.[key] ? { ...asset.projectRefs[key], reference: undefined } : await upload(runtimeMaps[key]);
         manifest.maps[key] = path; manifest.runtimeMaps[key] = runtimePath;
       }
+      if (asset.proceduralSource instanceof Blob) {
+        if (asset.proceduralSource.size > 64 * 1024 * 1024) throw new Error('BMP 源图不能超过 64 MB');
+        manifest.files['procedural/source.bmp'] = await upload(asset.proceduralSource);
+        manifest.proceduralSourcePath = 'procedural/source.bmp';
+      }
     } else if (asset.kind !== 'folder') {
       if (asset.kind === 'texture' && (!(asset.file instanceof Blob) || asset.file.size > 64 * 1024 * 1024)) throw new Error('贴图无效或超过 64 MB');
       manifest.files.file = await resources.upload(asset.file); manifest.filePath = 'file';
-      if (asset.kind === 'texture') { manifest.files.runtime = await resources.upload(await compressImageFile(asset.file, 2048)); manifest.runtimePath = 'runtime'; }
+      if (asset.kind === 'texture') { manifest.files.runtime = await resources.upload(await compressImageFile(asset.file, RUNTIME_TEXTURE_MAX_SIZE)); manifest.runtimePath = 'runtime'; }
       if (asset.kind === 'model') {
         manifest.resources = [];
         for (const [i, file] of (asset.resources || []).entries()) {

@@ -60,7 +60,7 @@ function modelBytes() {
     });
     const manifest = state.assets.get(ids.fabric).manifest;
     const sourcePath = manifest.files[manifest.maps.map].path, runtimePath = manifest.files[manifest.runtimeMaps.map].path;
-    assert.notEqual(sourcePath, runtimePath, 'Original and resized runtime maps are separate resources');
+    assert.equal(sourcePath, runtimePath, 'Maps at or below the 8192px runtime limit do not need a second resized resource');
     await setup.reload(); await ready(setup);
     const sourceReads = () => requests.filter(request => request.method === 'GET' && request.path.endsWith(sourcePath)).length;
     const viewer = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
@@ -86,7 +86,7 @@ function modelBytes() {
       const asset = await (await import('./shared/asset-store.js')).getAsset(id, { runtime: true });
       const bitmap = await createImageBitmap(asset.maps.map); const result = { width: bitmap.width, height: bitmap.height, size: asset.physical.widthCm }; bitmap.close(); return result;
     }, ids.fabric);
-    assert.deepEqual(dimensions, { width: 2048, height: 1536, size: 12 });
+    assert.deepEqual(dimensions, { width: 3072, height: 2304, size: 12 });
     await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.getElementById('fabricPreviewDialog').open);
     await page.screenshot({ path: path.join(screenshotRoot, 'asset-cloud-desktop.png') });
     await page.setViewportSize({ width: 390, height: 844 }); await ready(page);

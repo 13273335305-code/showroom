@@ -953,11 +953,11 @@ function render({ background = false } = {}) {
     }
     if (urls.length) cardUrls.set(asset.id, urls);
     const info = document.createElement('div'); info.className = 'asset-info';
-    const title = document.createElement('h2'); title.textContent = asset.name; title.title = asset.name;
+    const titleRow = document.createElement('div'); titleRow.className = 'asset-title-row'; const title = document.createElement('h2'); title.textContent = asset.name; title.title = asset.name; titleRow.append(title); if (asset.proceduralMapping) { const badge = document.createElement('img'); badge.className = 'procedural-material-badge'; badge.src = './assets/procedural-material.svg'; badge.alt = '程序化材质'; badge.title = '程序化材质'; titleRow.append(badge); }
     const description = document.createElement('p'); description.className = 'asset-description'; description.textContent = asset.description || '暂无简介'; description.title = asset.description || '';
     const actions = document.createElement('div'); actions.className = 'asset-actions';
     if (asset.kind !== 'model') actions.append(link('编辑材质', './material-editor.html?asset=' + encodeURIComponent(asset.id)));
-    info.append(title, description, actions);
+    info.append(titleRow, description, actions);
     const selectControl = asset.kind === 'folder' ? null : createSelectionControl(asset, card);
     if (selectControl) syncCardSelection(card, selectControl, selectedAssetIds.has(asset.id));
     card.append(art, info, ...(selectControl ? [selectControl] : []), ...createMenu(asset, card));

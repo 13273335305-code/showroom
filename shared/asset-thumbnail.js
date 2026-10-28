@@ -1,6 +1,9 @@
 // Keep UI previews and runtime maps independent from the original, potentially
 // very large map. The browser does the resize so the result is a real decoded
 // image, rather than a CSS-only preview that still costs the original memory.
+// Runtime maps are used on the design canvas, so allow enough detail for
+// procedural materials while still bounding GPU memory on older devices.
+export const RUNTIME_TEXTURE_MAX_SIZE = 8192;
 function outputType(type) {
   if (type === 'image/jpeg') return { type, extension: '.jpg', quality: .9 };
   if (type === 'image/webp') return { type, extension: '.webp', quality: .9 };
@@ -49,7 +52,7 @@ export async function createAssetThumbnail(asset, maxSize = 320) {
   return compressImageFile(source, maxSize);
 }
 
-export async function createRuntimeMaps(asset, maxSize = 2048) {
+export async function createRuntimeMaps(asset, maxSize = RUNTIME_TEXTURE_MAX_SIZE) {
   const maps = {};
   for (const [key, file] of Object.entries(asset?.maps || {})) {
     if (file) maps[key] = await compressImageFile(file, maxSize);

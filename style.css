@@ -10,10 +10,7 @@
 .material-preview{position:fixed;left:0;top:0;width:300px;height:300px;z-index:30;pointer-events:none;opacity:0;transform-origin:0 0;will-change:transform,opacity;filter:drop-shadow(0 12px 20px #1d304033)}
 .material-preview-image{position:absolute;inset:0;border-radius:inherit;background-position:center;background-repeat:no-repeat;background-size:cover;overflow:hidden;box-shadow:inset 0 0 0 1px #ffffff88;image-rendering:auto;transform:rotate(var(--preview-angle,0deg)) scale(1);transform-origin:center;will-change:transform,box-shadow}
 .material-item{touch-action:none;user-select:none;cursor:grab}.material-item.dragging{cursor:grabbing}
-.material-preview-image{border-radius:inherit;background-repeat:no-repeat;background-size:cover}
 .material-preview.following{transition:none;clip-path:none}
-.material-preview.following .material-preview-label{opacity:0}
-.material-preview-label{max-width:290px;white-space:normal;text-align:center;letter-spacing:0}
 .material-preview.jelly-ready .material-preview-image{animation:materialHeartbeat 1.3s cubic-bezier(.22,.7,.25,1) infinite;box-shadow:0 0 0 4px #80b8ff66,0 0 30px #5598ff66,inset 0 0 0 1px #fff;animation-fill-mode:both}
 .material-apply-progress{position:absolute;inset:-8%;display:none;width:116%;height:116%;overflow:visible;filter:drop-shadow(0 0 5px #2878f0a0);pointer-events:none}
 .material-apply-progress circle{fill:none;stroke-width:8}
@@ -21,8 +18,11 @@
 .material-apply-value{stroke:#2878f0;stroke-dasharray:126 264;stroke-linecap:round}
 .material-preview.apply-loading .material-apply-progress{display:block;animation:materialApplySpin .78s linear infinite}
 .material-ball{position:relative;width:max-content;margin:0 auto}
+.material-hold-progress{position:absolute;inset:-6%;width:112%;height:112%;z-index:3;overflow:visible;pointer-events:none;transform:rotate(-90deg) scale(.7);transform-origin:center;filter:drop-shadow(0 1px 3px #17376345)}
+.material-hold-progress circle{fill:none;stroke-width:5}
+.material-hold-track{stroke:#ffffff99}
+.material-hold-value{stroke:#2f71ee;stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round}
 .material-ball.apply-loading .material-apply-progress{display:block;z-index:2;animation:materialApplySpin .78s linear infinite}
-.material-item:hover .material-ball.apply-loading .material-thumb{transform:none}
 @media(prefers-reduced-motion:reduce){.material-ball.apply-loading .material-apply-progress{animation:none}}
 @keyframes materialApplySpin{to{transform:rotate(360deg)}}
 @keyframes materialHeartbeat{

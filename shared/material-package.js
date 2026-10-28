@@ -21,7 +21,13 @@ export async function packMaterial(asset) {
     archive[path] = new Uint8Array(await file.arrayBuffer());
     maps[key] = { path, name: file.name, type: file.type };
   }
-  archive['material.json'] = strToU8(JSON.stringify({ format: 'SPENIC-MATERIAL', version: 1, name: asset.name, description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, preview, previewInfo: asset.previewInfo, materialType: asset.materialType || 'fabric', category: normalizeFabricCategory(asset.category), fabricColorCode: asset.fabricColorCode, surface: asset.surface, physical: asset.physical, repeat: asset.repeat, maps, placement: asset.placement, density: asset.density, legacyMaps: asset.legacyMaps }));
+  let proceduralSource;
+  if (asset.proceduralSource instanceof Blob) {
+    if (asset.proceduralSource.size > 64 * 1024 * 1024) throw new Error('BMP 源图不能超过 64 MB');
+    archive['procedural/source.bmp'] = new Uint8Array(await asset.proceduralSource.arrayBuffer());
+    proceduralSource = { path: 'procedural/source.bmp', name: asset.proceduralSource.name, type: asset.proceduralSource.type || 'image/bmp' };
+  }
+  archive['material.json'] = strToU8(JSON.stringify({ format: 'SPENIC-MATERIAL', version: 1, name: asset.name, description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, preview, previewInfo: asset.previewInfo, materialType: asset.materialType || 'fabric', category: normalizeFabricCategory(asset.category), fabricColorCode: asset.fabricColorCode, surface: asset.surface, physical: asset.physical, repeat: asset.repeat, maps, placement: asset.placement, density: asset.density, legacyMaps: asset.legacyMaps, proceduralMapping: asset.proceduralMapping, proceduralSource }));
   return new Blob([zipSync(archive, { level: 0 })], { type: 'application/zip' });
 }
 
@@ -49,5 +55,11 @@ export async function unpackMaterial(file) {
     if (!bytes || bytes.length > 16 * 1024 * 1024 || !/^image\/(png|jpeg|webp|bmp)$/.test(data.preview.type)) throw new Error('预览图缺失、格式无效或超过 16 MB');
     preview = new Blob([bytes], { type: data.preview.type });
   }
-  return { kind: 'material', description: typeof data.description === 'string' ? data.description : '', designInfo: typeof data.designInfo === 'string' ? data.designInfo : '', supplier: typeof data.supplier === 'string' ? data.supplier : '', fabricColorCode: typeof data.fabricColorCode === 'string' ? data.fabricColorCode : undefined, preview, previewInfo: data.previewInfo || null, placement: data.placement, materialType: data.materialType === 'pattern' ? 'pattern' : 'fabric', name: data.name, category: normalizeFabricCategory(data.category), surface: data.surface, physical: readPhysical(data.physical, true), repeat: data.repeat || [1, 1], maps, density: data.density || {}, legacyMaps: data.legacyMaps || {} };
+  let proceduralSource;
+  if (data.proceduralSource) {
+    const bytes = archive[data.proceduralSource.path];
+    if (!bytes || bytes.length > 64 * 1024 * 1024) throw new Error('BMP 源图缺失或超过 64 MB');
+    proceduralSource = new File([bytes], String(data.proceduralSource.name || 'source.bmp'), { type: data.proceduralSource.type || 'image/bmp' });
+  }
+  return { kind: 'material', description: typeof data.description === 'string' ? data.description : '', designInfo: typeof data.designInfo === 'string' ? data.designInfo : '', supplier: typeof data.supplier === 'string' ? data.supplier : '', fabricColorCode: typeof data.fabricColorCode === 'string' ? data.fabricColorCode : undefined, preview, previewInfo: data.previewInfo || null, placement: data.placement, materialType: data.materialType === 'pattern' ? 'pattern' : 'fabric', name: data.name, category: normalizeFabricCategory(data.category), surface: data.surface, physical: readPhysical(data.physical, true), repeat: data.repeat || [1, 1], maps, density: data.density || {}, legacyMaps: data.legacyMaps || {}, proceduralMapping: data.proceduralMapping || null, proceduralSource };
 }
