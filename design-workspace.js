@@ -162,12 +162,12 @@ export function createDesignWorkspace(api) {
     input.addEventListener('input', () => {
       if (!target || target.kind !== 'fabric') return;
       const value = input.valueAsNumber;
-      if (Number.isFinite(value) && value >= min && value <= max) api.pbr(target, { [key]: value });
+      if (Number.isFinite(value) && value >= min && value <= max) api.pbr?.(target, { [key]: value });
     });
     input.addEventListener('change', () => {
       if (!target || target.kind !== 'fabric') return;
       const value = input.valueAsNumber;
-      if (!Number.isFinite(value) || value < min || value > max) api.notify(title + '范围为 ' + min + '–' + max);
+      if (!Number.isFinite(value) || value < min || value > max) api.notify?.(title + '范围为 ' + min + '–' + max);
       sync();
     });
     row.append(heading, input); compactPbrControls.append(row);
