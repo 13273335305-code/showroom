@@ -6,7 +6,7 @@ const file = data => new Blob([JSON.stringify(data)]);
 const document = scene => ({ format: 'SPENIC-SCENE', version: 1, name: '深色暖光', scene });
 
 test('scene roundtrip includes all environment settings and excludes model and camera data', async () => {
-  const scene = { preset: 'night', backgroundColor: '#123456', exposure: 1.75, environment: 2.2, keyLight: 6.3, lightAngle: -72, lightColor: '#ffeeaa', fillLight: 2.4, shadows: false, reflection: false, floorVisible: false, grid: true };
+  const scene = { preset: 'night', backgroundColor: '#123456', exposure: 1.75, environment: 2.2, keyLight: 6.3, lightAngle: -72, lightElevation: 25, lightColor: '#ffeeaa', fillLight: 2.4, shadows: false, reflection: false, floorVisible: false, grid: true };
   const blob = packScene({ ...scene, rotation: 90, scale: 2, autoRotate: true, renderMode: 'wire', model: {}, materials: [1], camera: {} }, ' 深色暖光 ');
   assert.deepEqual(JSON.parse(await blob.text()), document(scene));
   assert.deepEqual(await unpackScene(blob), { name: '深色暖光', scene });
@@ -28,4 +28,18 @@ test('only known settings are imported and names are safe for downloads', async 
   assert.equal(sceneFilename('暖光/测试:*'), '暖光_测试__.formscene');
   assert.equal(sceneFilename('  '), '未命名场景.formscene');
   assert.equal((await unpackScene(packScene(ENVIRONMENT_DEFAULTS, ' '))).name, '未命名场景');
+});
+
+test('legacy scenes keep the original light elevation and new scenes validate its full range', async () => {
+  const legacy = { ...ENVIRONMENT_DEFAULTS };
+  delete legacy.lightElevation;
+  assert.deepEqual((await unpackScene(file(document(legacy)))).scene, ENVIRONMENT_DEFAULTS);
+  for (const lightElevation of [0, 25, 90]) {
+    const scene = { ...ENVIRONMENT_DEFAULTS, lightElevation };
+    assert.deepEqual((await unpackScene(packScene(scene, '倾斜角测试'))).scene, scene);
+  }
+  for (const lightElevation of [-1, 91, null, '30', false, NaN, Infinity]) {
+    assert.throws(() => packScene({ ...ENVIRONMENT_DEFAULTS, lightElevation }), /场景参数无效：lightElevation/);
+    await assert.rejects(unpackScene(file(document({ ...ENVIRONMENT_DEFAULTS, lightElevation }))), /场景参数无效：lightElevation/);
+  }
 });

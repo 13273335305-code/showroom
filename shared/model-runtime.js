@@ -2,7 +2,7 @@ import * as THREE from '../vendor/three/build/three.module.js';
 import { zipSync, unzipSync, strToU8, strFromU8 } from '../vendor/three/addons/libs/fflate.module.js';
 import { preparePhysicalUV } from '../physical-textures.js';
 import { prepareAnnotationPicking, serializeAnnotationPicking } from './annotation-visibility.js';
-import { MATERIAL_MAPS } from './material-map-definitions.js';
+import { MATERIAL_MAPS, disableRemovedMaterialChannels } from './material-map-definitions.js';
 
 export const MODEL_RUNTIME_VERSION = 1;
 const LIMIT = 512 * 1024 * 1024;
@@ -125,6 +125,7 @@ export async function prepareModelRuntime(source, { name, textureConvention = 'f
     const trees = Object.fromEntries([...serializeAnnotationPicking(object)].map(([uuid, tree]) => [uuid, { roots: tree.roots.map(binary), index: binary(tree.index), indirectBuffer: binary(tree.indirectBuffer) }]));
     onProgress('正在准备模型贴图'); await nextFrame();
     for (const material of materials) {
+      disableRemovedMaterialChannels(material);
       const thumbnails = {}, previews = {};
       for (const [key] of MATERIAL_MAPS) if (material[key]) {
         thumbnails[key] = texturePreview(material[key], 128, .8); previews[key] = texturePreview(material[key], 2048);
@@ -213,7 +214,17 @@ export async function loadModelRuntime(buffer) {
       for (const group of record.groups || []) geometry.addGroup(group.start, group.count, group.materialIndex);
       geometry.setDrawRange(record.drawRange.start, record.drawRange.count ?? Infinity); geometries[geometry.uuid] = geometry;
     }
-    data.scene.images = data.images.map(record => {
+    // Drop obsolete channels before ObjectLoader reads any of their images.
+    const removedTextures = new Set();
+    for (const material of data.scene.materials || []) {
+      for (const key of ['bumpMap', 'emissiveMap']) { if (material[key]) removedTextures.add(material[key]); delete material[key]; }
+      delete material.bumpScale; delete material.emissive; delete material.emissiveIntensity;
+    }
+    const retainedTextures = new Set((data.scene.materials || []).flatMap(material => Object.values(material)));
+    const removedImages = new Set((data.scene.textures || []).filter(texture => removedTextures.has(texture.uuid) && !retainedTextures.has(texture.uuid)).map(texture => texture.image));
+    data.scene.textures = (data.scene.textures || []).filter(texture => !removedTextures.has(texture.uuid) || retainedTextures.has(texture.uuid));
+    const retainedImages = new Set(data.scene.textures.map(texture => texture.image));
+    data.scene.images = data.images.filter(record => !removedImages.has(record.uuid) || retainedImages.has(record.uuid)).map(record => {
       if (record.data) return { uuid: record.uuid, url: { data: binary(record.data), type: record.data.type, width: record.width, height: record.height } };
       const bytes = archive[record.path]; if (!bytes) throw new Error('运行模型缺少贴图');
       const url = URL.createObjectURL(new Blob([bytes], { type: 'image/png' })); urls.push(url); return { uuid: record.uuid, url };
@@ -224,6 +235,7 @@ export async function loadModelRuntime(buffer) {
       const state = data.meshStates?.[node.uuid];
       if (state && node.morphTargetInfluences) { node.morphTargetInfluences = state.influences; node.morphTargetDictionary = state.dictionary; }
       for (const material of node.material ? (Array.isArray(node.material) ? node.material : [node.material]) : []) {
+        disableRemovedMaterialChannels(material);
         for (const texture of Object.values(material)) if (texture?.isTexture && data.textureMatrices?.[texture.uuid]) {
           texture.matrixAutoUpdate = false; texture.matrix.fromArray(data.textureMatrices[texture.uuid]);
         }

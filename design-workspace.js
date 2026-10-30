@@ -5,6 +5,7 @@ import { fitMaterialPreview, assetImageUrl } from './shared/material-preview.js'
 import { groupFabricCards } from './shared/fabric-card-groups.js';
 import { mountPickerFabricColors } from './shared/picker-fabric-colors.js';
 import { renderFabricColorList } from './shared/fabric-color-swatch.js';
+import './shared/procedural-color-picker.js';
 
 const $ = id => document.getElementById(id);
 export function createDesignWorkspace(api) {
@@ -145,16 +146,39 @@ export function createDesignWorkspace(api) {
   const panel = $('compactMaterialPanel');
   panel.innerHTML = `<div class="compact-preview"><div id="compactSwatch"></div><div id="compactFabricColors" class="compact-fabric-colors" role="group" aria-label="全部面料色号" hidden></div></div>
     <label class="color-row compact-base-color">基础颜色<input id="compactColor" type="color" aria-label="基础颜色"></label>
-    <div class="section-heading"><h2>平铺调整</h2></div><div class="uv-row compact-placement-row"><label>U<input id="compactOffsetU" type="number" step="0.01" min="-100" max="100" value="0"></label><label>V<input id="compactOffsetV" type="number" step="0.01" min="-100" max="100" value="0"></label><label>R<input id="compactAngle" type="number" min="-180" max="180" step="1" value="0" aria-label="R 旋转角度（度）" title="旋转角度（度）"></label></div>`;
-  panel.querySelector('.compact-preview').insertAdjacentHTML('afterend', '<section id="compactProcedural" class="compact-procedural" hidden><div class="section-heading"><h2>BMP 色号映射</h2></div><div id="compactProceduralPalette" class="compact-procedural-palette"></div><div id="compactProceduralColorEditor" class="compact-procedural-color-editor is-placeholder" inert aria-label="程序化材质颜色编辑器"><div class="compact-procedural-picker-grid"><canvas id="compactProceduralSaturation" width="220" height="156" tabindex="0" aria-label="选择颜色的饱和度和明度"></canvas><canvas id="compactProceduralHue" width="18" height="156" tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="359" aria-orientation="vertical" aria-label="选择颜色色相"></canvas></div><div class="compact-procedural-color-actions"><input id="compactProceduralValue" type="text" maxlength="7" spellcheck="false" autocomplete="off" disabled aria-label="颜色值（HEX）"><button type="button" class="compact-procedural-confirm" disabled>确定</button></div></div></section>');
+    <div class="section-heading"><h2>平铺调整</h2></div><div class="uv-row compact-placement-row"><label>U<input id="compactOffsetU" type="number" step="0.01" min="-100" max="100" value="0"></label><label>V<input id="compactOffsetV" type="number" step="0.01" min="-100" max="100" value="0"></label><label>R<input id="compactAngle" type="number" min="-180" max="180" step="1" value="0" aria-label="R 旋转角度（度）" title="旋转角度（度）"></label></div>
+    <details id="compactPbr" class="compact-pbr"><summary>PBR 强度</summary><div id="compactPbrControls" class="compact-pbr-controls"></div></details>`;
+  panel.querySelector('.compact-preview').insertAdjacentHTML('afterend', '<section id="compactProcedural" class="compact-procedural" hidden><div class="section-heading"><h2>BMP 色号映射</h2></div><div id="compactProceduralPalette" class="compact-procedural-palette"></div><div id="compactProceduralColorEditor"></div></section>');
+  const compactPbrFields = [
+    ['roughness', '粗糙度', 0, 1, .01], ['metalness', '金属度', 0, 1, .01],
+    ['normalStrength', '法线强度', 0, 3, .05], ['aoStrength', 'AO 强度', 0, 3, .05],
+    ['sheen', '侧面光强度', 0, 2, .01], ['sheenRoughness', '绒毛柔和度', 0, 1, .01]
+  ];
+  const compactPbrControls = $('compactPbrControls');
+  for (const [key, title, min, max, step] of compactPbrFields) {
+    const row = document.createElement('label'); row.className = 'compact-pbr-row'; row.htmlFor = 'compactPbr-' + key;
+    const heading = document.createElement('span'); heading.textContent = title;
+    const input = document.createElement('input'); Object.assign(input, { type: 'number', id: 'compactPbr-' + key, min, max, step }); input.setAttribute('aria-label', title);
+    input.addEventListener('input', () => {
+      if (!target || target.kind !== 'fabric') return;
+      const value = input.valueAsNumber;
+      if (Number.isFinite(value) && value >= min && value <= max) api.pbr(target, { [key]: value });
+    });
+    input.addEventListener('change', () => {
+      if (!target || target.kind !== 'fabric') return;
+      const value = input.valueAsNumber;
+      if (!Number.isFinite(value) || value < min || value > max) api.notify(title + '范围为 ' + min + '–' + max);
+      sync();
+    });
+    row.append(heading, input); compactPbrControls.append(row);
+  }
   const proceduralColorEditor = panel.querySelector('#compactProceduralColorEditor');
-  const proceduralColorCanvas = panel.querySelector('#compactProceduralSaturation');
-  const proceduralColorCanvasContext = proceduralColorCanvas.getContext('2d');
-  const proceduralColorHueCanvas = panel.querySelector('#compactProceduralHue');
-  const proceduralColorHueContext = proceduralColorHueCanvas.getContext('2d');
-  const proceduralColorValue = panel.querySelector('#compactProceduralValue');
-  const proceduralColorConfirm = panel.querySelector('.compact-procedural-confirm');
-  let proceduralColorTarget = null, proceduralColorIndex = null, proceduralColorDraft = '#ffffff', proceduralColorHsv = { h: 0, s: 0, v: 1 }, proceduralColorSession = 0, proceduralColorUpdating = false;
+  const proceduralPicker = globalThis.ProceduralColorPicker.mount(proceduralColorEditor, {
+    prefix: 'compactProcedural',
+    onConfirm: color => confirmProceduralColor(color),
+    onCancel: () => closeProceduralColorEditor()
+  });
+  let proceduralColorTarget = null, proceduralColorIndex = null, proceduralColorSession = 0, proceduralColorUpdating = false;
   let proceduralColorWipe = null;
   const canEditProceduralColor = currentTarget => !!currentTarget && api.read(currentTarget).proceduralColorEnabled === true;
   const proceduralPaletteColor = entry => /^#[\da-f]{6}$/i.test(entry.loopHex || '') ? entry.loopHex.toUpperCase() : (entry.sourceHex || '#ffffff').toUpperCase();
@@ -204,100 +228,21 @@ export function createDesignWorkspace(api) {
     }
     return wipe.done;
   };
-  const hsvToHex = ({ h, s, v }) => {
-    const c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c;
-    const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
-    return '#' + [r, g, b].map(value => Math.round((value + m) * 255).toString(16).padStart(2, '0')).join('').toUpperCase();
-  };
-  const hexToHsv = hex => {
-    const value = String(hex).replace('#', ''), [r, g, b] = [0, 2, 4].map(index => parseInt(value.slice(index, index + 2), 16) / 255);
-    const max = Math.max(r, g, b), min = Math.min(r, g, b), delta = max - min;
-    let h = 0;
-    if (delta) h = max === r ? 60 * (((g - b) / delta) % 6) : max === g ? 60 * ((b - r) / delta + 2) : 60 * ((r - g) / delta + 4);
-    return { h: (h + 360) % 360, s: max ? delta / max : 0, v: max };
-  };
-  const drawProceduralColorPicker = () => {
-    if (!proceduralColorTarget) return;
-    const { width, height } = proceduralColorCanvas.getBoundingClientRect(), hue = proceduralColorHsv.h;
-    if (!width || !height) return;
-    // Draw in display pixels so responsive Canvas sizing cannot stretch the selection ring.
-    const pixelRatio = window.devicePixelRatio || 1, pixelWidth = Math.round(width * pixelRatio), pixelHeight = Math.round(height * pixelRatio);
-    if (proceduralColorCanvas.width !== pixelWidth) proceduralColorCanvas.width = pixelWidth;
-    if (proceduralColorCanvas.height !== pixelHeight) proceduralColorCanvas.height = pixelHeight;
-    proceduralColorCanvasContext.setTransform(pixelWidth / width, 0, 0, pixelHeight / height, 0, 0);
-    const gradient = proceduralColorCanvasContext.createLinearGradient(0, 0, width, 0); gradient.addColorStop(0, '#fff'); gradient.addColorStop(1, `hsl(${hue} 100% 50%)`); proceduralColorCanvasContext.fillStyle = gradient; proceduralColorCanvasContext.fillRect(0, 0, width, height);
-    const shade = proceduralColorCanvasContext.createLinearGradient(0, 0, 0, height); shade.addColorStop(0, '#0000'); shade.addColorStop(1, '#000'); proceduralColorCanvasContext.fillStyle = shade; proceduralColorCanvasContext.fillRect(0, 0, width, height);
-    proceduralColorCanvasContext.beginPath(); proceduralColorCanvasContext.arc(proceduralColorHsv.s * width, (1 - proceduralColorHsv.v) * height, 6, 0, Math.PI * 2); proceduralColorCanvasContext.strokeStyle = '#fff'; proceduralColorCanvasContext.lineWidth = 2; proceduralColorCanvasContext.stroke(); proceduralColorCanvasContext.strokeStyle = '#263246'; proceduralColorCanvasContext.lineWidth = 1; proceduralColorCanvasContext.stroke();
-    const hueGradient = proceduralColorHueContext.createLinearGradient(0, 0, 0, proceduralColorHueCanvas.height);
-    ['#ff0000', '#ffff00', '#00ff00', '#00ffff', '#0000ff', '#ff00ff', '#ff0000'].forEach((color, index, colors) => hueGradient.addColorStop(index / (colors.length - 1), color));
-    proceduralColorHueContext.fillStyle = hueGradient; proceduralColorHueContext.fillRect(0, 0, proceduralColorHueCanvas.width, proceduralColorHueCanvas.height);
-    const hueY = proceduralColorHsv.h / 360 * proceduralColorHueCanvas.height;
-    proceduralColorHueContext.strokeStyle = '#fff'; proceduralColorHueContext.lineWidth = 2; proceduralColorHueContext.strokeRect(1, Math.max(1, Math.min(proceduralColorHueCanvas.height - 3, hueY - 2)), proceduralColorHueCanvas.width - 2, 4);
-    proceduralColorHueCanvas.setAttribute('aria-valuenow', String(Math.round(hue)));
-  };
-  const proceduralColorResize = new ResizeObserver(drawProceduralColorPicker);
-  proceduralColorResize.observe(proceduralColorCanvas);
-  const updateProceduralColorDraft = () => { proceduralColorDraft = hsvToHex(proceduralColorHsv); proceduralColorValue.value = proceduralColorDraft; proceduralColorValue.setCustomValidity(''); drawProceduralColorPicker(); };
-  const pickProceduralColorPoint = event => {
-    const rect = proceduralColorCanvas.getBoundingClientRect(); proceduralColorHsv.s = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)); proceduralColorHsv.v = Math.max(0, Math.min(1, 1 - (event.clientY - rect.top) / rect.height)); updateProceduralColorDraft();
-  };
-  const pickProceduralHuePoint = event => {
-    const rect = proceduralColorHueCanvas.getBoundingClientRect(); proceduralColorHsv.h = Math.max(0, Math.min(359, (event.clientY - rect.top) / rect.height * 360)); updateProceduralColorDraft();
-  };
   const syncProceduralColorSelection = () => {
     for (const swatch of $('compactProceduralPalette').querySelectorAll('button')) swatch.setAttribute('aria-expanded', String(!!proceduralColorTarget && Number(swatch.dataset.colorIndex) === proceduralColorIndex));
   };
   const syncProceduralColorEditorState = () => {
-    const placeholder = !proceduralColorTarget, disabled = placeholder || proceduralColorUpdating;
-    proceduralColorEditor.classList.toggle('is-placeholder', placeholder);
-    proceduralColorEditor.inert = placeholder;
-    proceduralColorEditor.querySelector('.compact-procedural-picker-grid').inert = disabled;
-    proceduralColorValue.disabled = disabled; proceduralColorConfirm.disabled = disabled;
+    proceduralPicker.setDisabled(proceduralColorUpdating);
   };
   const closeProceduralColorEditor = () => {
     proceduralColorSession++; proceduralColorTarget = null; proceduralColorIndex = null;
-    proceduralColorCanvasContext.save(); proceduralColorCanvasContext.resetTransform(); proceduralColorCanvasContext.clearRect(0, 0, proceduralColorCanvas.width, proceduralColorCanvas.height); proceduralColorCanvasContext.restore();
-    proceduralColorHueContext.clearRect(0, 0, proceduralColorHueCanvas.width, proceduralColorHueCanvas.height);
-    proceduralColorValue.value = ''; proceduralColorValue.setCustomValidity('');
+    proceduralPicker.clear();
     syncProceduralColorEditorState(); syncProceduralColorSelection();
   };
-  proceduralColorCanvas.addEventListener('pointerdown', event => { proceduralColorCanvas.setPointerCapture?.(event.pointerId); pickProceduralColorPoint(event); });
-  proceduralColorCanvas.addEventListener('pointermove', event => { if (event.buttons) pickProceduralColorPoint(event); });
-  proceduralColorHueCanvas.addEventListener('pointerdown', event => { proceduralColorHueCanvas.setPointerCapture?.(event.pointerId); pickProceduralHuePoint(event); });
-  proceduralColorHueCanvas.addEventListener('pointermove', event => { if (event.buttons) pickProceduralHuePoint(event); });
-  const readProceduralColorValue = () => {
-    const value = proceduralColorValue.value.trim().replace(/^#?/, '#').toUpperCase();
-    const valid = /^#[\da-f]{6}$/i.test(value);
-    proceduralColorValue.setCustomValidity(valid ? '' : '请输入六位十六进制颜色值，例如 #336699');
-    if (!valid) return false;
-    proceduralColorDraft = value; proceduralColorHsv = hexToHsv(value); drawProceduralColorPicker();
-    return true;
-  };
-  proceduralColorValue.addEventListener('input', readProceduralColorValue);
-  proceduralColorValue.addEventListener('change', () => { if (readProceduralColorValue()) proceduralColorValue.value = proceduralColorDraft; });
-  proceduralColorEditor.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { event.preventDefault(); closeProceduralColorEditor(); }
-    else if (event.key === 'Enter' && event.target === proceduralColorValue) { event.preventDefault(); proceduralColorConfirm.click(); }
-  });
-  proceduralColorCanvas.addEventListener('keydown', event => {
-    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
-    event.preventDefault();
-    const step = event.shiftKey ? .1 : .01;
-    proceduralColorHsv.s = Math.max(0, Math.min(1, proceduralColorHsv.s + (event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0)));
-    proceduralColorHsv.v = Math.max(0, Math.min(1, proceduralColorHsv.v + (event.key === 'ArrowUp' ? step : event.key === 'ArrowDown' ? -step : 0)));
-    updateProceduralColorDraft();
-  });
-  proceduralColorHueCanvas.addEventListener('keydown', event => {
-    if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
-    proceduralColorHsv.h = event.key === 'Home' ? 0 : event.key === 'End' ? 359 : Math.max(0, Math.min(359, proceduralColorHsv.h + (event.key === 'ArrowDown' ? 1 : -1) * (event.shiftKey ? 10 : 1)));
-    updateProceduralColorDraft();
-  });
-  proceduralColorConfirm.onclick = async () => {
-    if (proceduralColorConfirm.disabled || !proceduralColorTarget || proceduralColorIndex === null) return;
+  const confirmProceduralColor = async color => {
+    if (proceduralColorUpdating || !proceduralColorTarget || proceduralColorIndex === null) return;
     if (!canEditProceduralColor(proceduralColorTarget)) { closeProceduralColorEditor(); return; }
-    if (!readProceduralColorValue()) { proceduralColorValue.reportValidity(); return; }
-    const currentTarget = proceduralColorTarget, index = proceduralColorIndex, color = proceduralColorDraft, session = proceduralColorSession;
+    const currentTarget = proceduralColorTarget, index = proceduralColorIndex, session = proceduralColorSession;
     proceduralColorUpdating = true; syncProceduralColorEditorState();
     let wipe = null;
     try {
@@ -314,16 +259,24 @@ export function createDesignWorkspace(api) {
     if (!canEditProceduralColor(currentTarget)) { closeProceduralColorEditor(); return; }
     if (proceduralColorTarget && itemKey(proceduralColorTarget) === itemKey(currentTarget) && proceduralColorIndex === index) { closeProceduralColorEditor(); return; }
     proceduralColorSession++;
-    proceduralColorTarget = currentTarget; proceduralColorIndex = index; proceduralColorDraft = color; proceduralColorHsv = hexToHsv(color); proceduralColorValue.value = color; proceduralColorValue.setCustomValidity('');
+    proceduralColorTarget = currentTarget; proceduralColorIndex = index;
     syncProceduralColorEditorState();
     syncProceduralColorSelection();
-    drawProceduralColorPicker();
-    proceduralColorCanvas.focus({ preventScroll: true });
+    proceduralPicker.open(color);
   };
   function sync() {
     if (!target) return;
     const data = api.read(target);
     const currentTarget = target;
+    const pbr = $('compactPbr');
+    const pbrVisible = target.kind === 'fabric' && data.pbr && typeof data.pbr === 'object';
+    pbr.hidden = !pbrVisible;
+    if (!pbrVisible) pbr.open = false;
+    if (pbrVisible) for (const [key] of compactPbrFields) {
+      const value = Number(data.pbr[key]);
+      if (!Number.isFinite(value)) continue;
+      $('compactPbr-' + key).value = value.toFixed(2);
+    }
     renderFabricColorList($('compactFabricColors'), data.fabricColorCodes || [], {
       active: data.fabricColorCode, pending: data.fabricColorPending || data.fabricColorCompleted, progress: data.fabricColorProgress,
       onSelect: data.fabricVariants?.length ? code => api.switchFabricColor(currentTarget, code) : null,
@@ -605,7 +558,9 @@ export function createDesignWorkspace(api) {
   });
   dialog.addEventListener('click', event => { if (!pickerAdding && event.target === dialog) { const r = dialog.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) dialog.close(); } });
   $('pickerSearch').oninput = renderPicker;
-  new MutationObserver(() => { const disabled = $('undoMaterial').disabled; $('dockUndo').disabled = disabled; $('headerUndo').disabled = disabled; }).observe($('undoMaterial'), { attributes: true, attributeFilter: ['disabled'] });
+  const syncUndo = () => { const disabled = $('undoMaterial').disabled; $('dockUndo').disabled = disabled; if (api.syncHeaderUndo) api.syncHeaderUndo(); else $('headerUndo').disabled = disabled; };
+  new MutationObserver(syncUndo).observe($('undoMaterial'), { attributes: true, attributeFilter: ['disabled'] });
+  syncUndo();
   setType('fabric');
   return { select, sync, setType, syncDock, bindDockItem, exitRemoval, get removing() { return removing; } };
 }

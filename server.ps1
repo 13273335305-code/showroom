@@ -4,6 +4,7 @@ $root=[IO.Path]::GetFullPath($PSScriptRoot)
 $partsViewFile=Join-Path $root 'parts-default-view.json'
 $designViewFile=Join-Path $root 'design-default-view.json'
 $fabricColorsFile=Join-Path $root 'fabric-colors.json'
+$sceneConfigFile=Join-Path $root 'scene-config.json'
 . (Join-Path $root 'utils/capture-ai-proxy.ps1')
 function Read-FabricColors([string]$json){
  if(-not $json.TrimStart().StartsWith('[')){throw 'Invalid color list'}
@@ -47,6 +48,32 @@ function Save-FabricColors($value){
   }
  }finally{if([IO.File]::Exists($temporary)){[IO.File]::Delete($temporary)}}
 }
+function Read-SceneConfig($value){
+ if($value.format -cne 'SPENIC-SCENE-SET' -or $value.version -ne 1 -or $value.defaultScene -notin @('morning','evening','night')){throw 'Invalid scene config format'}
+ $scenes=@{}
+ foreach($id in @('morning','evening','night')){
+  $item=$value.scenes.$id;$scene=$item.scene
+  if($null -eq $item -or $item.name -isnot [string] -or [string]::IsNullOrWhiteSpace($item.name) -or $item.name.Length -gt 80){throw 'Invalid scene name'}
+  if($null -ne $item.filename -and ($item.filename -isnot [string] -or $item.filename.Length -gt 255 -or $item.filename -match '[\x00-\x1F]')){throw 'Invalid scene filename'}
+  if($null -eq $scene -or $scene.preset -notin @('studio','daylight','night')){throw 'Invalid scene preset'}
+  $lightElevation=if($scene.PSObject.Properties.Name -contains 'lightElevation'){$scene.lightElevation}else{[Math]::Atan2(7.5,7)*180/[Math]::PI}
+  foreach($key in @('exposure','environment','keyLight','lightAngle','lightElevation','fillLight')){
+   $number=if($key -eq 'lightElevation'){$lightElevation}else{$scene.$key}
+   if($number -isnot [ValueType] -or $number -is [bool] -or [double]::IsNaN([double]$number) -or [double]::IsInfinity([double]$number)){throw 'Invalid scene number'}
+  }
+  if($scene.exposure -lt .2 -or $scene.exposure -gt 2.5 -or $scene.environment -lt 0 -or $scene.environment -gt 3 -or $scene.keyLight -lt 0 -or $scene.keyLight -gt 8 -or $scene.lightAngle -lt -180 -or $scene.lightAngle -gt 180 -or $lightElevation -lt 0 -or $lightElevation -gt 90 -or $scene.fillLight -lt 0 -or $scene.fillLight -gt 5){throw 'Scene parameter out of range'}
+  foreach($key in @('backgroundColor','lightColor')){if($scene.$key -isnot [string] -or $scene.$key -notmatch '^#[0-9a-fA-F]{6}$'){throw 'Invalid scene color'}}
+  foreach($key in @('shadows','reflection','floorVisible','grid')){if($scene.$key -isnot [bool]){throw 'Invalid scene switch'}}
+  $filename=if($null -eq $item.filename){''}else{$item.filename.Trim().Split([char[]]@('/', '\\'))[-1]}
+  $scenes[$id]=@{name=$item.name.Trim().Substring(0,[Math]::Min(80,$item.name.Trim().Length));filename=$filename;scene=@{preset=$scene.preset;backgroundColor=$scene.backgroundColor;exposure=$scene.exposure;environment=$scene.environment;keyLight=$scene.keyLight;lightAngle=$scene.lightAngle;lightElevation=$lightElevation;lightColor=$scene.lightColor;fillLight=$scene.fillLight;shadows=$scene.shadows;reflection=$scene.reflection;floorVisible=$scene.floorVisible;grid=$scene.grid}}
+ }
+ return @{format='SPENIC-SCENE-SET';version=1;defaultScene=$value.defaultScene;scenes=$scenes}
+}
+function Save-SceneConfig($value){
+ $content=[Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $value -Depth 8))
+ $temporary=$sceneConfigFile+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
+ try{[IO.File]::WriteAllBytes($temporary,$content);if([IO.File]::Exists($sceneConfigFile)){[IO.File]::Replace($temporary,$sceneConfigFile,[NullString]::Value)}else{[IO.File]::Move($temporary,$sceneConfigFile)}}finally{if([IO.File]::Exists($temporary)){[IO.File]::Delete($temporary)}}
+}
 function Read-PartsView($value){
  if($value.format -cne 'SPENIC-MODEL-VIEW' -or $value.version -ne 1){throw 'Invalid view file format'}
  $view=$value.view
@@ -86,8 +113,9 @@ for($candidate=$Port;$candidate -lt $Port+20;$candidate++){
    $viewProbe=Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$candidate/__form_parts_view" -TimeoutSec 1
    $designViewProbe=Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$candidate/__form_design_view" -TimeoutSec 1
    $colorsProbe=Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$candidate/__form_fabric_colors" -TimeoutSec 1
+   $sceneProbe=Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$candidate/__form_scene_config" -TimeoutSec 1
    $aiProbe=Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$candidate/api/capture-ai" -TimeoutSec 1
-   if($viewProbe.StatusCode -eq 200 -and $designViewProbe.StatusCode -eq 200 -and $colorsProbe.StatusCode -eq 200 -and $aiProbe.Content -eq '{"ready":true}'){if(-not $NoBrowser){Start-Process "http://127.0.0.1:$candidate/"};exit 0}
+   if($viewProbe.StatusCode -eq 200 -and $designViewProbe.StatusCode -eq 200 -and $colorsProbe.StatusCode -eq 200 -and $sceneProbe.StatusCode -eq 200 -and $aiProbe.Content -eq '{"ready":true}'){if(-not $NoBrowser){Start-Process "http://127.0.0.1:$candidate/"};exit 0}
   }
  }catch{}
  try{$listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$candidate);$listener.Start();$Port=$candidate;break}catch{$listener=$null}
@@ -191,6 +219,29 @@ try{
         $bytes=[Text.Encoding]::UTF8.GetBytes('{"saved":true,"file":"design-default-view.json"}')
        }catch{$status='500 Internal Server Error';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Cannot write design-default-view.json"}')}
        finally{if([IO.File]::Exists($temporary)){[IO.File]::Delete($temporary)}}
+      }
+     }
+    }else{$status='405 Method Not Allowed';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Method not allowed"}')}
+   }
+   elseif($path -eq '/__form_scene_config'){
+    $type='application/json; charset=utf-8'
+    if($method -in @('GET','HEAD')){
+     try{$value=$null;if([IO.File]::Exists($sceneConfigFile)){$value=Read-SceneConfig ([IO.File]::ReadAllText($sceneConfigFile,[Text.Encoding]::UTF8) | ConvertFrom-Json)};$bytes=[Text.Encoding]::UTF8.GetBytes(($value | ConvertTo-Json -Depth 8 -Compress));if(-not $value){$bytes=[Text.Encoding]::UTF8.GetBytes('null')}}
+     catch{$status='500 Internal Server Error';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Cannot read scene config"}')}
+    }elseif($method -eq 'POST'){
+     $bodyLength=0;$validLength=[int]::TryParse($headers['Content-Length'],[ref]$bodyLength);$allowedOrigin=$true
+     if($headers['Origin']){try{$origin=[Uri]$headers['Origin'];$allowedOrigin=$origin.Scheme -eq 'http' -and $origin.Authority -eq $headers['Host']}catch{$allowedOrigin=$false}}
+     if(-not $allowedOrigin){$status='403 Forbidden';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Origin not allowed"}')}
+     elseif($headers['Content-Type'] -notmatch '^application/json(?:\s*;|$)'){$status='415 Unsupported Media Type';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"JSON required"}')}
+     elseif(-not $validLength -or $bodyLength -le 0 -or $bodyLength -gt 131072 -or $headers['Transfer-Encoding']){$status='400 Bad Request';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Invalid request size"}')}
+     else{
+      try{
+       $body=New-Object char[] $bodyLength;$read=0
+       while($read -lt $bodyLength){$count=$reader.Read($body,$read,$bodyLength-$read);if($count -le 0){throw 'Incomplete request body'};$read+=$count}
+       $text=[Text.Encoding]::UTF8.GetString($wireEncoding.GetBytes((-join $body)));$value=Read-SceneConfig ($text | ConvertFrom-Json)
+      }catch{$status='400 Bad Request';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Invalid scene config"}')}
+      if(-not $bytes){
+       try{Save-SceneConfig $value;$bytes=[Text.Encoding]::UTF8.GetBytes(('{{"saved":true,"config":{0}}}' -f (ConvertTo-Json -InputObject $value -Depth 8 -Compress)))}catch{$status='500 Internal Server Error';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Cannot write scene config"}')}
       }
      }
     }else{$status='405 Method Not Allowed';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":"Method not allowed"}')}

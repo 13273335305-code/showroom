@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { blendScene, sceneAppearance, easeDaylight } from '../shared/scene-cycle.js';
-const scenes = await Promise.all(['morning', 'evening', 'night'].map(async name => JSON.parse(await readFile(new URL('../assets/scenes/' + name + '.json', import.meta.url), 'utf8')).scene));
+import { readEnvironment } from '../shared/scene-file.js';
+const scenes = await Promise.all(['morning', 'evening', 'night'].map(async name => readEnvironment(JSON.parse(await readFile(new URL('../assets/scenes/' + name + '.json', import.meta.url), 'utf8')).scene)));
 
 test('day cycle restores supplied scenes exactly and moves light continuously in one direction', () => {
   let total = 0;
@@ -32,4 +33,14 @@ test('night palette and shadows fade; interrupted transitions continue from thei
   assert.deepEqual(blendScene(mid.scene, scenes[0], 1, mid.appearance).appearance, sceneAppearance(scenes[0]));
   assert.ok(easeDaylight(.01) < .00001, 'Gentle start');
   assert.ok(1 - easeDaylight(.99) < .00001, 'Gentle finish');
+});
+
+test('light elevation blends continuously and an interrupted transition keeps the current tilt', () => {
+  const from = { ...scenes[0], lightElevation: 10 }, to = { ...scenes[1], lightElevation: 80 };
+  assert.equal(blendScene(from, to, 0).scene.lightElevation, 10);
+  const mid = blendScene(from, to, .5);
+  assert.equal(mid.scene.lightElevation, 45);
+  assert.equal(blendScene(from, to, 1).scene.lightElevation, 80);
+  assert.deepEqual(blendScene(mid.scene, from, 0, mid.appearance), mid);
+  assert.equal(blendScene(mid.scene, from, .5, mid.appearance).scene.lightElevation, 27.5);
 });

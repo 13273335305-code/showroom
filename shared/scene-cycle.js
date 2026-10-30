@@ -28,7 +28,7 @@ export function blendScene(from, to, progress, appearance = sceneAppearance(from
   return { scene, appearance: { floorColor: color(appearance.floorColor, end.floorColor, t), reflectorColor: color(appearance.reflectorColor, end.reflectorColor, t), hemi: lerp(appearance.hemi, end.hemi, t), shadow: lerp(appearance.shadow, end.shadow, t) } };
 }
 
-export async function createSceneCycle({ button, read, apply, name, notify, savedPresets = {} }) {
+export async function createSceneCycle({ button, read, apply, name, notify, savedPresets = {}, defaultScene = 'morning' }) {
   let presets;
   try {
     presets = await Promise.all(['morning', 'evening', 'night'].map(async phase => {
@@ -39,7 +39,8 @@ export async function createSceneCycle({ button, read, apply, name, notify, save
   } catch (error) { button.title = '日光场景加载失败，请刷新重试'; notify(button.title); return null; }
   const originals = structuredClone(presets);
   presets = presets.map((preset, i) => savedPresets[PHASE_IDS[i]] || preset);
-  let index = -1, animation = null, appearance = sceneAppearance(read()), weights = [1, 0, 0];
+  const initialIndex = Math.max(0, PHASE_IDS.indexOf(defaultScene));
+  let index = -1, animation = null, appearance = sceneAppearance(read()), weights = PHASE_IDS.map((_, i) => Number(i === initialIndex));
   const part = key => button.querySelector('[data-day-' + key + ']');
   const disc = part('disc'), cutout = part('cutout'), clip = part('clip'), rays = part('rays');
   const halo = part('halo'), horizon = part('horizon'), ripples = part('ripples'), stars = part('stars');
@@ -119,7 +120,8 @@ export async function createSceneCycle({ button, read, apply, name, notify, save
     session.frame = requestAnimationFrame(tick);
   }
   button.onclick = () => next();
-  apply(presets[0].scene, sceneAppearance(presets[0].scene)); name(presets[0].name);
+  paint(weights);
+  apply(presets[initialIndex].scene, sceneAppearance(presets[initialIndex].scene)); name(presets[initialIndex].name);
   button.dataset.transitioning = 'false'; button.disabled = false; sync();
   return {
     cancel, sync, next,

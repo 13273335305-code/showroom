@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const renderer = require("./knit-renderer.js");
+const renderer = require("./test-renderer.cjs");
 
 function options(overrides = {}) {
   const width = 3, height = 3;
@@ -138,7 +138,7 @@ test("normal strength remains stable at matching physical positions when DPI tri
 // than merely asserting a call to a metadata helper.
 function appHarness() {
   const elements = new Map(), encodings = [], blobs = [], jobs = [], downloads = [];
-  const values = { dpi: "300", quality: "92", backgroundColor: "#FFFFFF", texture: "30", contrast: "66", angle: "0", reliefRadius: ".95", reliefDepth: "78" };
+  const values = { dpi: "300", quality: "92", backgroundColor: "#FFFFFF", contrast: "66", angle: "0", reliefRadius: ".95", reliefDepth: "78" };
   const jpeg = Uint8Array.from([255, 216, 255, 224, 0, 16, 74, 70, 73, 70, 0, 1, 2, 0, 0, 1, 0, 1, 0, 0, 255, 217]);
   function makeElement(id = "offscreen") {
     const listeners = {};
@@ -146,6 +146,7 @@ function appHarness() {
     return {
       id, width: 0, height: 0, value: values[id] ?? "", disabled: true, hidden: false, style: {},
       classList: { toggle() {} }, listeners,
+      getBoundingClientRect() { return { width: 800, height: 600 }; },
       getContext() { return ctx; },
       addEventListener(event, callback) { listeners[event] = callback; },
       toBlob(callback, type, quality) {
@@ -160,14 +161,17 @@ function appHarness() {
     return elements.get(id);
   }
   const context = vm.createContext({
-    Blob, console, setTimeout, clearTimeout,
-    document: { getElementById: element, createElement: tag => makeElement(tag) },
+    Blob, console, setTimeout, clearTimeout, URLSearchParams, location: { search: '' },
+    window: { addEventListener() {} },
+    ResizeObserver: class { observe() {} }, requestAnimationFrame() {},
+    mountBmpCropTool() { return { cancel() {} }; },
+    document: { body: { classList: { toggle() {} } }, querySelectorAll() { return []; }, getElementById: element, createElement: tag => makeElement(tag) },
     URL: { createObjectURL(blob) { blobs.push(blob); return `blob:test-${blobs.length}`; }, revokeObjectURL() {} },
     ImageData: class { constructor(data, width, height) { Object.assign(this, { data, width, height }); } },
-    KnitRenderJob: { start(settings) {
+    KnitRenderJob: { start(settings, callbacks) {
       let resolve;
       const promise = new Promise(done => { resolve = done; });
-      const job = { options: settings, promise, resolve, cancel() {} };
+      const job = { options: settings, callbacks, promise, resolve, cancel() {} };
       jobs.push(job);
       return job;
     } }
@@ -208,13 +212,13 @@ test("the shared JPEG encoder uses requested MIME, quality and both DPI axes", a
   await assertDpi(blob, 300);
 });
 
-test("map JPEG encoding preserves full dimensions independently of the reduced preview", async () => {
+test("map preview and JPEG encoding preserve the full generated dimensions", async () => {
   const harness = appHarness();
   const image = { width: 1601, height: 901, data: new Uint8ClampedArray(1601 * 901 * 4) };
   const preview = harness.element("heightPreviewCanvas");
   harness.context.showMapPreview(preview, preview.getContext(), image);
-  assert.ok(preview.width <= 1200 && preview.height <= 800);
-  assert.ok(preview.width < image.width);
+  assert.equal(preview.width, image.width);
+  assert.equal(preview.height, image.height);
   const blob = await harness.context.encodeImageJpeg(image, { dpi: 200, quality: .97 });
   const encoded = harness.encodings.at(-1);
   assert.equal(encoded.width, image.width);
@@ -225,7 +229,7 @@ test("map JPEG encoding preserves full dimensions independently of the reduced p
   await assertDpi(blob, 200);
 });
 
-test("height and normal JPG jobs share the texture pixel calibration and captured DPI", async () => {
+test("one relief job exports three JPGs with captured dimensions, quality and DPI", async () => {
   const harness = appHarness();
   harness.element("dpi").value = "200";
   vm.runInContext(`
@@ -237,29 +241,23 @@ test("height and normal JPG jobs share the texture pixel calibration and capture
   const texture = harness.context.currentRenderOptions();
   const completion = harness.context.renderNormal();
   assert.equal(harness.jobs.length, 1);
-  const heightJob = harness.jobs[0];
-  assert.equal(heightJob.options.output, "height");
+  const reliefJob = harness.jobs[0];
+  assert.equal(reliefJob.options.output, "relief");
   assert.equal(texture.outW, 945);
   assert.equal(texture.outH, 919);
   for (const key of ["dpi", "outW", "outH", "cellW", "cellH", "physicalWidthCm", "physicalHeightCm"]) {
-    assert.equal(heightJob.options[key], texture[key], key);
+    assert.equal(reliefJob.options[key], texture[key], key);
   }
   // An input edit while encoding is pending must not label the already
   // rendered pixels with a new DPI. UI invalidation is tested separately.
   harness.element("dpi").value = "300";
   const makeImage = () => ({ width: texture.outW, height: texture.outH, data: new Uint8ClampedArray(texture.outW * texture.outH * 4) });
-  heightJob.resolve({ image: makeImage(), elapsed: 1 });
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(harness.jobs.length, 2);
-  const normalJob = harness.jobs[1];
-  assert.equal(normalJob.options.output, "normal");
-  assert.equal(normalJob.options.outW, texture.outW);
-  assert.equal(normalJob.options.outH, texture.outH);
-  assert.equal(normalJob.options.dpi, 200);
-  normalJob.resolve({ image: makeImage(), elapsed: 1 });
+  for (const kind of ["height", "normal", "ao"]) await reliefJob.callbacks.onMap(kind, makeImage());
+  reliefJob.resolve({ elapsed: 1 });
   await completion;
-  assert.equal(harness.encodings.length, 2);
-  assert.equal(harness.blobs.length, 2);
+  assert.equal(harness.jobs.length, 1);
+  assert.equal(harness.encodings.length, 3);
+  assert.equal(harness.blobs.length, 3);
   for (const encoded of harness.encodings) {
     assert.equal(encoded.width, texture.outW);
     assert.equal(encoded.height, texture.outH);
@@ -267,9 +265,9 @@ test("height and normal JPG jobs share the texture pixel calibration and capture
     assert.equal(encoded.quality, .92);
   }
   for (const blob of harness.blobs) await assertDpi(blob, 200);
-  for (const id of ["heightDownloadButton", "normalDownloadButton"]) {
+  for (const id of ["heightDownloadButton", "normalDownloadButton", "aoDownloadButton"]) {
     assert.equal(harness.element(id).disabled, false);
     harness.element(id).listeners.click();
   }
-  assert.deepEqual(harness.downloads.map(item => item.download), ["fabric-height-radial.jpg", "fabric-normal-opengl.jpg"]);
+  assert.deepEqual(harness.downloads.map(item => item.download), ["fabric-height-radial.jpg", "fabric-normal-opengl.jpg", "fabric-ao.jpg"]);
 });

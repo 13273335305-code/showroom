@@ -57,6 +57,26 @@ const material = () => ({ kind: 'material', name: '面料', materialType: 'fabri
   physical: { widthCm: 12, heightCm: 8 }, surface: { color: '#ffffff', roughness: .6 },
   maps: { map: new File(['original-color'], 'original.png', { type: 'image/png' }) }, preview: new Blob(['preview'], { type: 'image/png' }) });
 
+test('retired material channels are never downloaded or saved, including unavailable legacy maps', async () => {
+  const f = fixture(), saved = await f.cloud.save(material()), row = f.rows.get(saved.id);
+  row.metadata.surface = { ...row.metadata.surface, emissive: '#ffffff', emissiveStrength: 3, bumpStrength: .2 };
+  for (const key of ['bumpMap', 'emissiveMap']) {
+    row.manifest.maps[key] = 'missing/' + key;
+    row.manifest.runtimeMaps[key] = 'missing-runtime/' + key;
+  }
+  for (const runtime of [false, true]) {
+    const loaded = await f.cloud.get(saved.id, { runtime });
+    assert.deepEqual(Object.keys(loaded.maps), ['map']);
+    assert.deepEqual(Object.keys(loaded.sourcePackage.files), ['map']);
+    assert.deepEqual(loaded.surface, material().surface);
+  }
+  const source = await f.cloud.source({ cloud: true, files: { map: row.manifest.files[row.manifest.maps.map], bumpMap: null, emissiveMap: null } });
+  assert.deepEqual(Object.keys(source.maps), ['map']);
+  const updated = await f.cloud.save({ ...await f.cloud.get(saved.id), maps: { map: material().maps.map, bumpMap: new Blob(['old']), emissiveMap: new Blob(['old']) }, surface: row.metadata.surface });
+  assert.deepEqual(Object.keys(updated.assetManifest.maps), ['map']);
+  assert.deepEqual(f.rows.get(saved.id).metadata.surface, material().surface);
+});
+
 test('new fabric identities survive edits and forks while old assets are not enrolled', async () => {
   const f = fixture(), created = await f.cloud.save(material());
   assert.equal(created.fabricIdentityVersion, 1);

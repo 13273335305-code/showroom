@@ -1,4 +1,5 @@
 import { installRoughnessShader } from './roughness-map.js';
+import { disableRemovedMaterialChannels } from './material-map-definitions.js';
 
 export { MATERIAL_MAPS } from './material-map-definitions.js';
 export const CATEGORIES = ['面布', '边布', '辅料'];
@@ -15,12 +16,12 @@ export function readSurface(material) {
   return { color: '#' + material.color.getHexString(), roughness: material.roughness, metalness: material.metalness,
     roughnessGrayscale: !!material.userData.roughnessGrayscale, roughnessInvert: !!material.userData.roughnessInvert,
     normalStrength: Math.abs(material.normalScale.x), flip: material.normalScale.y < 0,
-    aoStrength: material.aoMapIntensity, emissive: '#' + material.emissive.getHexString(),
-    emissiveStrength: material.emissiveIntensity, bumpStrength: material.bumpScale,
+    aoStrength: material.aoMapIntensity,
     sheen: material.sheen ?? 0, sheenRoughness: material.sheenRoughness ?? 1,
     opacity: material.opacity, transparent: material.transparent, alphaTest: material.alphaTest, side: material.side };
 }
 export function applySurface(material, data) {
+  disableRemovedMaterialChannels(material);
   for (const key of ['roughnessGrayscale', 'roughnessInvert']) if (typeof data[key] === 'boolean') material.userData[key] = data[key];
   installRoughnessShader(material);
   // The shader derives the fiber tint from the surface; keep its multiplier
@@ -30,8 +31,8 @@ export function applySurface(material, data) {
     if (Number.isFinite(data.sheenRoughness)) material.sheenRoughness = Math.max(0, Math.min(1, data.sheenRoughness));
     material.sheenColor.set(0xffffff);
   }
-  for (const key of ['color', 'emissive']) if (/^#[\da-f]{6}$/i.test(data[key])) material[key].set(data[key]);
-  for (const [key, property, max] of [['roughness', 'roughness', 1], ['metalness', 'metalness', 1], ['aoStrength', 'aoMapIntensity', 3], ['emissiveStrength', 'emissiveIntensity', 3], ['bumpStrength', 'bumpScale', .2], ['opacity', 'opacity', 1], ['alphaTest', 'alphaTest', 1]]) {
+  if (/^#[\da-f]{6}$/i.test(data.color)) material.color.set(data.color);
+  for (const [key, property, max] of [['roughness', 'roughness', 1], ['metalness', 'metalness', 1], ['aoStrength', 'aoMapIntensity', 3], ['opacity', 'opacity', 1], ['alphaTest', 'alphaTest', 1]]) {
     if (Number.isFinite(data[key])) material[property] = Math.max(0, Math.min(max, data[key]));
   }
   if (Number.isFinite(data.normalStrength)) material.normalScale.set(Math.max(0, Math.min(3, data.normalStrength)), Math.max(0, Math.min(3, data.normalStrength)) * (data.flip ? -1 : 1));

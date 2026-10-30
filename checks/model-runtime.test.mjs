@@ -4,11 +4,34 @@ import { registerHooks } from 'node:module';
 import * as THREE from '../vendor/three/build/three.module.js';
 import { prepareModelRuntime, loadModelRuntime } from '../shared/model-runtime.js';
 import { createMaterialPicker } from '../shared/annotation-visibility.js';
+import { unzipSync, zipSync, strToU8, strFromU8 } from '../vendor/three/addons/libs/fflate.module.js';
 globalThis.requestAnimationFrame = callback => setTimeout(callback, 0);
 registerHooks({ resolve(specifier, context, next) {
   if (specifier === 'three') return { url: new URL('../vendor/three/build/three.module.js', import.meta.url).href, shortCircuit: true };
   return next(specifier, context);
 } });
+
+test('runtime drops retired material channels before saving or decoding old texture records', async () => {
+  const material = new THREE.MeshStandardMaterial({ emissive: '#ffffff', emissiveIntensity: 3, bumpScale: .2 });
+  material.bumpMap = new THREE.DataTexture(new Uint8Array([255,255,255,255]), 1, 1);
+  const source = new THREE.Group(); source.add(new THREE.Mesh(new THREE.BoxGeometry(), material));
+  const runtime = await prepareModelRuntime(source, { name: 'legacy.glb' });
+  assert.ok(material.bumpMap, 'Source model is not mutated');
+  const archive = unzipSync(new Uint8Array(await runtime.arrayBuffer()));
+  const data = JSON.parse(strFromU8(archive['model.json']));
+  assert.equal(data.scene.materials[0].bumpMap, undefined);
+  data.scene.materials[0].bumpMap = 'obsolete-texture';
+  data.scene.materials[0].emissiveMap = 'obsolete-texture';
+  data.scene.materials[0].emissive = 0xffffff;
+  data.scene.textures = [{ uuid: 'obsolete-texture', image: 'obsolete-image' }];
+  data.images = [{ uuid: 'obsolete-image', path: 'missing.png' }];
+  archive['model.json'] = strToU8(JSON.stringify(data));
+  const result = await loadModelRuntime(zipSync(archive).buffer);
+  const restored = result.object.children[0].material;
+  assert.equal(restored.bumpMap, null); assert.equal(restored.emissiveMap, null);
+  assert.equal(restored.bumpScale, 0); assert.equal(restored.emissiveIntensity, 0);
+  assert.equal(restored.emissive.getHex(), 0);
+});
 
 test('runtime preserves units, UVs, material identity, textures and original geometry while restoring saved selection trees', async t => {
   t.mock.method(globalThis, 'requestAnimationFrame', callback => setTimeout(callback, 0));

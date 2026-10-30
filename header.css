@@ -14,6 +14,7 @@ body .topbar .header-actions .primary{background:#2f71ee;border-color:#2f71ee;co
 body .topbar .header-actions .header-icon-action{width:36px;height:36px;min-height:36px;padding:0;border-radius:10px;gap:0}
 body .topbar .header-actions .header-icon-art{display:block;width:20px;height:20px;background:currentColor;mask-position:center;mask-repeat:no-repeat;mask-size:contain;-webkit-mask-position:center;-webkit-mask-repeat:no-repeat;-webkit-mask-size:contain}
 body .topbar .header-actions .header-icon-undo{mask-image:url('assets/header-undo.svg');-webkit-mask-image:url('assets/header-undo.svg')}
+body .topbar .header-actions .header-icon-redo{mask-image:url('assets/header-undo.svg');-webkit-mask-image:url('assets/header-undo.svg');transform:scaleX(-1)}
 body .topbar .header-actions .header-icon-save{mask-image:url('assets/header-save.svg');-webkit-mask-image:url('assets/header-save.svg')}
 body .topbar .header-actions .header-icon-snapshot{mask-image:url('assets/header-snapshot.svg');-webkit-mask-image:url('assets/header-snapshot.svg')}
 body .topbar .header-actions .header-icon-action:hover{border-color:#9ebcf1;background:#f8fbff;color:#2f71ee}

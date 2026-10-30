@@ -1,6 +1,6 @@
 import { createProjectCloud, PROJECT_BUCKET } from './project-cloud.js';
 import { createRuntimeMaps, compressImageFile, RUNTIME_TEXTURE_MAX_SIZE } from './asset-thumbnail.js';
-import { MATERIAL_MAPS } from './material-map-definitions.js';
+import { MATERIAL_MAPS, isRemovedMaterialMap, filterMaterialMaps, filterMaterialSurface } from './material-map-definitions.js';
 import { normalizeAssetCategories } from './fabric-category.js';
 
 const TABLE = 'spenic_assets', FAVORITES = 'spenic_asset_favorites';
@@ -23,12 +23,15 @@ function summary(row, preview = null) {
   const asset = normalizeAssetCategories({ ...row.metadata, id: row.id, ownerId: row.owner_id, kind: row.kind, name: row.name, category: row.category,
     library: row.library, parentId: row.parent_id, cloud: true, preview, cloudPreview: preview,
     updatedAt: Date.parse(row.updated_at), revision: row.updated_at });
+  if (asset.surface) asset.surface = filterMaterialSurface(asset.surface);
+  for (const key of ['density', 'legacyMaps']) if (asset[key]) asset[key] = filterMaterialMaps(asset[key]);
   return asset;
 }
 function validateManifest(manifest) {
   if (manifest?.format !== 'SPENIC-ASSET' || manifest.version !== 1 || !manifest.files || Array.isArray(manifest.files)) throw new Error('资产清单无效');
   const need = path => { if (!manifest.files[path]) throw new Error('资产缺少文件引用'); };
   for (const maps of [manifest.maps, manifest.runtimeMaps]) for (const [key, path] of Object.entries(maps || {})) {
+    if (isRemovedMaterialMap(key)) continue;
     if (!channels.has(key)) throw new Error('资产贴图通道无效'); need(path);
   }
   for (const path of [manifest.filePath, manifest.runtimePath, manifest.previewPath, manifest.thumbnailPath, manifest.proceduralSourcePath].filter(Boolean)) need(path);
@@ -78,7 +81,7 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
     if (previewOnly) return asset;
     if (row.kind === 'material') {
       if (manifest.proceduralSourcePath) asset.proceduralSource = await resources.download(refs[manifest.proceduralSourcePath]);
-      const sourceRefs = Object.fromEntries(Object.entries(manifest.maps || {}).map(([key, path]) => [key, refs[path]]));
+      const sourceRefs = Object.fromEntries(Object.entries(filterMaterialMaps(manifest.maps)).map(([key, path]) => [key, refs[path]]));
       asset.sourcePackage = { cloud: true, files: sourceRefs, version: row.updated_at, name: row.name };
       asset.maps = {}; asset.projectRefs = {};
       // The texture viewer needs only base color. Missing auxiliary PBR maps
@@ -87,7 +90,7 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
       const maps = texturePreview
         ? (previewMap ? { map: previewMap } : {})
         : runtime ? manifest.runtimeMaps : manifest.maps;
-      await Promise.all(Object.entries(maps || {}).map(async ([key, path]) => {
+      await Promise.all(Object.entries(filterMaterialMaps(maps)).map(async ([key, path]) => {
         try { asset.maps[key] = await resources.download(refs[path]); }
         catch (error) {
           const fallback = texturePreview && manifest.runtimeMaps?.[key];
@@ -127,6 +130,7 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
   }
   async function write(asset, manifest, old) {
     asset = normalizeAssetCategories(asset);
+    if (asset.surface) asset = { ...asset, surface: filterMaterialSurface(asset.surface) };
     const { client, userId } = await access();
     if (asset.uploadOwnerId && asset.uploadOwnerId !== userId) throw new Error('账号已切换，请返回原账号继续上传。');
     const fork = old && old.owner_id !== userId;
@@ -156,6 +160,7 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
   }
   async function save(asset, { onProgress = () => {} } = {}) {
     asset = normalizeAssetCategories(asset);
+    if (asset.kind === 'material') asset = { ...asset, maps: filterMaterialMaps(asset.maps), runtimeMaps: filterMaterialMaps(asset.runtimeMaps), surface: filterMaterialSurface(asset.surface), density: filterMaterialMaps(asset.density), legacyMaps: filterMaterialMaps(asset.legacyMaps) };
     if (!['material', 'model', 'texture', 'folder'].includes(asset.kind) || !asset.name?.trim()) throw new Error('资产名称或类型无效');
     if (asset.kind === 'model' && asset.runtimeModel) throw new Error('请从部件配置保存原模型');
     const targetId = asset.id || asset.createId;
@@ -255,7 +260,7 @@ export function createAssetCloud(access, resources = createProjectCloud(access))
   async function source(reference) {
     if (!reference?.cloud || !reference.files) throw new Error('源材质引用无效');
     const maps = {};
-    await Promise.all(Object.entries(reference.files).map(async ([key, ref]) => { if (!channels.has(key)) throw new Error('源材质通道无效'); maps[key] = await resources.download(ref); }));
+    await Promise.all(Object.entries(filterMaterialMaps(reference.files)).map(async ([key, ref]) => { if (!channels.has(key)) throw new Error('源材质通道无效'); maps[key] = await resources.download(ref); }));
     return { maps };
   }
   return { list, get, save, update, remove, source, favorites, favorite };

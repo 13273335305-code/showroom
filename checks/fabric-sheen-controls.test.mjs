@@ -51,7 +51,7 @@ test('sphere mode moves the real camera while lights and sphere stay fixed, then
 test('new editor materials use requested defaults and numeric controls preserve saved values', () => {
   const start=source.indexOf('const material = new THREE.MeshPhysicalMaterial('), end=source.indexOf('installRoughnessShader(material)',start);
   const material=new Function('THREE',source.slice(start,end)+'return material;')(THREE);
-  assert.equal(material.roughness,.98);assert.equal(material.sheen,1);assert.equal(material.sheenRoughness,.4);
+  assert.equal(material.roughness,.98);assert.equal(material.sheen,.1);assert.equal(material.sheenRoughness,.4);
   applySurface(material,{sheen:0,sheenRoughness:.56});
   assert.equal(readSurface(material).sheen,0);assert.equal(readSurface(material).sheenRoughness,.56);
   assert.ok(!source.includes("addSlider($('fabricSheenControls')"));

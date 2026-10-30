@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const renderer = require("./knit-renderer.js");
+const renderer = require("./test-renderer.cjs");
 const jobSource = fs.readFileSync(path.join(__dirname, "render-task.js"), "utf8");
 
 // Match the dimensions shown in the failure report without depending on a
@@ -22,7 +22,7 @@ function makeOptions(overrides = {}) {
     width, height, classMap,
     palette: [{ r: 255, g: 255, b: 255 }, { r: 226, g: 55, b: 25 }],
     cellW: 3.9369, cellH: 6.5617, outW: 472, outH: 459,
-    contrast: .66, texture: .3, angle: 0,
+    contrast: .66, angle: 0,
     ...overrides
   };
 }

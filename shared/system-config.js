@@ -2,6 +2,8 @@ import { fabricColors, refreshFabricColors, saveFabricColors } from './fabric-co
 import { createFabricColorEditor } from './fabric-color-editor.js';
 import { CAPTURE_AI_PROMPT_DEFAULTS, createCaptureAiPromptStore, readCaptureAiPrompts } from './capture-ai-prompts.js';
 import { createCaptureAiStore } from './capture-ai-store.js';
+import { createSceneConfigStore, SCENE_IDS, SCENE_LABELS, makeSceneConfig } from './scene-config.js';
+import { unpackScene } from './scene-file.js';
 import { authState, workspaceClient } from './auth.js';
 
 const entry = document.getElementById('systemConfigEntry');
@@ -34,6 +36,14 @@ dialog.innerHTML = `<div id="systemConfigScroll" class="system-config-scroll"><d
     <button id="systemAiPromptSave" class="system-ai-prompt-save" type="button">保存 AI 绘画配置</button>
   </div>
   <div id="systemAiPromptFeedback" class="system-config-feedback" hidden><p id="systemAiPromptStatus" class="system-config-status" role="status" aria-live="polite"></p><button id="systemAiPromptRetry" class="system-config-retry" type="button" hidden>重新加载</button></div>
+</section>
+<section id="systemConfigScenes" hidden>
+  <div class="system-config-body system-scene-config-body">
+    <p class="system-scene-intro">上传三个全站共用的光影场景文件，并选择打开设计台时使用的默认场景。</p>
+    <div id="systemSceneRows" aria-label="光影流转场景文件"></div>
+    <fieldset class="system-scene-defaults"><legend>默认场景</legend><div id="systemSceneDefaults"></div></fieldset>
+  </div>
+  <div id="systemSceneFeedback" class="system-config-feedback" hidden><p id="systemSceneStatus" class="system-config-status" role="status" aria-live="polite"></p><button id="systemSceneRetry" class="system-config-retry" type="button" hidden>重新加载</button></div>
 </section>
 <div id="systemConfigDiscard" class="system-config-discard" hidden><p>有尚未保存的修改，是否放弃？</p><button id="systemConfigKeep" type="button">继续编辑</button><button id="systemConfigLeave" type="button">放弃修改</button></div>
 </div></div><div id="systemConfigScrollbar" class="system-config-scrollbar" aria-hidden="true" hidden><span class="system-config-scrollbar-thumb"></span></div>`;
@@ -96,10 +106,12 @@ scrollObserver.observe(scroll); scrollObserver.observe($('systemConfigContent'))
 const editor = createFabricColorEditor(saveFabricColors);
 const captureAiStore = createCaptureAiStore({ access: workspaceClient });
 const promptStore = createCaptureAiPromptStore({ access: workspaceClient });
-let busy = false, loaded = false, colorsPage = false, promptsPage = false, leaveAction;
+const sceneStore = createSceneConfigStore({ access: workspaceClient });
+let busy = false, loaded = false, colorsPage = false, promptsPage = false, scenesPage = false, leaveAction;
 let promptBusy = false, promptLoaded = false, promptCanEdit = false, promptOwnerId = '', promptDirty = false;
 let promptBase = '', promptBaseLoaded = false, promptBaseCanEdit = false, promptBaseDirty = false;
 let promptItems = CAPTURE_AI_PROMPT_DEFAULTS.map(item => ({ ...item }));
+let sceneBusy = false, sceneLoaded = false, sceneCanEdit = false, sceneOwnerId = '', sceneConfig = null;
 function ball() {
   const element = document.createElement('span'); element.className = 'fabric-color-swatch';
   element.setAttribute('role', 'img');
@@ -115,6 +127,10 @@ const promptOption = document.createElement('button'); promptOption.type = 'butt
 promptOption.setAttribute('aria-label', 'AI 绘画配置');
 promptOption.innerHTML = '<span class="system-ai-prompt-icon" aria-hidden="true">✦</span>AI 绘画配置'; promptOption.onclick = openPrompts;
 $('systemConfigMenu').append(promptOption);
+const sceneOption = document.createElement('button'); sceneOption.type = 'button'; sceneOption.className = 'system-scene-config-option';
+sceneOption.setAttribute('aria-label', '光影流转配置');
+sceneOption.innerHTML = '<span class="system-scene-icon" aria-hidden="true">☼</span>光影流转配置'; sceneOption.onclick = openScenes;
+$('systemConfigMenu').append(sceneOption);
 for (let i = 1; i < 8; i++) {
   const slot = document.createElement('button'); slot.type = 'button'; slot.className = 'system-config-slot'; slot.disabled = true;
   slot.setAttribute('aria-label', `预留配置 ${i + 1}`); slot.innerHTML = '<span aria-hidden="true">＋</span>'; $('systemConfigMenu').append(slot);
@@ -132,6 +148,7 @@ function preview(element, value) {
 }
 function status(message, error = false) { $('systemConfigStatus').textContent = message; $('systemConfigStatus').dataset.error = String(error); $('systemConfigFeedback').hidden = !message; }
 function promptStatus(message = '', error = false) { $('systemAiPromptStatus').textContent = message; $('systemAiPromptStatus').dataset.error = String(error); $('systemAiPromptFeedback').hidden = !message; }
+function sceneStatus(message = '', error = false) { $('systemSceneStatus').textContent = message; $('systemSceneStatus').dataset.error = String(error); $('systemSceneFeedback').hidden = !message; }
 const dirty = () => editor.dirty;
 function syncBusy() {
   dialog.querySelectorAll('#systemConfigColors input, .system-color-action').forEach(control => { control.disabled = busy || !loaded; });
@@ -261,6 +278,62 @@ async function savePrompts() {
   catch (error) { promptStatus(error.message, true); }
   finally { promptBusy = false; renderPromptRows(); }
 }
+function renderSceneConfig() {
+  const rows = $('systemSceneRows'), defaults = $('systemSceneDefaults');
+  if (!rows || !defaults || !sceneConfig) return;
+  rows.replaceChildren(); defaults.replaceChildren();
+  for (const id of SCENE_IDS) {
+    const item = sceneConfig.scenes[id], row = document.createElement('div'); row.className = 'system-scene-row';
+    const copy = document.createElement('div'); copy.className = 'system-scene-copy';
+    const title = document.createElement('strong'); title.textContent = SCENE_LABELS[id] + '场景';
+    const name = document.createElement('span'); name.className = 'system-scene-name'; name.textContent = item.filename || item.name; name.title = name.textContent;
+    copy.append(title, name);
+    const label = document.createElement('label'); label.className = 'system-scene-upload'; label.textContent = '上传场景文件';
+    const input = document.createElement('input'); input.type = 'file'; input.accept = '.formscene,.json,application/json'; input.disabled = sceneBusy || !sceneLoaded || !sceneCanEdit;
+    input.setAttribute('aria-label', `上传${SCENE_LABELS[id]}场景文件`);
+    input.onchange = async () => {
+      const file = input.files?.[0]; input.value = ''; if (!file || sceneBusy || !sceneLoaded || !sceneCanEdit) return;
+      try {
+        const saved = await unpackScene(file);
+        const filename = String(file.name || '').split(/[\\/]/).pop() || '';
+        const next = makeSceneConfig({ ...sceneConfig.scenes, [id]: { ...saved, filename } }, sceneConfig.defaultScene);
+        await saveSceneConfig(next, `已更新${SCENE_LABELS[id]}场景，全站已生效`);
+      } catch (error) { sceneStatus(error.message, true); }
+    };
+    label.append(input); row.append(copy, label); rows.append(row);
+    const defaultLabel = document.createElement('label'); defaultLabel.className = 'system-scene-default-option';
+    const radio = document.createElement('input'); radio.type = 'radio'; radio.name = 'systemSceneDefault'; radio.value = id; radio.checked = sceneConfig.defaultScene === id; radio.disabled = sceneBusy || !sceneLoaded || !sceneCanEdit;
+    radio.setAttribute('aria-label', `设置${SCENE_LABELS[id]}为默认场景`);
+    radio.onchange = async () => {
+      if (!radio.checked || sceneBusy || !sceneLoaded || !sceneCanEdit || sceneConfig.defaultScene === id) return;
+      try {
+        const next = makeSceneConfig(sceneConfig.scenes, id);
+        await saveSceneConfig(next, `默认场景已设置为${SCENE_LABELS[id]}`);
+      } catch (error) { radio.checked = sceneConfig.defaultScene === id; sceneStatus(error.message, true); }
+    };
+    defaultLabel.append(radio, document.createTextNode(SCENE_LABELS[id])); defaults.append(defaultLabel);
+  }
+}
+async function openScenes() {
+  scenesPage = true; colorsPage = false; promptsPage = false; $('systemConfigMenu').hidden = true; $('systemConfigColors').hidden = true; $('systemConfigPrompts').hidden = true; $('systemConfigScenes').hidden = false; $('systemConfigBack').hidden = false;
+  $('systemConfigTitle').textContent = '光影流转配置'; await loadScenes();
+}
+async function loadScenes() {
+  sceneBusy = true; sceneLoaded = false; sceneCanEdit = false; sceneStatus('正在读取光影流转配置…'); $('systemSceneRetry').hidden = true; renderSceneConfig();
+  try {
+    const session = await workspaceClient(); sceneOwnerId = session.userId; sceneCanEdit = Boolean(session.canManageSystemConfig);
+    sceneConfig = await sceneStore.load(); sceneLoaded = true; renderSceneConfig();
+    sceneStatus(sceneCanEdit ? '' : '当前账号只能查看，需管理员授权后才能修改');
+  } catch (error) { sceneStatus(error.message, true); $('systemSceneRetry').hidden = false; }
+  finally { sceneBusy = false; renderSceneConfig(); }
+}
+async function saveSceneConfig(value, message) {
+  if (sceneBusy || !sceneLoaded || !sceneCanEdit) return;
+  sceneBusy = true; renderSceneConfig(); sceneStatus('正在保存全站光影流转配置…');
+  try { sceneConfig = await sceneStore.save(sceneOwnerId, value); sceneStatus(message); }
+  catch (error) { sceneStatus(error.message, true); throw error; }
+  finally { sceneBusy = false; renderSceneConfig(); }
+}
 async function saveRow() {
   const editing = editor.editing;
   if (!editing || busy || !loaded) return;
@@ -304,7 +377,7 @@ async function load() {
 }
 function menu() {
   editor.cancel();
-  colorsPage = false; promptsPage = false; $('systemConfigMenu').hidden = false; $('systemConfigColors').hidden = true; $('systemConfigPrompts').hidden = true; $('systemConfigBack').hidden = true;
+  colorsPage = false; promptsPage = false; scenesPage = false; $('systemConfigMenu').hidden = false; $('systemConfigColors').hidden = true; $('systemConfigPrompts').hidden = true; $('systemConfigScenes').hidden = true; $('systemConfigBack').hidden = true;
   $('systemConfigTitle').textContent = '系统配置'; $('systemConfigDiscard').hidden = true; promptDirty = false; promptBaseDirty = false;
   preview(menuBall, fabricColors()[0]); colorOption.focus({ preventScroll: true });
   scroll.scrollTop = 0;
@@ -338,6 +411,7 @@ dialog.addEventListener('click', event => {
 $('systemConfigLeave').onclick = () => { $('systemConfigDiscard').hidden = true; leaveAction?.(); };
 $('systemConfigRetry').onclick = load;
 $('systemAiPromptRetry').onclick = loadPrompts;
+ $('systemSceneRetry').onclick = loadScenes;
  $('systemAiBase').oninput = promptBaseChanged;
  $('systemAiPromptAdd').onclick = () => { if (promptBusy || !promptLoaded || !promptCanEdit || promptItems.length >= 5) return; promptItems.push({ label: '', prompt: '' }); promptDirty = true; renderPromptRows(); promptStatus('请填写新增提示词后保存'); $('systemAiPromptRows').lastElementChild?.querySelector('input')?.focus(); };
 $('systemAiPromptSave').onclick = savePrompts;

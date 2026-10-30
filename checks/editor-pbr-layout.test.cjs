@@ -12,7 +12,7 @@ const assert=require('node:assert/strict');
   await p.locator('[data-material-type=pattern]').click();assert.equal(await p.locator('#materialType').inputValue(),'pattern');assert.equal(await p.locator('#fabricCategoryRow').isVisible(),false);
   await p.locator('[data-material-type=fabric]').click();assert.equal(await p.locator('#fabricCategoryRow').isVisible(),true);
   const transfer=await p.evaluateHandle(async()=>{const blob=await(await fetch('./checks/fabric-no-dpi.png')).blob();const dt=new DataTransfer();dt.items.add(new File([blob],'dropped.png',{type:'image/png'}));return dt;});
-  const keys=['map','normalMap','roughnessMap','metalnessMap','aoMap','bumpMap','emissiveMap'];
+  const keys=['map','normalMap','roughnessMap','metalnessMap','aoMap'];
   for(const key of keys){
    const row=p.locator(`[data-map=${key}]`);await row.scrollIntoViewIfNeeded();
    const layout=await row.evaluate(el=>{const a=el.querySelector('.pbr-texture').getBoundingClientRect(),b=el.querySelector('.pbr-values').getBoundingClientRect();return a.right<=b.left;});assert.ok(layout,'Two columns for '+key);
@@ -35,6 +35,6 @@ const assert=require('node:assert/strict');
   await p.locator('.editor-panel').evaluate(el=>el.scrollTop=0);await p.screenshot({path:'checks/editor-pbr-top.png'});
   await p.locator('#pbrHeading').evaluate(el=>el.scrollIntoView({block:'start'}));await p.screenshot({path:'checks/editor-pbr-columns.png'});
   await p.setViewportSize({width:390,height:844});await p.locator('[data-map=roughnessMap]').scrollIntoViewIfNeeded();assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await p.screenshot({path:'checks/editor-pbr-mobile.png'});
-  assert.deepEqual(errors,[]);console.log('PASS: editor order/type tabs, seven channel drops, drag highlight, number/slider sync, color, invalid file preservation, remove, outside drop guard, persistence and mobile columns');
+  assert.deepEqual(errors,[]);console.log('PASS: editor order/type tabs, five channel drops, drag highlight, number/slider sync, color, invalid file preservation, remove, outside drop guard, persistence and mobile columns');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

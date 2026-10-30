@@ -18,6 +18,8 @@ const heightPreviewCanvas = $("heightPreviewCanvas");
 const heightPreviewCtx = heightPreviewCanvas?.getContext("2d");
 const normalPreviewCanvas = $("normalPreviewCanvas");
 const normalPreviewCtx = normalPreviewCanvas?.getContext("2d");
+const aoPreviewCanvas = $("aoPreviewCanvas");
+const aoPreviewCtx = aoPreviewCanvas?.getContext("2d");
 // The supplied case maps 10 BMP pixels to one centimetre horizontally and
 // 6 BMP pixels to one centimetre vertically (2376×600 px → 237.6×100 cm).
 // The horizontal calibration stays fixed; the vertical value is editable in
@@ -30,6 +32,7 @@ const LOOPS_Y_PER_PIXEL = 2;
 const state = {
   bitmap: null,
   imageData: null,
+  indexedBmp: null,
   classMap: null,
   width: 0,
   height: 0,
@@ -38,6 +41,7 @@ const state = {
   jpegUrl: null,
   heightUrl: null,
   normalUrl: null,
+  aoUrl: null,
   renderQueued: false,
   renderId: 0,
   renderedId: 0,
@@ -45,16 +49,90 @@ const state = {
   renderJob: null,
   normalJob: null,
   normalRenderId: 0,
-  heightJob: null,
+  reliefOptions: null,
   recessedClasses: new Set(),
   renderOptions: null,
   sourceFile: null,
+  sourceLoadId: 0,
   sourceName: "",
   requestId: null
 };
+let paletteColorPicker = null, paletteColorIndex = null;
+function paletteColorButton(index) {
+  return index === "background" ? $("backgroundColorSwatch") : $("paletteControls").querySelector(`[data-color-index="${index}"]`);
+}
+function positionPaletteColorEditor() {
+  const editor = $("paletteColorEditor"), button = paletteColorButton(paletteColorIndex);
+  if (!editor || !button || !document.body.classList.contains("embedded")) return;
+  const margin = 12, gap = 10, buttonRect = button.getBoundingClientRect(), editorRect = editor.getBoundingClientRect();
+  if (!editorRect.width || !editorRect.height) return;
+  let left = buttonRect.right - editorRect.width;
+  left = Math.max(margin, Math.min(window.innerWidth - editorRect.width - margin, left));
+  let top = buttonRect.bottom + gap, above = false;
+  if (top + editorRect.height > window.innerHeight - margin) {
+    top = buttonRect.top - editorRect.height - gap;
+    above = true;
+  }
+  top = Math.max(margin, Math.min(window.innerHeight - editorRect.height - margin, top));
+  editor.style.left = `${Math.round(left)}px`;
+  editor.style.top = `${Math.round(top)}px`;
+  editor.style.setProperty("--palette-transform-origin", `${Math.round(buttonRect.right - left)}px ${above ? "100%" : "0%"}`);
+}
+function syncPaletteColorSelection() {
+  for (const button of $("paletteControls").querySelectorAll('[data-color-index]')) {
+    button.setAttribute("aria-expanded", String(Number(button.dataset.colorIndex) === paletteColorIndex));
+  }
+  const background = $("backgroundColorSwatch");
+  background.style.backgroundColor = $("backgroundColor").value;
+  background.setAttribute("aria-expanded", String(paletteColorIndex === "background"));
+}
+function closePaletteColorEditor(restoreFocus = false) {
+  const button = paletteColorButton(paletteColorIndex);
+  paletteColorIndex = null; paletteColorPicker?.clear(); syncPaletteColorSelection();
+  $("paletteColorEditor").dataset.open = "false";
+  $("paletteColorEditor").hidden = !state.palette.length;
+  if (restoreFocus) button?.focus({ preventScroll: true });
+}
+function openPaletteColorEditor(index, color) {
+  ensurePaletteColorPicker();
+  if (paletteColorIndex === index) { closePaletteColorEditor(true); return; }
+  paletteColorIndex = index;
+  const editor = $("paletteColorEditor");
+  editor.hidden = false; editor.dataset.open = "true";
+  syncPaletteColorSelection(); paletteColorPicker.open(color); positionPaletteColorEditor();
+}
+function ensurePaletteColorPicker() {
+  if (paletteColorPicker || !globalThis.ProceduralColorPicker || !$("paletteColorEditor")) return;
+  paletteColorPicker = globalThis.ProceduralColorPicker.mount($("paletteColorEditor"), {
+    prefix: "paletteColor",
+    onConfirm(color) {
+      if (paletteColorIndex === "background") {
+        $("backgroundColor").value = color;
+        $("backgroundColor").dispatchEvent(new Event("input", { bubbles: true }));
+        closePaletteColorEditor(true); return;
+      }
+      const entry = state.palette.find(item => item.index === paletteColorIndex);
+      if (!entry) return;
+      entry.loopHex = color; entry.loopRgb = hexToRgb(color);
+      $("paletteControls").querySelector(`[data-color-index="${entry.index}"]`).style.backgroundColor = color;
+      closePaletteColorEditor(true); postProceduralState(); requestRender();
+    },
+    onCancel() { closePaletteColorEditor(true); }
+  });
+}
+window.addEventListener("resize", () => { if (paletteColorIndex !== null) positionPaletteColorEditor(); });
+document.addEventListener("scroll", () => { if (paletteColorIndex !== null) positionPaletteColorEditor(); }, true);
+document.addEventListener("pointerdown", event => {
+  if (paletteColorIndex === null) return;
+  const editor = $("paletteColorEditor"), button = paletteColorButton(paletteColorIndex);
+  if (editor.contains(event.target) || button?.contains(event.target)) return;
+  closePaletteColorEditor();
+}, true);
 
 function proceduralMappingSnapshot() {
-  const options = state.renderOptions || currentRenderOptions();
+  // Read controls at snapshot time so edits made after the last texture
+  // render (including relief and blur settings) are persisted immediately.
+  const options = currentRenderOptions();
   return {
     version: 1,
     sourceName: state.sourceName || state.sourceFile?.name || "source.bmp",
@@ -65,21 +143,26 @@ function proceduralMappingSnapshot() {
     options: {
       background: options.background,
       contrast: options.contrast,
-      texture: options.texture,
       angle: options.angle,
       dpi: options.dpi,
       pixelsPerCmY: options.pixelsPerCmY,
       reliefRadius: options.reliefRadius,
       reliefDepth: options.reliefDepth,
+      gaussianBlur: options.gaussianBlur,
+      tileable: options.tileable,
+      aoRadius: options.aoRadius,
+      aoStrength: options.aoStrength,
       quality: Number($("quality")?.value || 92) / 100
     }
   };
 }
 
-function postProceduralState(includeSource = false) {
+function postProceduralState(includeSource = false, resetGeneratedMaps = false, resetReliefMaps = false) {
   if (!embeddedInMaterialEditor || !state.sourceFile) return;
   window.parent.postMessage({
     type: "procedural-state",
+    resetGeneratedMaps,
+    resetReliefMaps,
     sourceFile: includeSource ? state.sourceFile : undefined,
     mapping: proceduralMappingSnapshot()
   }, "*");
@@ -89,6 +172,53 @@ const previewViewports = [];
 function mountPreviewViewport(viewport, canvas, label) {
   if (!viewport || !canvas) return null;
   const view = { viewport, canvas, scale: 1, fitScale: 1, offsetX: 0, offsetY: 0, initialized: false, dragging: null };
+  let filteredPreview = null, previewKey = '';
+  const renderFilteredPreview = () => {
+    if (canvas === inputCanvas) return;
+    const pixelScale = view.scale * (window.devicePixelRatio || 1);
+    const minified = pixelScale < 1;
+    canvas.style.visibility = minified ? 'hidden' : '';
+    if (!minified) {
+      if (filteredPreview) filteredPreview.style.display = 'none';
+      return;
+    }
+    if (!filteredPreview) {
+      filteredPreview = document.createElement('canvas');
+      filteredPreview.className = 'filtered-texture-preview';
+      filteredPreview.setAttribute?.('aria-hidden', 'true');
+      filteredPreview.style.pointerEvents = 'none';
+      viewport.appendChild?.(filteredPreview);
+    }
+    const width = Math.max(1, Math.round(canvas.width * pixelScale));
+    const height = Math.max(1, Math.round(canvas.height * pixelScale));
+    const key = `${width}x${height}`;
+    if (previewKey !== key) {
+      // CSS transforms alone use too small a sampling footprint for dense
+      // knit rasters. Reduce in stages, then filter to device-pixel size.
+      // The original canvas remains intact for JPG export and 1:1 inspection.
+      let source = canvas;
+      while (source.width > width * 2 || source.height > height * 2) {
+        const next = document.createElement('canvas');
+        next.width = Math.max(width, Math.ceil(source.width / 2));
+        next.height = Math.max(height, Math.ceil(source.height / 2));
+        const ctx = next.getContext('2d');
+        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(source, 0, 0, next.width, next.height);
+        if (source !== canvas) source.width = source.height = 1;
+        source = next;
+      }
+      filteredPreview.width = width; filteredPreview.height = height;
+      const ctx = filteredPreview.getContext('2d');
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(source, 0, 0, width, height);
+      if (source !== canvas) source.width = source.height = 1;
+      previewKey = key;
+    }
+    filteredPreview.style.display = 'block';
+    filteredPreview.style.width = canvas.style.width;
+    filteredPreview.style.height = canvas.style.height;
+    filteredPreview.style.transform = canvas.style.transform;
+  };
   const renderView = () => {
     if (!canvas.width || !canvas.height) return;
     const bounds = viewport.getBoundingClientRect();
@@ -96,12 +226,17 @@ function mountPreviewViewport(viewport, canvas, label) {
     if (!(fitScale > 0)) return;
     view.fitScale = Math.max(.02, Math.min(8, fitScale));
     if (!view.initialized) { view.scale = view.fitScale; view.initialized = true; }
-    canvas.style.width = `${canvas.width}px`;
-    canvas.style.height = `${canvas.height}px`;
-    canvas.style.transform = `translate(calc(-50% + ${view.offsetX}px),calc(-50% + ${view.offsetY}px)) scale(${view.scale})`;
+    // Size BMP pixels before translating: scaling a rasterized transform can
+    // shift texel edges at fractional display/page zoom away from crop lines.
+    const pixelated = canvas === inputCanvas;
+    canvas.style.width = `${canvas.width * (pixelated ? view.scale : 1)}px`;
+    canvas.style.height = `${canvas.height * (pixelated ? view.scale : 1)}px`;
+    canvas.style.transform = `translate(calc(-50% + ${view.offsetX}px),calc(-50% + ${view.offsetY}px))${pixelated ? '' : ` scale(${view.scale})`}`;
+    renderFilteredPreview();
     if (label) label.textContent = `${Math.round(view.scale / view.fitScale * 100)}%`;
+    view.onTransform?.();
   };
-  const reset = () => { view.initialized = false; view.offsetX = view.offsetY = 0; renderView(); };
+  const reset = () => { previewKey = ''; view.initialized = false; view.offsetX = view.offsetY = 0; renderView(); };
   viewport.addEventListener('wheel', event => {
     if (!canvas.width) return;
     event.preventDefault();
@@ -116,8 +251,9 @@ function mountPreviewViewport(viewport, canvas, label) {
     renderView();
   }, { passive: false });
   viewport.addEventListener('pointerdown', event => {
-    if (!canvas.width || event.button !== 0) return;
+    if (!canvas.width || !(view.canPan ? view.canPan(event) : event.button === 0)) return;
     view.dragging = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    event.preventDefault();
     viewport.setPointerCapture?.(event.pointerId);
     viewport.classList.add('is-panning');
   });
@@ -139,19 +275,36 @@ function mountPreviewViewport(viewport, canvas, label) {
   return view;
 }
 
+const inputViewport = mountPreviewViewport($('inputPreviewWrap'), inputCanvas, $('inputZoomLabel'));
 const outputViewport = mountPreviewViewport($('outputWrap'), outputCanvas, $('textureZoomLabel'));
-const heightViewport = mountPreviewViewport($('heightPreviewWrap'), heightPreviewCanvas);
-const normalViewport = mountPreviewViewport($('normalPreviewWrap'), normalPreviewCanvas);
-const previewPanels = { fabric: $('fabricPreviewPanel'), height: $('heightPreviewPanel'), normal: $('normalPreviewPanel') };
+const heightViewport = mountPreviewViewport($('heightPreviewWrap'), heightPreviewCanvas, $('heightZoomLabel'));
+const normalViewport = mountPreviewViewport($('normalPreviewWrap'), normalPreviewCanvas, $('normalZoomLabel'));
+const aoViewport = mountPreviewViewport($('aoPreviewWrap'), aoPreviewCanvas, $('aoZoomLabel'));
+const previewPanels = { input: $('inputPreviewPanel'), fabric: $('fabricPreviewPanel'), height: $('heightPreviewPanel'), normal: $('normalPreviewPanel'), ao: $('aoPreviewPanel') };
+const previewViewByMode = { input: inputViewport, fabric: outputViewport, height: heightViewport, normal: normalViewport, ao: aoViewport };
 function setPreviewMap(mode) {
+  if (mode !== 'input') cropTool?.cancel();
   for (const [key, panel] of Object.entries(previewPanels)) if (panel) panel.hidden = key !== mode;
   document.querySelectorAll('[data-preview-map]').forEach(button => {
     const active = button.dataset.previewMap === mode;
-    button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active));
+    button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active));
   });
-  requestAnimationFrame(() => previewViewports.forEach(view => view.render?.()));
+  requestAnimationFrame(() => {
+    // Each map has its own pan/zoom state. Returning to a map should start at
+    // the complete image so its preview can be compared directly with the
+    // downloaded file.
+    previewViewByMode[mode]?.reset?.();
+    previewViewports.forEach(view => view.render?.());
+  });
 }
 document.querySelectorAll('[data-preview-map]').forEach(button => { button.addEventListener('click', () => setPreviewMap(button.dataset.previewMap)); });
+const cropTool = mountBmpCropTool({
+  viewport: $('inputPreviewWrap'), canvas: inputCanvas, view: inputViewport,
+  button: $('cropButton'), toolbar: $('cropToolbar'), progress: $('cropProgress'),
+  reset: $('cropReset'), cancel: $('cropCancel'), apply: $('cropApply'),
+  showInput: () => setPreviewMap('input'), onApply: applyBmpCrop,
+  onError: error => setStatus(error.message, false)
+});
 setPreviewMap('fabric');
 
 function outputDpi() {
@@ -185,11 +338,11 @@ function updatePhysicalSizeInfo() {
   const info = $("physicalSizeInfo");
   if (!info) return;
   if (!state.width || !state.height) {
-    info.textContent = "等待 BMP · 物理尺寸 —";
+    info.textContent = "";
     return;
   }
   const metrics = physicalMetrics();
-  info.textContent = `物理尺寸 ${metrics.widthCm.toFixed(1)} × ${metrics.heightCm.toFixed(1)} cm · ${metrics.widthIn.toFixed(2)} × ${metrics.heightIn.toFixed(2)} in · 输出 ${metrics.outW} × ${metrics.outH} px @ ${metrics.dpi} DPI · 纵向 ${metrics.pixelsPerCmY} BMP 像素/cm`;
+  info.textContent = `${metrics.widthCm.toFixed(1)} × ${metrics.heightCm.toFixed(1)} cm · ${metrics.outW} × ${metrics.outH} px`;
 }
 
 function hexToRgb(hex) {
@@ -239,8 +392,9 @@ function parseIndexedBmp(buffer) {
 function renderPaletteControls() {
   const container = $("paletteControls");
   container.replaceChildren();
+  ensurePaletteColorPicker();
+  closePaletteColorEditor();
   if (!state.palette.length) {
-    container.innerHTML = '<div class="palette-empty">等待 BMP 色号</div>';
     $("resetPalette").disabled = true;
     return;
   }
@@ -256,7 +410,7 @@ function renderPaletteControls() {
     relief.addEventListener("change", () => {
       if (relief.checked) state.recessedClasses.add(entry.index);
       else state.recessedClasses.delete(entry.index);
-      invalidateNormal("凹陷色号已修改，请重新生成高度图和法线图");
+      invalidateNormal();
     });
     const id = document.createElement("span");
     id.className = "palette-id";
@@ -265,19 +419,19 @@ function renderPaletteControls() {
     source.className = "source-swatch";
     source.title = `BMP 原色 ${entry.sourceHex}${entry.sourceIndex === null ? "" : ` · BMP#${entry.sourceIndex}`}`;
     source.style.backgroundColor = entry.sourceHex;
-    const input = document.createElement("input");
-    input.type = "color";
-    input.value = entry.loopHex;
-    input.title = `色号 ${entry.index} 的线圈颜色`;
+    const input = document.createElement("button");
+    input.type = "button";
+    input.className = "compact-procedural-swatch";
+    input.style.backgroundColor = entry.loopHex;
+    input.title = `编辑色号 ${entry.index} 的线圈颜色`;
+    input.setAttribute("aria-label", `编辑色号 ${entry.index} 的线圈颜色`);
+    input.dataset.colorIndex = String(entry.index);
+    input.setAttribute("aria-controls", "paletteColorEditor");
+    input.setAttribute("aria-expanded", String(paletteColorIndex === entry.index));
+    input.onclick = () => openPaletteColorEditor(entry.index, entry.loopHex);
     const count = document.createElement("output");
     count.className = "palette-count";
     count.value = `${entry.count.toLocaleString()} px`;
-    input.addEventListener("input", () => {
-      entry.loopHex = input.value.toUpperCase();
-      entry.loopRgb = hexToRgb(entry.loopHex);
-      postProceduralState();
-      requestRender();
-    });
     row.append(relief, id, source, input, count);
     container.append(row);
   }
@@ -317,22 +471,26 @@ function analyzePalette(data, indexedBmp = null) {
     const key = colorKey(indexedColor?.r ?? data[i], indexedColor?.g ?? data[i + 1], indexedColor?.b ?? data[i + 2]);
     state.classMap[p] = lookup.get(key) ?? 0;
   }
-  const indexedNote = indexedBmp ? `，保留 BMP 调色板索引（0 号色对应 BMP#${state.palette[0]?.sourceIndex ?? "-"}）` : "";
-  $("paletteInfo").textContent = `自动识别 ${state.palette.length} 个实际颜色；按像素数量排序，${state.palette[0]?.sourceHex || ""} 为网页色号 0${indexedNote}。`;
   renderPaletteControls();
 }
 
-async function loadFile(file) {
+async function loadFile(file, resetGeneratedMaps = true) {
   if (!file) return;
+  const loadId = ++state.sourceLoadId;
+  cropTool.cancel();
+  $('cropButton').disabled = true;
   setStatus("读取 BMP…", false);
   try {
-    state.sourceFile = file;
-    state.sourceName = file.name || "source.bmp";
     const buffer = await file.arrayBuffer();
     const indexedBmp = parseIndexedBmp(buffer);
     const bitmap = await createImageBitmap(new Blob([buffer], { type: file.type || "image/bmp" }));
+    if (loadId !== state.sourceLoadId) { bitmap.close(); return; }
+    state.sourceFile = file;
+    state.sourceName = file.name || "source.bmp";
     state.bitmap?.close();
     state.bitmap = bitmap;
+    $("sourceFileName").textContent = state.sourceName;
+    $("sourceFileName").title = state.sourceName;
     state.width = bitmap.width;
     state.height = bitmap.height;
     inputCanvas.width = state.width;
@@ -340,37 +498,63 @@ async function loadFile(file) {
     inputCtx.clearRect(0, 0, state.width, state.height);
     inputCtx.drawImage(bitmap, 0, 0);
     $("inputEmptyState").hidden = true;
+    inputViewport?.reset();
     state.imageData = inputCtx.getImageData(0, 0, state.width, state.height);
     state.pixels = state.width * state.height;
     const usableIndexedBmp = indexedBmp && indexedBmp.width === state.width && indexedBmp.height === state.height ? indexedBmp : null;
+    state.indexedBmp = usableIndexedBmp;
     analyzePalette(state.imageData.data, usableIndexedBmp);
+    $('cropButton').disabled = false;
     updatePhysicalSizeInfo();
     $("renderButton").disabled = false;
     $("normalButton").disabled = false;
-    invalidateNormal("已载入 BMP，可生成径向高度图和 OpenGL 法线图");
+    invalidateNormal(false);
     setStatus(`已载入 ${file.name}`, true);
-    postProceduralState(true);
+    postProceduralState(true, resetGeneratedMaps);
     render();
   } catch (error) {
+    if (loadId !== state.sourceLoadId) return;
     console.error(error);
     setStatus("读取失败，请选择标准 BMP", false);
+  } finally {
+    if (loadId === state.sourceLoadId) $('cropButton').disabled = !state.imageData;
   }
 }
 
-async function loadSample() {
-  try {
-    const response = await fetch("../渲染案例/SPNC-440.bmp");
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const blob = await response.blob();
-    await loadFile(new File([blob], "SPNC-440.bmp", { type: "image/bmp" }));
-  } catch (error) {
-    setStatus("案例读取失败，请手动选择 BMP", false);
-    console.warn(error);
+function applyBmpCrop(rect) {
+  const image = BmpCrop.cropPixels(state.imageData, rect);
+  const indexedBmp = BmpCrop.cropIndexed(state.indexedBmp, rect);
+  const bytes = BmpCrop.encodeBmp(image, indexedBmp);
+  const sourceName = (state.sourceName || 'source.bmp').replace(/(?:-crop)?\.bmp$/i, '') + '-crop.bmp';
+  const file = new File([bytes], sourceName, { type: 'image/bmp' });
+  const paletteByColor = new Map(state.palette.map(entry => [entry.sourceHex, { ...entry, recessed: state.recessedClasses.has(entry.index) }]));
+  state.renderJob?.cancel(); state.renderJob = null; state.renderId++; state.jpegEncodeId++; state.renderedId = 0;
+  if (state.jpegUrl) URL.revokeObjectURL(state.jpegUrl);
+  state.jpegUrl = null; $('downloadButton').disabled = true;
+  state.bitmap?.close(); state.bitmap = null;
+  state.width = image.width; state.height = image.height; state.pixels = image.width * image.height;
+  state.imageData = new ImageData(image.data, image.width, image.height);
+  state.indexedBmp = indexedBmp;
+  state.sourceFile = file; state.sourceName = sourceName;
+  inputCanvas.width = image.width; inputCanvas.height = image.height; inputCtx.putImageData(state.imageData, 0, 0);
+  analyzePalette(image.data, indexedBmp);
+  state.recessedClasses.clear();
+  for (const entry of state.palette) {
+    const previous = paletteByColor.get(entry.sourceHex);
+    if (!previous) continue;
+    entry.loopHex = previous.loopHex; entry.loopRgb = { ...previous.loopRgb };
+    if (previous.recessed) state.recessedClasses.add(entry.index);
   }
+  renderPaletteControls(); invalidateNormal(false);
+  outputCanvas.width = outputCanvas.height = 0; $('textureZoomLabel').textContent = '';
+  $('emptyState').textContent = ''; $('renderInfo').textContent = '';
+  $('sourceFileName').textContent = sourceName; $('sourceFileName').title = sourceName;
+  inputViewport.reset(); updatePhysicalSizeInfo(); setStatus('', true);
+  postProceduralState(true, true); render();
 }
 
 function setStatus(text, ready) {
-  $("statusPill").textContent = text;
+  $("statusPill").textContent = ready ? "" : text;
   $("statusPill").classList.toggle("ready", ready);
 }
 
@@ -380,18 +564,23 @@ function applyProceduralMapping(mapping = {}) {
     const input = $(id);
     if (input && value !== undefined && value !== null && Number.isFinite(Number(value))) input.value = String(value);
   };
-  setValue("texture", Number(options.texture || 0) * 100);
   setValue("contrast", Number(options.contrast || 0) * 100);
   setValue("angle", options.angle);
   setValue("dpi", options.dpi);
   setValue("bmpPixelsPerCmY", options.pixelsPerCmY);
   setValue("reliefRadius", options.reliefRadius);
-  setValue("reliefDepth", Number(options.reliefDepth || 0) * 100);
+  if (options.reliefDepth !== undefined && options.reliefDepth !== null) {
+    setValue("reliefDepth", Number(options.reliefDepth) * 100);
+  }
+  setValue("gaussianBlur", options.gaussianBlur);
+  setValue("aoRadius", options.aoRadius ?? 5);
+  setValue("aoStrength", options.aoStrength ?? 1);
   if (typeof options.quality === "number") setValue("quality", options.quality * 100);
   if (options.background) {
     const background = rgbToHex(options.background.r, options.background.g, options.background.b);
     $("backgroundColor").value = background;
     $("backgroundColorValue").value = background;
+    syncPaletteColorSelection();
   }
   if (Array.isArray(mapping.palette)) {
     const byIndex = new Map(mapping.palette.map(entry => [Number(entry.index), entry]));
@@ -401,11 +590,11 @@ function applyProceduralMapping(mapping = {}) {
       entry.loopHex = saved.loopHex.toUpperCase();
       entry.loopRgb = hexToRgb(entry.loopHex);
     }
-    renderPaletteControls();
   }
   if (Array.isArray(mapping.recessedClasses)) state.recessedClasses = new Set(mapping.recessedClasses.map(Number).filter(Number.isInteger));
-  updateRangeOutput("texture"); updateRangeOutput("contrast"); updateRangeOutput("angle", v => `${v}°`); updateRangeOutput("quality"); updateRangeOutput("reliefDepth"); updatePhysicalSizeInfo();
-  invalidateNormal("色号映射已更新，可重新生成法线图");
+  renderPaletteControls();
+  updateRangeOutput("contrast"); updateRangeOutput("angle", v => `${v}°`); updateRangeOutput("quality"); updateRangeOutput("reliefDepth"); updateRangeOutput("gaussianBlur"); updateRangeOutput("aoStrength"); updatePhysicalSizeInfo();
+  invalidateNormal(false);
   requestRender();
   postProceduralState();
 }
@@ -418,7 +607,7 @@ window.addEventListener("message", async event => {
     const source = data.sourceFile;
     if (source && (!state.sourceFile || state.sourceFile.size !== source.size || state.sourceFile.name !== (source.name || state.sourceName))) {
       const file = source instanceof File ? source : new File([source], source.name || "source.bmp", { type: source.type || "image/bmp" });
-      await loadFile(file);
+      await loadFile(file, false);
     }
     if (!state.imageData) throw new Error("尚未载入 BMP 源图");
     applyProceduralMapping(data.mapping || {});
@@ -428,11 +617,10 @@ window.addEventListener("message", async event => {
   }
 });
 
-function invalidateNormal(message = "等待生成 OpenGL 法线图") {
+function invalidateNormal(resetMaterial = true) {
   state.normalJob?.cancel();
-  state.heightJob?.cancel();
   state.normalJob = null;
-  state.heightJob = null;
+  state.reliefOptions = null;
   state.normalRenderId++;
   clearMapResults();
   const download = $("normalDownloadButton");
@@ -440,13 +628,14 @@ function invalidateNormal(message = "等待生成 OpenGL 法线图") {
   const button = $("normalButton");
   if (button) button.disabled = !state.imageData;
   const info = $("normalInfo");
-  if (info) info.textContent = message;
+  if (info) info.textContent = "";
+  if (resetMaterial) postProceduralState(false, false, true);
 }
 
 function currentRenderOptions() {
   const metrics = physicalMetrics(outputDpi());
   const { outW, outH } = metrics;
-  const reliefRadius = Number($("reliefRadius")?.value || 1);
+  const reliefRadius = Number($("reliefRadius")?.value || 5);
   return {
     width: state.width, height: state.height, classMap: state.classMap,
     palette: state.palette.map((entry) => entry.loopRgb),
@@ -456,17 +645,22 @@ function currentRenderOptions() {
     dpi: metrics.dpi, physicalWidthCm: metrics.widthCm, physicalHeightCm: metrics.heightCm,
     pixelsPerCmY: metrics.pixelsPerCmY,
     contrast: Number($("contrast").value) / 100,
-    texture: Number($("texture").value) / 100,
     angle: Number($("angle").value),
     // The relief map is intentionally independent from loop shading. Pass a
     // plain array so the same settings survive Worker structured cloning.
     reliefClasses: [...state.recessedClasses],
-    reliefRadius: Number.isFinite(reliefRadius) ? Math.max(.05, reliefRadius) : 1,
-    reliefDepth: Math.max(0, Math.min(1, Number($("reliefDepth")?.value || 0) / 100))
+    // Process this fabric as a repeating tile through height, blur, normal
+    // and AO generation. This is shared by Worker and fallback jobs.
+    tileable: true,
+    reliefRadius: Number.isFinite(reliefRadius) ? Math.max(.05, reliefRadius) : 5,
+    reliefDepth: Math.max(0, Math.min(1, Number($("reliefDepth")?.value || 0) / 100)),
+    gaussianBlur: Math.max(0, Math.min(20, Number($("gaussianBlur")?.value || 0))),
+    aoRadius: Math.max(.05, Number($("aoRadius")?.value || 5)),
+    aoStrength: Math.max(0, Math.min(3, Number($("aoStrength")?.value ?? 1)))
   };
 }
 
-// All three outputs use the same JPEG encoder, quality and JFIF DPI writer.
+// Base color and all three derived maps share the JPEG encoder and DPI writer.
 async function encodeCanvasJpeg(canvas, { dpi, quality }) {
   const blob = await new Promise((resolve, reject) => {
     canvas.toBlob((result) => {
@@ -478,8 +672,8 @@ async function encodeCanvasJpeg(canvas, { dpi, quality }) {
 }
 
 async function encodeImageJpeg(image, settings) {
-  // Keep the export canvas separate from the bounded preview: a large map
-  // must retain the exact pixel dimensions produced by physicalMetrics().
+  // Keep the export canvas separate from the preview so encoding always uses
+  // the exact pixel dimensions produced by physicalMetrics().
   const canvas = document.createElement("canvas");
   canvas.width = image.width; canvas.height = image.height;
   const ctx = canvas.getContext("2d");
@@ -495,31 +689,11 @@ async function encodeImageJpeg(image, settings) {
 
 function showMapPreview(canvas, ctx, image) {
   if (!canvas || !ctx) return;
-  // Preview maps at a bounded size so a 100-DPI case does not allocate a
-  // second full-resolution RGBA backing store. Downloads still use `image` at
-  // its original dimensions.
-  const scale = Math.min(1, 1200 / image.width, 800 / image.height);
-  const width = Math.max(1, Math.round(image.width * scale));
-  const height = Math.max(1, Math.round(image.height * scale));
-  canvas.width = width; canvas.height = height;
-  if (scale === 1) {
-    ctx.putImageData(new ImageData(image.data, image.width, image.height), 0, 0);
-    return;
-  }
-  const preview = new Uint8ClampedArray(width * height * 4);
-  for (let y = 0; y < height; y++) {
-    const sourceY = Math.min(image.height - 1, Math.floor(y / scale));
-    for (let x = 0; x < width; x++) {
-      const sourceX = Math.min(image.width - 1, Math.floor(x / scale));
-      const source = (sourceY * image.width + sourceX) * 4;
-      const target = (y * width + x) * 4;
-      preview[target] = image.data[source];
-      preview[target + 1] = image.data[source + 1];
-      preview[target + 2] = image.data[source + 2];
-      preview[target + 3] = 255;
-    }
-  }
-  ctx.putImageData(new ImageData(preview, width, height), 0, 0);
+  // Keep the preview canvas pixel-identical to the generated map. The shared
+  // viewport handles fit-to-window scaling through CSS, just like the fabric
+  // preview, while pan and zoom still operate on the original pixels.
+  canvas.width = image.width; canvas.height = image.height;
+  ctx.putImageData(new ImageData(image.data, image.width, image.height), 0, 0);
 }
 
 async function replaceMapUrl(kind, image, settings, id) {
@@ -528,82 +702,66 @@ async function replaceMapUrl(kind, image, settings, id) {
   const key = `${kind}Url`;
   if (state[key]) URL.revokeObjectURL(state[key]);
   state[key] = URL.createObjectURL(jpeg);
-  const button = $(kind === "height" ? "heightDownloadButton" : "normalDownloadButton");
+  const button = $(`${kind}DownloadButton`);
   if (button) button.disabled = false;
-  if (kind === "normal" && embeddedInMaterialEditor) void applyRenderedNormal();
 }
 
 function clearMapResults() {
-  for (const key of ["heightUrl", "normalUrl"]) {
+  for (const key of ["heightUrl", "normalUrl", "aoUrl"]) {
     if (state[key]) URL.revokeObjectURL(state[key]);
     state[key] = null;
   }
   $("heightDownloadButton").disabled = true;
   $("normalDownloadButton").disabled = true;
+  $("aoDownloadButton").disabled = true;
+  for (const canvas of [heightPreviewCanvas, normalPreviewCanvas, aoPreviewCanvas]) {
+    if (canvas) canvas.width = canvas.height = 0;
+  }
+  for (const id of ["heightZoomLabel", "normalZoomLabel", "aoZoomLabel"]) {
+    if ($(id)) $(id).textContent = "";
+  }
   if ($("heightEmptyState")) $("heightEmptyState").hidden = false;
   if ($("normalEmptyState")) $("normalEmptyState").hidden = false;
+  if ($("aoEmptyState")) $("aoEmptyState").hidden = false;
 }
 
 async function renderNormal() {
   if (!state.imageData || !state.classMap?.length) return;
   const id = ++state.normalRenderId;
   state.normalJob?.cancel();
-  state.heightJob?.cancel();
   clearMapResults();
   $("normalButton").disabled = true;
-  const base = currentRenderOptions();
+  const base = state.reliefOptions = currentRenderOptions();
   const jpegSettings = { dpi: base.dpi, quality: Number($("quality").value) / 100 };
-  const metrics = physicalMetrics(outputDpi());
-  $("normalInfo").textContent = `${metrics.outW}×${metrics.outH} · 正在生成径向高度图…`;
-  let lastProgress = -1;
+  const names = { "height-field": "计算高度场", "blur-x": "高斯模糊", "blur-y": "高斯模糊", height: "生成高度图", normal: "生成法线图", ao: "生成 AO 图" };
+  const previews = { height: [heightPreviewCanvas, heightPreviewCtx], normal: [normalPreviewCanvas, normalPreviewCtx], ao: [aoPreviewCanvas, aoPreviewCtx] };
   try {
-    let heightJob = state.heightJob = KnitRenderJob.start({ ...base, output: "height" }, {
-      onProgress(progress) {
-        const percent = Math.floor(progress * 100);
-        if (id === state.normalRenderId && percent !== lastProgress) {
-          lastProgress = percent;
-          $("normalInfo").textContent = `${metrics.outW}×${metrics.outH} · 正在生成高度图 ${percent}%`;
-        }
+    const job = state.normalJob = KnitRenderJob.start({ ...base, output: "relief" }, {
+      onProgress(progress, stage) {
+        if (id === state.normalRenderId) $("normalInfo").textContent = `${names[stage] || "生成贴图"} ${Math.floor(progress * 100)}%`;
+      },
+      async onMap(kind, image) {
+        if (id !== state.normalRenderId) return;
+        showMapPreview(...previews[kind], image);
+        previewViewByMode[kind]?.reset();
+        $(`${kind}EmptyState`).hidden = true;
+        $("normalInfo").textContent = `正在导出${kind === "height" ? "高度" : kind === "normal" ? "法线" : " AO "}图…`;
+        await replaceMapUrl(kind, image, jpegSettings, id);
       }
     });
-    let { image: heightImage } = await heightJob.promise;
+    await job.promise;
     if (id !== state.normalRenderId) return;
-    showMapPreview(heightPreviewCanvas, heightPreviewCtx, heightImage);
-    heightViewport?.reset();
-    $("heightEmptyState").hidden = true;
-    $("normalInfo").textContent = `${metrics.outW}×${metrics.outH} · 正在编码高度 JPG…`;
-    await replaceMapUrl("height", heightImage, jpegSettings, id);
-    heightImage = null;
-    if (state.heightJob === heightJob) state.heightJob = null;
-    heightJob = null;
+    // Apply the material channels together only after all outputs succeeded.
+    await applyRenderedRelief();
     if (id !== state.normalRenderId) return;
-    $("normalInfo").textContent = `${metrics.outW}×${metrics.outH} · 高度 JPG 完成，正在计算法线…`;
-    lastProgress = -1;
-    const normalJob = state.normalJob = KnitRenderJob.start({ ...base, output: "normal" }, {
-      onProgress(progress) {
-        const percent = Math.floor(progress * 100);
-        if (id === state.normalRenderId && percent !== lastProgress) {
-          lastProgress = percent;
-          $("normalInfo").textContent = `${metrics.outW}×${metrics.outH} · 正在从高度图计算法线 ${percent}%`;
-        }
-      }
-    });
-    const { image: normalImage } = await normalJob.promise;
-    if (id !== state.normalRenderId) return;
-    showMapPreview(normalPreviewCanvas, normalPreviewCtx, normalImage);
-    normalViewport?.reset();
-    $("normalEmptyState").hidden = true;
-    $("normalInfo").textContent = `${metrics.outW}×${metrics.outH} · 正在编码法线 JPG…`;
-    await replaceMapUrl("normal", normalImage, jpegSettings, id);
-    if (id !== state.normalRenderId) return;
-    state.normalJob = null;
-    $("normalInfo").textContent = `${normalImage.width}×${normalImage.height} · ${jpegSettings.dpi} DPI · 高度 JPG + OpenGL 法线 JPG 已生成`;
+    $("normalInfo").textContent = "";
   } catch (error) {
     if (id !== state.normalRenderId || error.name === "AbortError") return;
     console.error(error);
-    $("normalInfo").textContent = "高度图/法线图生成失败：" + error.message;
+    clearMapResults();
+    $("normalInfo").textContent = "高度图 / 法线图 / AO 图生成失败：" + error.message;
   } finally {
-    if (id === state.normalRenderId) $("normalButton").disabled = false;
+    if (id === state.normalRenderId) { state.normalJob = null; $("normalButton").disabled = false; }
   }
 }
 
@@ -669,11 +827,13 @@ async function exportJpeg(id) {
 
 async function applyRenderedMaterial() {
   if (!embeddedInMaterialEditor || !state.jpegUrl) return;
+  const renderId = state.renderId, jpegUrl = state.jpegUrl;
+  const metrics = state.renderOptions && physicalMetrics(state.renderOptions.dpi);
   try {
-    const response = await fetch(state.jpegUrl);
+    const response = await fetch(jpegUrl);
     if (!response.ok) throw new Error("无法读取生成的 JPG");
     const file = await response.blob();
-    const metrics = state.renderOptions && physicalMetrics(state.renderOptions.dpi);
+    if (renderId !== state.renderId || jpegUrl !== state.jpegUrl) return;
     window.parent.postMessage({
       type: "procedural-material",
       name: "procedural-material.jpg",
@@ -688,25 +848,20 @@ async function applyRenderedMaterial() {
   }
 }
 
-async function applyRenderedNormal() {
-  if (!embeddedInMaterialEditor || !state.normalUrl) return;
-  try {
-    const response = await fetch(state.normalUrl);
-    if (!response.ok) throw new Error("无法读取生成的法线 JPG");
-    const file = await response.blob();
-    const metrics = state.renderOptions && physicalMetrics(state.renderOptions.dpi);
-    window.parent.postMessage({
-      type: "procedural-normal-material",
-      name: "procedural-normal-opengl.jpg",
-      file,
-      requestId: state.requestId,
-      physical: metrics ? { widthCm: metrics.widthCm, heightCm: metrics.heightCm } : null
-    }, "*");
-    setStatus("法线 JPG 已自动应用到材质编辑器", true);
-  } catch (error) {
-    console.error(error);
-    setStatus("应用法线 JPG 失败：" + error.message, false);
-  }
+async function applyRenderedRelief() {
+  if (!embeddedInMaterialEditor || !state.normalUrl || !state.aoUrl) return;
+  const renderId = state.normalRenderId, normalUrl = state.normalUrl, aoUrl = state.aoUrl;
+  const options = state.reliefOptions;
+  const [normalResponse, aoResponse] = await Promise.all([fetch(normalUrl), fetch(aoUrl)]);
+  if (!normalResponse.ok || !aoResponse.ok) throw new Error("无法读取生成的法线 / AO JPG");
+  const [normalFile, aoFile] = await Promise.all([normalResponse.blob(), aoResponse.blob()]);
+  if (renderId !== state.normalRenderId || normalUrl !== state.normalUrl || aoUrl !== state.aoUrl) return;
+  window.parent.postMessage({
+    type: "procedural-relief-material",
+    maps: { normalMap: normalFile, aoMap: aoFile },
+    requestId: state.requestId,
+    physical: options ? { widthCm: options.physicalWidthCm, heightCm: options.physicalHeightCm } : null
+  }, "*");
 }
 
 async function renderNow() {
@@ -716,9 +871,7 @@ async function renderNow() {
   try {
     const metrics = physicalMetrics(outputDpi());
     const { outW, outH } = metrics;
-    const cellW = outW / state.width;
-    const cellH = outH / state.height;
-    $("renderInfo").textContent = `${outW}×${outH} · 正在渲染纱线与穿套阴影…`;
+    $("renderInfo").textContent = "正在渲染…";
     $("emptyState").textContent = "正在生成面料…";
     const options = state.renderOptions = currentRenderOptions();
     let lastProgress = -1;
@@ -731,15 +884,14 @@ async function renderNow() {
         }
       }
     });
-    const { image, elapsed } = await job.promise;
+    const { image } = await job.promise;
     if (id !== state.renderId) return;
     outputCanvas.width = image.width; outputCanvas.height = image.height;
     outputCtx.putImageData(new ImageData(image.data, image.width, image.height), 0, 0);
     outputViewport?.reset();
     state.renderedId = id;
     $("emptyState").hidden = true;
-    const loopCellH = cellH / LOOPS_Y_PER_PIXEL;
-    $("renderInfo").textContent = `${outW}×${outH} · ${metrics.widthCm.toFixed(1)}×${metrics.heightCm.toFixed(1)} cm · ${metrics.dpi} DPI · 1 像素 = 上下 2 个线圈 · 每个线圈 ${cellW.toFixed(2)}×${loopCellH.toFixed(2)} 像素 · ${(elapsed / 1000).toFixed(1)} 秒`;
+    $("renderInfo").textContent = "";
     await exportJpeg(id);
   } catch (error) {
     if (id !== state.renderId || error.name === "AbortError") return;
@@ -760,6 +912,11 @@ $("normalDownloadButton").addEventListener("click", () => {
   const a = document.createElement("a");
   a.href = state.normalUrl; a.download = "fabric-normal-opengl.jpg"; a.click();
 });
+$("aoDownloadButton").addEventListener("click", () => {
+  if (!state.aoUrl) return;
+  const a = document.createElement("a");
+  a.href = state.aoUrl; a.download = "fabric-ao.jpg"; a.click();
+});
 $("heightDownloadButton").addEventListener("click", () => {
   if (!state.heightUrl) return;
   const a = document.createElement("a");
@@ -771,7 +928,6 @@ $("fileInput").addEventListener("change", (event) => {
   event.target.value = "";
   void loadFile(file);
 });
-$("loadSample").addEventListener("click", loadSample);
 $("renderButton").addEventListener("click", render);
 $("resetPalette").addEventListener("click", () => {
   for (const entry of state.palette) {
@@ -784,16 +940,18 @@ $("resetPalette").addEventListener("click", () => {
 });
 $("backgroundColor").addEventListener("input", () => {
   $("backgroundColorValue").value = $("backgroundColor").value.toUpperCase();
+  syncPaletteColorSelection(); postProceduralState();
   requestRender();
 });
-for (const id of ["texture", "contrast", "angle", "quality"]) {
+$("backgroundColorSwatch").addEventListener("click", () => openPaletteColorEditor("background", $("backgroundColor").value.toUpperCase()));
+for (const id of ["contrast", "angle", "quality"]) {
   $(id).addEventListener("input", () => {
     if (id === "angle") updateRangeOutput(id, (v) => `${v}°`);
     else updateRangeOutput(id);
     if (id === "quality") {
       if (state.renderedId === state.renderId && state.renderedId) exportJpeg(state.renderId);
-      if (state.heightJob || state.normalJob || state.heightUrl || state.normalUrl) {
-        invalidateNormal("JPG 质量已修改，请重新生成高度图和法线图");
+      if (state.normalJob || state.heightUrl || state.normalUrl || state.aoUrl) {
+        invalidateNormal();
       }
     } else {
       // The normal map contains only the class-based macro relief, so color
@@ -805,30 +963,42 @@ for (const id of ["texture", "contrast", "angle", "quality"]) {
 }
 $("reliefDepth").addEventListener("input", () => {
   updateRangeOutput("reliefDepth");
-  invalidateNormal("径向凹陷深度已修改，请重新生成高度图和法线图");
+  invalidateNormal();
   postProceduralState();
 });
 $("reliefRadius").addEventListener("input", () => {
-  invalidateNormal("径向渐变半径已修改，请重新生成高度图和法线图");
+  invalidateNormal();
   postProceduralState();
 });
+$("gaussianBlur").addEventListener("input", () => {
+  updateRangeOutput("gaussianBlur");
+  invalidateNormal();
+  postProceduralState();
+});
+for (const id of ["aoRadius", "aoStrength"]) {
+  $(id).addEventListener("input", () => {
+    if (id === "aoStrength") updateRangeOutput(id);
+    invalidateNormal(); postProceduralState();
+  });
+}
 $("dpi").addEventListener("input", () => {
   updatePhysicalSizeInfo();
-  if (state.heightJob || state.normalJob || state.heightUrl || state.normalUrl) invalidateNormal("DPI 已修改，请重新生成高度图和法线图");
+  if (state.normalJob || state.heightUrl || state.normalUrl || state.aoUrl) invalidateNormal();
   requestRender();
   postProceduralState();
 });
 $("bmpPixelsPerCmY").addEventListener("input", () => {
   updatePhysicalSizeInfo();
-  if (state.heightJob || state.normalJob || state.heightUrl || state.normalUrl) {
-    invalidateNormal("纵向 BMP 像素/cm 已修改，请重新生成高度图和法线图");
+  if (state.normalJob || state.heightUrl || state.normalUrl || state.aoUrl) {
+    invalidateNormal();
   }
   requestRender();
   postProceduralState();
 });
-updateRangeOutput("texture");
 updateRangeOutput("contrast");
 updateRangeOutput("angle", (v) => `${v}°`);
 updateRangeOutput("quality");
 updateRangeOutput("reliefDepth");
+updateRangeOutput("gaussianBlur");
+updateRangeOutput("aoStrength");
 updatePhysicalSizeInfo();

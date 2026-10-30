@@ -1,0 +1,58 @@
+{
+    "scenes":  {
+                   "night":  {
+                                 "name":  "夜晚场景",
+                                 "scene":  {
+                                               "grid":  false,
+                                               "floorVisible":  true,
+                                               "environment":  0.05,
+                                               "shadows":  false,
+                                               "lightColor":  "#dde8ff",
+                                               "preset":  "night",
+                                               "lightAngle":  -7,
+                                               "reflection":  true,
+                                               "keyLight":  2.7,
+                                               "exposure":  0.25,
+                                               "backgroundColor":  "#172232",
+                                               "fillLight":  5
+                                           }
+                             },
+                   "morning":  {
+                                   "name":  "清晨场景",
+                                   "scene":  {
+                                                 "grid":  false,
+                                                 "floorVisible":  true,
+                                                 "environment":  0.35,
+                                                 "shadows":  true,
+                                                 "lightColor":  "#ecf7fe",
+                                                 "preset":  "studio",
+                                                 "lightAngle":  30,
+                                                 "reflection":  true,
+                                                 "keyLight":  1.4,
+                                                 "exposure":  0.45,
+                                                 "backgroundColor":  "#ddebf8",
+                                                 "fillLight":  0.7
+                                             }
+                               },
+                   "evening":  {
+                                   "name":  "清晨场景",
+                                   "scene":  {
+                                                 "grid":  false,
+                                                 "floorVisible":  true,
+                                                 "environment":  0.3,
+                                                 "shadows":  true,
+                                                 "lightColor":  "#ffeedb",
+                                                 "preset":  "studio",
+                                                 "lightAngle":  109,
+                                                 "reflection":  true,
+                                                 "keyLight":  1.8,
+                                                 "exposure":  0.45,
+                                                 "backgroundColor":  "#e5dedc",
+                                                 "fillLight":  0.7
+                                             }
+                               }
+               },
+    "defaultScene":  "night",
+    "format":  "SPENIC-SCENE-SET",
+    "version":  1
+}

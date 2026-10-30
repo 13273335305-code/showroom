@@ -68,6 +68,59 @@ create table if not exists public.spenic_fabric_colors (
   updated_at timestamptz not null default clock_timestamp()
 );
 
+create or replace function public.spenic_valid_scene_config(value jsonb)
+returns boolean language plpgsql immutable set search_path = public
+as $$
+declare id text; item jsonb; scene jsonb;
+begin
+  if jsonb_typeof(value) is distinct from 'object'
+    or value->>'format' is distinct from 'SPENIC-SCENE-SET'
+    or value->>'version' is distinct from '1'
+    or jsonb_typeof(value->'defaultScene') is distinct from 'string'
+    or value->>'defaultScene' not in ('morning', 'evening', 'night')
+    or jsonb_typeof(value->'scenes') is distinct from 'object'
+    or octet_length(value::text) > 65536 then return false; end if;
+  foreach id in array array['morning', 'evening', 'night'] loop
+    item := value->'scenes'->id;
+    scene := item->'scene';
+    if jsonb_typeof(item) is distinct from 'object'
+      or jsonb_typeof(item->'name') is distinct from 'string'
+      or length(trim(item->>'name')) not between 1 and 80
+      or (item ? 'filename' and (jsonb_typeof(item->'filename') is distinct from 'string' or length(trim(item->>'filename')) > 255))
+      or jsonb_typeof(scene) is distinct from 'object'
+      or jsonb_typeof(scene->'preset') is distinct from 'string'
+      or scene->>'preset' not in ('studio', 'daylight', 'night')
+      or jsonb_typeof(scene->'backgroundColor') is distinct from 'string'
+      or (scene->>'backgroundColor') !~ '^#[0-9a-fA-F]{6}$'
+      or jsonb_typeof(scene->'lightColor') is distinct from 'string'
+      or (scene->>'lightColor') !~ '^#[0-9a-fA-F]{6}$'
+      or jsonb_typeof(scene->'exposure') is distinct from 'number'
+      or (scene->>'exposure')::numeric not between .2 and 2.5
+      or jsonb_typeof(scene->'environment') is distinct from 'number'
+      or (scene->>'environment')::numeric not between 0 and 3
+      or jsonb_typeof(scene->'keyLight') is distinct from 'number'
+      or (scene->>'keyLight')::numeric not between 0 and 8
+      or jsonb_typeof(scene->'lightAngle') is distinct from 'number'
+      or (scene->>'lightAngle')::numeric not between -180 and 180
+      or (scene ? 'lightElevation' and (jsonb_typeof(scene->'lightElevation') is distinct from 'number' or (scene->>'lightElevation')::numeric not between 0 and 90))
+      or jsonb_typeof(scene->'fillLight') is distinct from 'number'
+      or (scene->>'fillLight')::numeric not between 0 and 5
+      or jsonb_typeof(scene->'shadows') is distinct from 'boolean'
+      or jsonb_typeof(scene->'reflection') is distinct from 'boolean'
+      or jsonb_typeof(scene->'floorVisible') is distinct from 'boolean'
+      or jsonb_typeof(scene->'grid') is distinct from 'boolean' then return false; end if;
+  end loop;
+  return true;
+exception when others then return false;
+end;
+$$;
+
+create table if not exists public.spenic_scene_configs (
+  id text primary key check (id = 'site'),
+  config jsonb not null check (public.spenic_valid_scene_config(config)),
+  updated_at timestamptz not null default clock_timestamp()
+);
+
 -- The API address is edited from AI Drawing Configuration. Keep authorized
 -- developers supported while allowing the designated system administrator.
 do $$
@@ -100,7 +153,7 @@ as $$ begin new.updated_at := clock_timestamp(); return new; end; $$;
 do $$
 declare config_table text;
 begin
-  foreach config_table in array array['spenic_fabric_colors', 'spenic_capture_ai_prompts'] loop
+  foreach config_table in array array['spenic_fabric_colors', 'spenic_capture_ai_prompts', 'spenic_scene_configs'] loop
     execute format('alter table public.%I enable row level security', config_table);
     execute format('drop policy if exists %I on public.%I', config_table || '_read', config_table);
     execute format('create policy %I on public.%I for select to anon, authenticated using (true)', config_table || '_read', config_table);
@@ -114,10 +167,11 @@ begin
 end;
 $$;
 
-revoke all on public.spenic_fabric_colors, public.spenic_capture_ai_prompts from anon, authenticated;
-grant select on public.spenic_fabric_colors, public.spenic_capture_ai_prompts to anon, authenticated;
+revoke all on public.spenic_fabric_colors, public.spenic_capture_ai_prompts, public.spenic_scene_configs from anon, authenticated;
+grant select on public.spenic_fabric_colors, public.spenic_capture_ai_prompts, public.spenic_scene_configs to anon, authenticated;
 grant insert (id, colors), update (id, colors) on public.spenic_fabric_colors to authenticated;
 grant insert (id, prompts), update (id, prompts) on public.spenic_capture_ai_prompts to authenticated;
+grant insert (id, config), update (id, config) on public.spenic_scene_configs to authenticated;
 
 -- Make new tables visible to the REST API after this transaction commits.
 notify pgrst, 'reload schema';

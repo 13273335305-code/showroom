@@ -1,17 +1,18 @@
 // Keep reusable environments independent of model, material and camera state.
 export const ENVIRONMENT_DEFAULTS = Object.freeze({
   preset: 'studio', backgroundColor: '#e8edf2', exposure: 1.1, environment: .7,
-  keyLight: 3, lightAngle: 45, lightColor: '#fff4e6', fillLight: 1.5,
+  keyLight: 3, lightAngle: 45, lightElevation: Math.atan2(7.5, 7) * 180 / Math.PI, lightColor: '#fff4e6', fillLight: 1.5,
   shadows: true, reflection: true, floorVisible: true, grid: false
 });
-const ranges = { exposure: [.2, 2.5], environment: [0, 3], keyLight: [0, 8], lightAngle: [-180, 180], fillLight: [0, 5] };
+const ranges = { exposure: [.2, 2.5], environment: [0, 3], keyLight: [0, 8], lightAngle: [-180, 180], lightElevation: [0, 90], fillLight: [0, 5] };
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 export function readEnvironment(value) {
   if (!isRecord(value)) throw new Error('场景设置缺失或无效');
   const scene = {};
   for (const [key, fallback] of Object.entries(ENVIRONMENT_DEFAULTS)) {
-    const item = value[key];
+    // Older scene files used a fixed light at y=8, aimed at y=.5, with radius 7.
+    const item = key === 'lightElevation' && !Object.hasOwn(value, key) ? fallback : value[key];
     let valid = typeof item === typeof fallback;
     if (ranges[key]) valid = valid && Number.isFinite(item) && item >= ranges[key][0] && item <= ranges[key][1];
     if (key === 'preset') valid = ['studio', 'daylight', 'night'].includes(item);

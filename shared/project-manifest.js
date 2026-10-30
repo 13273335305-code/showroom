@@ -1,4 +1,4 @@
-import { MATERIAL_MAPS } from './material-map-definitions.js';
+import { MATERIAL_MAPS, isRemovedMaterialMap, filterMaterialMaps } from './material-map-definitions.js';
 import { compressImageFile, RUNTIME_TEXTURE_MAX_SIZE } from './asset-thumbnail.js';
 
 const channels = new Set(MATERIAL_MAPS.map(([key]) => key));
@@ -23,6 +23,7 @@ export function validateProjectManifest(config) {
       if (!/^[a-f0-9]{64}$/.test(reference.hash) || !/^[a-f0-9-]{36}\/[a-f0-9]{64}$/.test(reference.path) || reference.path.split('/')[1] !== reference.hash || !Number.isSafeInteger(reference.size) || reference.size <= 0 || reference.size > 512 * 1024 * 1024) throw new Error('云端资源引用无效');
     } else if (reference.kind === 'runtime') {
       const source = reference.reference;
+      if (isRemovedMaterialMap(source?.key)) continue;
       if (!source || !channels.has(source.key) || !/^[a-f0-9]{64}$/.test(source.version)) throw new Error('运行材质引用无效');
       webUrl(source.runtimeUrl); webUrl(source.url);
     } else throw new Error('不支持的项目资源引用');
@@ -32,16 +33,16 @@ export function validateProjectManifest(config) {
   if (config.files[config.modelPath].kind !== 'cloud') throw new Error('项目模型引用无效');
   for (const resource of config.resources || []) requireFile(resource.path);
   for (const entry of config.materials || []) {
-    for (const map of Object.values(entry.maps || {})) if (map?.path) requireFile(map.path);
+    for (const map of Object.values(filterMaterialMaps(entry.maps))) if (map?.path) requireFile(map.path);
     if (entry.proceduralSource?.path) requireFile(entry.proceduralSource.path);
   }
   for (const pattern of config.patterns || []) {
     requireFile(pattern.path);
-    for (const map of Object.values(pattern.pbr?.maps || {})) requireFile(map.path);
+    for (const map of Object.values(filterMaterialMaps(pattern.pbr?.maps))) requireFile(map.path);
   }
   for (const source of config.patternSources || []) {
     if (!source.asset?.maps?.map) throw new Error('项目图案素材无效');
-    for (const map of Object.values(source.asset.maps)) requireFile(map.path);
+    for (const map of Object.values(filterMaterialMaps(source.asset.maps))) requireFile(map.path);
     if (source.asset.preview?.path) requireFile(source.asset.preview.path);
   }
   return config;

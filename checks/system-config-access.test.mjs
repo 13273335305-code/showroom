@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
 import { isSystemConfigAdmin } from '../shared/auth-service.js';
+import { ENVIRONMENT_DEFAULTS } from '../shared/scene-file.js';
 
 const auth = await readFile(new URL('../shared/auth.js', import.meta.url), 'utf8');
 const settings = await readFile(new URL('../shared/system-config.js', import.meta.url), 'utf8');
@@ -120,6 +121,14 @@ test('administrator migration initializes missing tables and allows saving witho
     const result = await db.exec(migration);
     assert.deepEqual(result.at(-1).rows, [{ fabric_colors_ready: true, ai_prompts_ready: true, admin_account_ready: true }]);
     assert.match(migration, /notify pgrst, 'reload schema'/);
+    const legacyScene = { ...ENVIRONMENT_DEFAULTS }; delete legacyScene.lightElevation;
+    const config = { format: 'SPENIC-SCENE-SET', version: 1, defaultScene: 'morning', scenes: Object.fromEntries(['morning', 'evening', 'night'].map(id => [id, { name: id, scene: { ...legacyScene } }])) };
+    const validSceneConfig = async value => (await db.query('select public.spenic_valid_scene_config($1::jsonb) as valid', [JSON.stringify(value)])).rows[0].valid;
+    assert.equal(await validSceneConfig(config), true, 'Legacy scene configurations remain valid');
+    for (const lightElevation of [0, 25, 90, -1, 91, null, '30', false]) {
+      config.scenes.morning.scene.lightElevation = lightElevation;
+      assert.equal(await validSceneConfig(config), typeof lightElevation === 'number' && lightElevation >= 0 && lightElevation <= 90, 'Cloud validation checks elevation type and range');
+    }
     const login = async user => {
       await db.exec('reset role');
       await db.query("select set_config('request.jwt.claims',$1,false)", [JSON.stringify({ sub: user?.id })]);

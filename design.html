@@ -30,7 +30,7 @@
 <header class="topbar">
  <a class="brand" href="./index.html" aria-label="Spenic 工作空间首页"><img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic"><span class="brand-divider"></span><strong class="brand-title">设计台</strong></a>
  <button id="developerToggle" class="developer-toggle" type="button" hidden aria-label="开发者模式" title="开发者模式" aria-controls="developerPanel" aria-expanded="false" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="6" r="3.5" fill="currentColor" stroke="none"/><path d="M11 12c-5-1-8 2-8 7h6"/><path d="m14 14-3 3 3 3m6-6 3 3-3 3m-2-7-2 8"/></svg></button>
- <div class="header-actions"><button id="headerUndo" class="header-icon-action" type="button" title="撤销换材" aria-label="撤销换材" disabled><span class="header-icon-art header-icon-undo" aria-hidden="true"></span></button><button id="saveProject" class="header-icon-action" type="button" title="保存到项目库" aria-label="保存到项目库"><span class="header-icon-art header-icon-save" aria-hidden="true"></span></button><button id="snapshot" class="header-icon-action primary" type="button" title="拍摄模式" aria-label="拍摄模式" aria-pressed="false"><span class="header-icon-art header-icon-snapshot" aria-hidden="true"></span></button></div>
+ <div class="header-actions"><button id="headerUndo" class="header-icon-action" type="button" title="撤销" aria-label="撤销" disabled><span class="header-icon-art header-icon-undo" aria-hidden="true"></span></button><button id="headerRedo" class="header-icon-action" type="button" title="回退" aria-label="回退" disabled><span class="header-icon-art header-icon-redo" aria-hidden="true"></span></button><button id="saveProject" class="header-icon-action" type="button" title="保存到项目库" aria-label="保存到项目库"><span class="header-icon-art header-icon-save" aria-hidden="true"></span></button><button id="snapshot" class="header-icon-action primary" type="button" title="拍摄模式" aria-label="拍摄模式" aria-pressed="false"><span class="header-icon-art header-icon-snapshot" aria-hidden="true"></span></button></div>
 </header>
 <aside id="developerPanel" class="developer-panel" hidden aria-labelledby="developerTitle">
  <header class="dev-header"><div><span class="dev-eyebrow">DEVELOPER</span><h2 id="developerTitle">开发者模式</h2></div><button id="developerClose" type="button" aria-label="关闭开发者模式">×</button></header>
@@ -100,6 +100,26 @@
  <div class="inspector-title"><span id="inspectorHeading">属性编辑器</span><button class="collapse-inspector" id="collapseInspector" aria-label="折叠属性编辑器" title="折叠属性编辑器">−</button><button class="close-panel" id="closeInspector" aria-label="关闭编辑面板">×</button></div>
  <div class="tabs" hidden role="tablist" aria-label="编辑面板"><button id="materialTab" role="tab" aria-selected="true" aria-controls="materialPanel" class="active">材质</button><button id="patternTab" role="tab" aria-selected="false" aria-controls="patternPanel">图案</button><button id="sceneTab" role="tab" aria-selected="false" aria-controls="scenePanel">场景与灯光</button></div>
  <div class="panel-scroll">
+ <section id="rulerPanel" class="panel ruler-panel" hidden>
+  <div class="section-heading first"><h2>两点测量</h2><button id="rulerAxesToggle" class="ruler-axes-toggle" type="button" aria-pressed="true" title="隐藏 XYZ 三轴"><span>三轴标尺</span><i aria-hidden="true"></i></button></div>
+  <div id="rulerMeasurements" class="ruler-measure-list" aria-label="测量组"></div>
+  <template id="rulerMeasurementTemplate">
+   <div class="ruler-measure-card">
+    <div class="ruler-measure-card-head">
+     <div class="ruler-point-list" role="group" aria-label="测量点">
+      <svg class="ruler-point-badge ruler-point-a" viewBox="-1 -1 26 26" role="img" aria-label="A 点"><circle cx="12" cy="12" r="12"/><text x="12" y="16.5">A</text></svg>
+      <svg class="ruler-point-badge ruler-point-b" viewBox="-1 -1 26 26" role="img" aria-label="B 点"><circle cx="12" cy="12" r="12"/><text x="12" y="16.5">B</text></svg>
+     </div>
+     <input type="text" class="ruler-measure-note" placeholder="备注" aria-label="测量备注" autocomplete="off">
+     <output class="ruler-card-distance" aria-label="位移距离">—</output>
+     <button type="button" class="ruler-delete" aria-label="删除此组测量点" title="删除此组测量点"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5"/></svg></button>
+    </div>
+    <div class="ruler-components" role="group" aria-label="两点位移分量">
+     <span>ΔX <b data-ruler-delta="x">—</b></span><span>ΔY <b data-ruler-delta="y">—</b></span><span>ΔZ <b data-ruler-delta="z">—</b></span>
+    </div>
+   </div>
+  </template>
+ </section>
  <section id="annotationPanel" class="panel annotation-panel" hidden>
   <ol id="annotationList" class="annotation-list" aria-label="模型标记"></ol>
   <p id="annotationEmpty" class="annotation-help">尚无标记，点击模型表面即可添加。</p>
@@ -132,15 +152,13 @@
     <div id="legacyInputs" hidden>   <div class="uv-row"><label>UV 重复 U <input type="number" id="repeatU" min="0.01" max="100" step="0.1" value="1"></label><label>UV 重复 V <input type="number" id="repeatV" min="0.01" max="100" step="0.1" value="1"></label></div></div>
     <details class="model-calibration"><summary>模型实际尺寸 · 核对单位</summary><p id="modelDimensions"></p><p id="modelUnitSource" class="micro-note"></p><label class="calibration-label">模型最长边（cm）<input id="modelRealSize" type="number" min="0.01" max="1000000" step="0.1"></label><button id="calibrateModel" class="button full">按此尺寸校准模型单位</button><button id="resetModelUnits" class="text-button">恢复模型文件单位</button></details>
    </div>
-   <p class="micro-note">PNG / JPG / WebP · 颜色与自发光使用 sRGB<br>粗糙度读取 G 通道，金属度读取 B 通道，AO 读取 R 通道</p>
+   <p class="micro-note">PNG / JPG / WebP · 基础颜色使用 sRGB<br>粗糙度读取 G 通道，金属度读取 B 通道，AO 读取 R 通道</p>
    <div class="section-heading"><h2>表面参数</h2><span>PHYSICAL SURFACE</span></div>
    <label class="color-row">基础颜色 <input id="baseColor" type="color" value="#ffffff" aria-label="基础颜色"></label>
    <label class="range-row">粗糙度 <output id="roughnessValue">0.65</output><input id="roughness" type="range" min="0" max="1" step="0.01" value="0.65"></label>
    <label class="range-row">金属度 <output id="metalnessValue">0.00</output><input id="metalness" type="range" min="0" max="1" step="0.01" value="0"></label>
    <label class="range-row">法线强度 <output id="normalStrengthValue">1.00</output><input id="normalStrength" type="range" min="0" max="3" step="0.05" value="1.2"></label>
    <label class="range-row">AO 强度 <output id="aoStrengthValue">1.00</output><input id="aoStrength" type="range" min="0" max="3" step="0.05" value="1"></label>
-   <label class="range-row">自发光强度 <output id="emissiveStrengthValue">1.00</output><input id="emissiveStrength" type="range" min="0" max="3" step="0.05" value="1"></label>
-   <label class="range-row">凹凸强度 <output id="bumpStrengthValue">0.02</output><input id="bumpStrength" type="range" min="0" max="0.2" step="0.005" value="0.02"></label>
 
    <label class="check"><input type="checkbox" id="flipNormal"> 翻转法线 Y（DirectX 贴图）</label>
   </section>
@@ -167,19 +185,13 @@
  </div>
   <section id="scenePanel" role="tabpanel" aria-labelledby="sceneTab" hidden>
    <div class="section-heading first"><h2>环境场景</h2><span>ENVIRONMENT</span></div>
-   <div class="scene-file-controls">
-    <label for="sceneName">场景名称</label><input id="sceneName" type="text" value="我的场景" maxlength="80" placeholder="为调好的场景命名">
-    <div class="scene-file-actions"><button id="saveScene" class="button">保存场景</button><button id="openScene" class="button">载入场景</button></div>
-    <p class="micro-note">保存环境、灯光和地台设置，方便在不同模型中复用。</p>
-    <input id="sceneFile" type="file" accept=".formscene,.json" hidden>
-   </div>
-   <div class="preset-grid"><button data-preset="studio" class="preset active"><i class="preset-studio"></i>柔光展厅</button><button data-preset="daylight" class="preset"><i class="preset-day"></i>清晨日光</button><button data-preset="night" class="preset"><i class="preset-night"></i>深色影棚</button></div>
    <label class="color-row">背景颜色 <input id="backgroundColor" type="color" value="#e8edf2" aria-label="背景颜色"></label>
    <label class="range-row">曝光 <output id="exposureValue">1.10</output><input id="exposure" type="range" min="0.2" max="2.5" step="0.05" value="1.1"></label>
    <label class="range-row">环境反射强度 <output id="environmentValue">0.70</output><input id="environment" type="range" min="0" max="3" step="0.05" value="0.7"></label>
    <div class="section-heading"><h2>灯光</h2><span>LIGHTING</span></div>
    <label class="range-row">主光强度 <output id="keyLightValue">3.00</output><input id="keyLight" type="range" min="0" max="8" step="0.1" value="3"></label>
-   <label class="range-row">主光方向 <output id="lightAngleValue">45°</output><input id="lightAngle" type="range" min="-180" max="180" step="1" value="45"></label>
+   <label class="range-row">主光水平 <output id="lightAngleValue">45°</output><input id="lightAngle" type="range" min="-180" max="180" step="1" value="45"></label>
+   <label class="range-row" title="0° 水平侧照，90° 垂直顶照">主光倾斜 <output id="lightElevationValue">47°</output><input id="lightElevation" type="range" min="0" max="90" step="1" value="47"></label>
    <label class="color-row">主光颜色 <input id="lightColor" type="color" value="#fff4e6" aria-label="主光颜色"></label>
    <label class="range-row">补光强度 <output id="fillLightValue">1.50</output><input id="fillLight" type="range" min="0" max="5" step="0.1" value="1.5"></label>
    <div class="switches"><label class="check"><input id="shadows" type="checkbox" checked> 地面阴影</label><label class="check"><input id="reflection" type="checkbox" checked> 地面反射</label><label class="check"><input id="floorVisible" type="checkbox" checked> 展示地台</label><label class="check"><input id="grid" type="checkbox"> 辅助网格</label></div>
@@ -187,7 +199,7 @@
    <label class="range-row">模型旋转 <output id="rotationValue">0°</output><input id="rotation" type="range" min="-180" max="180" step="1" value="0"></label>
    <label class="range-row">预览缩放 <output id="scaleValue">1.20</output><input id="scale" type="range" min="0.25" max="2" step="0.05" value="1"></label>
    <label class="select-row">显示模式 <select id="renderMode"><option value="pbr">PBR 真实材质</option><option value="wire">线框结构</option><option value="flat">平面着色</option></select></label>
-   </div><button id="resetScene" class="button full">重置场景设置</button>
+   </div><div class="scene-bottom-actions"><button id="resetScene" class="button">重置场景</button><button id="saveScene" class="button">导出场景</button></div>
   </section>
  </div>
 </aside>

@@ -1,0 +1,19 @@
+.compact-procedural-swatch{display:block;flex:0 0 30px;width:30px;height:30px;min-height:30px;padding:0;border:0;border-radius:50%;background:#fff;box-shadow:0 0 0 1px #263d551c,0 2px 6px #263d5526;cursor:pointer;transition:transform .15s,box-shadow .15s}
+.compact-procedural-swatch:hover:not(:disabled),.compact-procedural-swatch:focus-visible,.compact-procedural-swatch[aria-expanded=true]{transform:scale(1.08);box-shadow:0 0 0 2px #9fc2fa,0 3px 8px #263d5530}
+.compact-procedural-swatch:disabled{opacity:1;cursor:default}
+.compact-procedural-color-editor{margin-top:12px;padding:10px;border:1px solid #d5e1ed;border-radius:8px;background:#fff;box-shadow:0 4px 14px #263d5514}
+.compact-procedural-color-editor[hidden]{display:none}
+.compact-procedural-picker-grid{display:grid;grid-template-columns:minmax(0,1fr) 18px;align-items:stretch;gap:8px;min-width:0}
+.compact-procedural-picker-grid canvas{display:block;width:100%;height:156px;border-radius:7px;cursor:crosshair;touch-action:none}
+.compact-procedural-picker-grid canvas:nth-child(2){border-radius:5px;cursor:ns-resize}
+.compact-procedural-color-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:12px}
+.compact-procedural-color-actions input{width:112px;min-width:0;box-sizing:border-box;padding:7px 8px;border:1px solid #cbd7e4;border-radius:6px;background:#fff;color:#2b415b;font:12px/16px ui-monospace,SFMono-Regular,Consolas,monospace;text-transform:uppercase}
+.compact-procedural-color-actions input:focus{outline:2px solid #9fc2fa;outline-offset:1px}
+.compact-procedural-color-actions button{min-width:62px;padding:7px 12px;border:1px solid #d7e1ec;border-radius:8px;background:#fff;color:#60758c;font-size:12px;cursor:pointer}
+.compact-procedural-color-actions .compact-procedural-confirm{margin-left:auto;border-color:#2f71ee;background:#2f71ee;color:#fff}
+.compact-procedural-color-actions button:hover{border-color:#84aefb;background:#f5f9ff;color:#2f71ee}
+.compact-procedural-color-actions .compact-procedural-confirm:hover{background:#2465d2;color:#fff}
+.compact-procedural-color-actions button:disabled{opacity:.5;cursor:wait}
+.compact-procedural-color-editor.is-placeholder{border-color:#e2e7ed;box-shadow:none}
+.compact-procedural-color-editor.is-placeholder canvas{background:#e9ecf0;cursor:default}
+.compact-procedural-color-editor.is-placeholder .compact-procedural-color-actions input,.compact-procedural-color-editor.is-placeholder .compact-procedural-color-actions button{border-color:transparent;background:#e9ecf0;color:transparent;opacity:1;cursor:default;box-shadow:none;outline:none}

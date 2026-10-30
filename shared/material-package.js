@@ -1,5 +1,6 @@
 import { zipSync, unzipSync, strToU8, strFromU8 } from '../vendor/three/addons/libs/fflate.module.js';
 import { MATERIAL_MAPS } from './material-data.js';
+import { filterMaterialSurface, filterMaterialMaps } from './material-map-definitions.js';
 import { readPhysical } from '../physical-textures.js';
 import { resolveMaterialMaps } from './material-source.js';
 import { normalizeFabricCategory } from './fabric-category.js';
@@ -27,7 +28,7 @@ export async function packMaterial(asset) {
     archive['procedural/source.bmp'] = new Uint8Array(await asset.proceduralSource.arrayBuffer());
     proceduralSource = { path: 'procedural/source.bmp', name: asset.proceduralSource.name, type: asset.proceduralSource.type || 'image/bmp' };
   }
-  archive['material.json'] = strToU8(JSON.stringify({ format: 'SPENIC-MATERIAL', version: 1, name: asset.name, description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, preview, previewInfo: asset.previewInfo, materialType: asset.materialType || 'fabric', category: normalizeFabricCategory(asset.category), fabricColorCode: asset.fabricColorCode, surface: asset.surface, physical: asset.physical, repeat: asset.repeat, maps, placement: asset.placement, density: asset.density, legacyMaps: asset.legacyMaps, proceduralMapping: asset.proceduralMapping, proceduralSource }));
+  archive['material.json'] = strToU8(JSON.stringify({ format: 'SPENIC-MATERIAL', version: 1, name: asset.name, description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, preview, previewInfo: asset.previewInfo, materialType: asset.materialType || 'fabric', category: normalizeFabricCategory(asset.category), fabricColorCode: asset.fabricColorCode, surface: filterMaterialSurface(asset.surface), physical: asset.physical, repeat: asset.repeat, maps, placement: asset.placement, density: filterMaterialMaps(asset.density), legacyMaps: filterMaterialMaps(asset.legacyMaps), proceduralMapping: asset.proceduralMapping, proceduralSource }));
   return new Blob([zipSync(archive, { level: 0 })], { type: 'application/zip' });
 }
 
@@ -61,5 +62,5 @@ export async function unpackMaterial(file) {
     if (!bytes || bytes.length > 64 * 1024 * 1024) throw new Error('BMP 源图缺失或超过 64 MB');
     proceduralSource = new File([bytes], String(data.proceduralSource.name || 'source.bmp'), { type: data.proceduralSource.type || 'image/bmp' });
   }
-  return { kind: 'material', description: typeof data.description === 'string' ? data.description : '', designInfo: typeof data.designInfo === 'string' ? data.designInfo : '', supplier: typeof data.supplier === 'string' ? data.supplier : '', fabricColorCode: typeof data.fabricColorCode === 'string' ? data.fabricColorCode : undefined, preview, previewInfo: data.previewInfo || null, placement: data.placement, materialType: data.materialType === 'pattern' ? 'pattern' : 'fabric', name: data.name, category: normalizeFabricCategory(data.category), surface: data.surface, physical: readPhysical(data.physical, true), repeat: data.repeat || [1, 1], maps, density: data.density || {}, legacyMaps: data.legacyMaps || {}, proceduralMapping: data.proceduralMapping || null, proceduralSource };
+  return { kind: 'material', description: typeof data.description === 'string' ? data.description : '', designInfo: typeof data.designInfo === 'string' ? data.designInfo : '', supplier: typeof data.supplier === 'string' ? data.supplier : '', fabricColorCode: typeof data.fabricColorCode === 'string' ? data.fabricColorCode : undefined, preview, previewInfo: data.previewInfo || null, placement: data.placement, materialType: data.materialType === 'pattern' ? 'pattern' : 'fabric', name: data.name, category: normalizeFabricCategory(data.category), surface: filterMaterialSurface(data.surface), physical: readPhysical(data.physical, true), repeat: data.repeat || [1, 1], maps, density: filterMaterialMaps(data.density), legacyMaps: filterMaterialMaps(data.legacyMaps), proceduralMapping: data.proceduralMapping || null, proceduralSource };
 }

@@ -11,7 +11,7 @@ const vm = require("node:vm");
 function createAppHarness() {
   const elements = new Map();
   const jobs = [];
-  const values = { dpi: "100", quality: "100", backgroundColor: "#F5F0F0", texture: "30", contrast: "36", angle: "20" };
+  const values = { dpi: "100", quality: "100", backgroundColor: "#F5F0F0", contrast: "36", angle: "20" };
   function element(id) {
     if (!elements.has(id)) {
       const context = {

@@ -19,7 +19,6 @@ import { fabricInfoFromFilename } from '../shared/fabric-info.js';
 import { updateFabricColorSwatch, renderBatchFabricSwatches } from '../shared/fabric-color-swatch.js?v=fabric-default-color-20261015';
 import { planFabricBatch, enqueueFabricBatch } from '../shared/fabric-batch.js';
 import { enqueueMaterialUpload, getUpload, startUploadQueue, subscribeUploads } from '../shared/upload-queue.js';
-import { mountFabricLabel } from '../shared/fabric-label.js';
 import { normalizeFabricCategory, normalizeAssetCategories } from '../shared/fabric-category.js';
 
 const $ = id => document.getElementById(id);
@@ -31,8 +30,7 @@ let previewUv, previewPhysicalUv, previewPositions;
 let physical = { ...defaultPhysical(), sizeSource: 'manual', initialized: true }, repeat = [1, 1];
 let legacyMaps = {}, savedPlacement, libraryMetadata = {};
 let proceduralMapping = null, proceduralSource = null;
-const identityLabel = mountFabricLabel($('materialIdentity'));
-let committedIdentity = null;
+let proceduralReliefRevision = 0;
 const files = {}, urls = {}, tokens = {}, density = {}, embeddedDensity = {};
 const patternPreview = createPatternPreview($('patternPreview'));
 let roughnessPreviewCache = null, savedPreview = null, savedPreviewInfo = null, previewGenerationCanvas = null;
@@ -43,10 +41,10 @@ const previewSizePairs = [
   { width: 'previewPhysicalWidth', height: 'previewPhysicalHeight', button: 'previewPhysicalLock', name: '物理尺寸', digits: 2, ratio: 1 },
   { width: 'previewPixelWidth', height: 'previewPixelHeight', button: 'previewPixelLock', name: '输出像素', digits: 0, ratio: 4 / 3 },
 ];
-const material = new THREE.MeshPhysicalMaterial({ color: '#d6dbe0', roughness: .98, metalness: 0, bumpScale: .02, sheen: 1, sheenRoughness: .4, sheenColor: 0xffffff });
+const material = new THREE.MeshPhysicalMaterial({ color: '#d6dbe0', roughness: .98, metalness: 0, bumpScale: 0, emissiveIntensity: 0, sheen: .1, sheenRoughness: .4, sheenColor: 0xffffff });
 installRoughnessShader(material);
 const status = message => { $('status').textContent = message; };
-const sliders = [['roughness', '粗糙度', 1, .01], ['metalness', '金属度', 1, .01], ['normalStrength', '法线强度', 3, .05], ['aoStrength', 'AO 强度', 3, .05], ['emissiveStrength', '自发光强度', 3, .05], ['bumpStrength', '凹凸强度', .2, .005]];
+const sliders = [['roughness', '粗糙度', 1, .01], ['metalness', '金属度', 1, .01], ['normalStrength', '法线强度', 3, .05], ['aoStrength', 'AO 强度', 3, .05]];
 const sheenParameters = [['sheen', '侧面光强度', 2], ['sheenRoughness', '绒毛柔和度', 1]];
 
 function initEditorScrollbar() {
@@ -133,14 +131,14 @@ function applyBaseColorDpi() {
 
 function syncSurfaceControls() {
   const surface = readSurface(material);
-  for (const key of ['color', 'emissive', ...sliders.map(item => item[0])]) $(key).value = surface[key];
-  for (const [key] of [...sliders, ...sheenParameters]) $(key + 'Value').value = Number(surface[key]).toFixed(key === 'bumpStrength' ? 3 : 2);
-  $('colorValue').value = surface.color; $('emissiveValue').value = surface.emissive;
+  for (const key of ['color', ...sliders.map(item => item[0])]) $(key).value = surface[key];
+  for (const [key] of [...sliders, ...sheenParameters]) $(key + 'Value').value = Number(surface[key]).toFixed(2);
+  $('colorValue').value = surface.color;
   $('flip').checked = surface.flip;
   $('roughnessInvert').checked = surface.roughnessInvert; refreshRoughnessPreview();
 }
 function updateSurface() {
-  const surface = { color: $('color').value, emissive: $('emissive').value, flip: $('flip').checked, roughnessInvert: $('roughnessInvert').checked };
+  const surface = { color: $('color').value, flip: $('flip').checked, roughnessInvert: $('roughnessInvert').checked };
   for (const [key] of sliders) surface[key] = Number($(key).value);
   for (const [key, , max] of sheenParameters) {
     const value = $(key + 'Value').valueAsNumber;
@@ -163,9 +161,7 @@ function syncPhysicalControls() {
 }
 function syncMaterialType() {
   const pattern = $('materialType').value === 'pattern';
-  if (pattern) identityLabel.update(null);
-  else if (lastUploadTask) void syncMaterialUpload().catch(() => {});
-  else identityLabel.update(committedIdentity);
+  if (!pattern && lastUploadTask) void syncMaterialUpload().catch(() => {});
   document.querySelectorAll('[data-material-type]').forEach(button => { const active = button.dataset.materialType === $('materialType').value; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
   $('fabricCategoryRow').hidden = pattern;
   $('fabricColorCodeRow').hidden = pattern;
@@ -349,7 +345,6 @@ async function saveMaterialWithPreview() {
     if (generation === editGeneration) dirty = false;
     history.replaceState(null, '', '?asset=' + encodeURIComponent(assetId) + '&upload=' + encodeURIComponent(task.id));
     $('previewGenerationDialog').close(); status('已加入后台上传任务');
-    if (asset.materialType !== 'pattern') identityLabel.update(null, { state: 'pending', message: '面料正在上传，保存成功后可下载和打印二维码标签' });
     void syncMaterialUpload();
   } catch (error) { status('保存失败：' + error.message); }
   finally { submittingPreview = false; saveButton.disabled = false; $('saveMaterial').disabled = pending > 0; }
@@ -406,26 +401,24 @@ async function syncMaterialUpload() {
   if (!task || id !== lastUploadTask) return;
   if (task.status === 'completed') {
     assetId = task.result.id;
+    const previousRevision = libraryMetadata.revision;
     libraryMetadata.revision = task.result.revision;
-    if (committedIdentity?.revision !== task.result.revision) {
+    if (previousRevision !== task.result.revision) {
       let saved;
       try { saved = await getAsset(task.result.id, { previewOnly: true }); }
       catch {
         if (id !== lastUploadTask) return;
-        status('面料已保存，二维码暂未载入，请重新打开面料或到资产库查看');
-        if ($('materialType').value !== 'pattern') identityLabel.update(null, { state: 'failed', message: '面料已保存，二维码暂未载入，请重新打开面料或到资产库查看' });
+        status('面料已保存，但资产信息暂未载入，请重新打开面料或到资产库查看');
         return;
       }
       if (id !== lastUploadTask) return;
-      committedIdentity = saved; libraryMetadata.fabricIdentityVersion = saved?.fabricIdentityVersion;
+      libraryMetadata.fabricIdentityVersion = saved?.fabricIdentityVersion;
     }
-    if ($('materialType').value !== 'pattern') identityLabel.update(committedIdentity);
     history.replaceState(null, '', '?asset=' + encodeURIComponent(task.result.id));
     if (!dirty && !pending) status('已生成预览图并保存到资产库');
   } else if (task.status === 'failed') {
     status('后台上传失败，可在资产库上传任务中重试。');
-    if ($('materialType').value !== 'pattern') identityLabel.update(null, { state: 'failed', message: '上传失败，二维码标签暂不可用，请在资产库上传任务中重试' });
-  } else if ($('materialType').value !== 'pattern') identityLabel.update(null, { state: 'pending', message: '面料正在上传，保存成功后可下载和打印二维码标签' });
+  } else if ($('materialType').value !== 'pattern') status('面料正在上传…');
 }
 async function uploadMap(key, file, restoring = false) {
   if (!/\.(png|jpe?g|webp|bmp)$/i.test(file.name) && !['image/png', 'image/jpeg', 'image/webp', 'image/bmp', 'image/x-ms-bmp'].includes(file.type)) throw new Error('请选择 PNG、JPG、WebP 或 BMP 图片');
@@ -443,6 +436,7 @@ async function uploadMap(key, file, restoring = false) {
     if (Math.max(texture.image.width, texture.image.height) > renderer.capabilities.maxTextureSize) throw new Error('图片超过显卡支持尺寸');
     material[key]?.dispose();
     if (urls[key]) URL.revokeObjectURL(urls[key]);
+    if (key === 'aoMap') texture.userData.formUpload = true;
     material[key] = texture; files[key] = originalFile; urls[key] = url;
     const sourceWidth = originalFile.imageWidth || texture.image.width;
     const sourceHeight = originalFile.imageHeight || texture.image.height;
@@ -460,13 +454,12 @@ async function uploadMap(key, file, restoring = false) {
       }
       if (key === 'roughnessMap') { material.roughness = 1; applySurface(material, { roughnessGrayscale: true, roughnessInvert: false }); }
       if (key === 'metalnessMap') material.metalness = 1;
-      if (key === 'emissiveMap') material.emissive.set('#ffffff');
       dirty = true;
     }
     configureMaps(); syncSurfaceControls();
     $('preview-' + key).src = url; $('file-' + key).textContent = file.name;
-    if (key === 'roughnessMap') refreshRoughnessPreview();
     $('upload-' + key).classList.add('has-image'); $('remove-' + key).disabled = false;
+    if (key === 'roughnessMap') refreshRoughnessPreview();
   } catch (error) { texture?.dispose(); if (url) URL.revokeObjectURL(url); throw error; }
   finally { pending--; $('saveMaterial').disabled = pending > 0; $('exportMaterial').disabled = pending > 0; }
 }
@@ -485,7 +478,6 @@ async function restoreAsset() {
   if (task) lastUploadTask = task.id;
   if (!asset) throw new Error('资产不存在，可能已被删除');
   libraryMetadata = { description: asset.description, designInfo: asset.designInfo, supplier: asset.supplier, fabricIdentityVersion: asset.fabricIdentityVersion, fabricGroupId: asset.fabricGroupId, fabricDefaultColorCode: asset.fabricDefaultColorCode, parentId: asset.parentId, revision: asset.revision, ownerId: asset.ownerId };
-  committedIdentity = task && task.status !== 'completed' ? null : asset;
   savedPreview = asset.preview || null; savedPreviewInfo = asset.previewInfo || null;
   savedPreviewCategory = asset.category;
   proceduralMapping = asset.proceduralMapping ? structuredClone(asset.proceduralMapping) : null;
@@ -506,7 +498,7 @@ async function restoreAsset() {
   if (task?.status === 'completed') history.replaceState(null, '', '?asset=' + encodeURIComponent(task.result.id));
 }
 function buildPbrRows() {
-  const channelControls = { normalMap: 'normalStrength', roughnessMap: 'roughness', metalnessMap: 'metalness', aoMap: 'aoStrength', bumpMap: 'bumpStrength', emissiveMap: 'emissiveStrength' };
+  const channelControls = { normalMap: 'normalStrength', roughnessMap: 'roughness', metalnessMap: 'metalness', aoMap: 'aoStrength' };
   function addSlider(host, id) {
     const [, title, max, step] = sliders.find(item => item[0] === id);
     const group = document.createElement('div'); group.className = 'pbr-parameter';
@@ -574,7 +566,6 @@ function buildPbrRows() {
       const invert = document.createElement('input'); Object.assign(invert, { type: 'checkbox', id: 'roughnessInvert', disabled: true });
       invert.onchange = updateSurface; label.append(invert, document.createTextNode('黑白反转')); right.append(label);
     }
-    if (key === 'emissiveMap') addColor(right, 'emissive', '自发光颜色', '#000000');
     row.append(left, right); $('materialMaps').append(row);
     async function uploadFiles(list) {
       if (!list.length) return;
@@ -682,7 +673,7 @@ async function init() {
   $('batchFabricFolder').onchange = event => { void batchFabricFolder(Array.from(event.target.files || [])); };
   $('openSizingPage').onclick = () => setSizingPageOpen(true);
   $('closeSizingPage').onclick = () => setSizingPageOpen(false);
-  for (const id of ['color', 'emissive', 'flip']) $(id).oninput = updateSurface;
+  for (const id of ['color', 'flip']) $(id).oninput = updateSurface;
   $('materialType').onchange = () => {
     if ($('materialType').value === 'pattern') physical.mode = 'physical';
     syncMaterialType(); syncPhysicalControls(); configureMaps(); dirty = true;
@@ -736,42 +727,58 @@ async function init() {
     $('exportMaterial').setAttribute('aria-pressed', 'false');
   };
   const showProceduralEditor = () => {
+    status('');
     editorLayout.hidden = true;
     proceduralWorkspace.hidden = false;
     $('materialEditorMode').classList.remove('active');
     $('materialEditorMode').setAttribute('aria-pressed', 'false');
     $('exportMaterial').classList.add('active');
     $('exportMaterial').setAttribute('aria-pressed', 'true');
-    if (!proceduralFrame.src || proceduralFrame.src.endsWith('about:blank')) proceduralFrame.src = './web-demo/index.html?embed=1';
+    if (!proceduralFrame.src || proceduralFrame.src.endsWith('about:blank')) {
+      proceduralFrame.addEventListener('load', () => {
+        if (proceduralSource && proceduralMapping) proceduralFrame.contentWindow.postMessage({ type: 'procedural-load', sourceFile: proceduralSource, mapping: structuredClone(proceduralMapping) }, '*');
+      }, { once: true });
+      proceduralFrame.src = './web-demo/index.html?embed=1';
+    }
   };
   $('materialEditorMode').onclick = showMaterialEditor;
   $('exportMaterial').onclick = showProceduralEditor;
   window.addEventListener('message', async event => {
     const messageType = event.data?.type;
-    if (event.source !== proceduralFrame.contentWindow || !['procedural-material', 'procedural-normal-material', 'procedural-state'].includes(messageType)) return;
+    if (event.source !== proceduralFrame.contentWindow || !['procedural-material', 'procedural-normal-material', 'procedural-relief-material', 'procedural-state'].includes(messageType)) return;
     if (messageType === 'procedural-state') {
       if (event.data.mapping && (event.data.sourceFile || proceduralSource)) {
+        if (event.data.resetGeneratedMaps || event.data.resetReliefMaps) {
+          proceduralReliefRevision++;
+          removeMap('normalMap'); removeMap('aoMap');
+          if (event.data.resetGeneratedMaps) removeMap('map');
+        }
         proceduralMapping = structuredClone(event.data.mapping);
         if (event.data.sourceFile) proceduralSource = event.data.sourceFile;
         dirty = true;
-        status('已记录 BMP 色号映射，保存材质后可在设计台属性栏调整');
       }
       return;
     }
-    const file = event.data.file;
-    const mapKey = messageType === 'procedural-normal-material' ? 'normalMap' : 'map';
-    if (!file || typeof file.arrayBuffer !== 'function' || !file.size) { status(messageType === 'procedural-normal-material' ? '程序化材质没有生成有效法线 JPG' : '程序化材质没有生成有效 JPG'); return; }
+    const relief = messageType === 'procedural-relief-material';
+    const uploads = relief ? [['normalMap', event.data.maps?.normalMap, 'procedural-normal-opengl.jpg'], ['aoMap', event.data.maps?.aoMap, 'procedural-ao.jpg']]
+      : [[messageType === 'procedural-normal-material' ? 'normalMap' : 'map', event.data.file, event.data.name || (messageType === 'procedural-normal-material' ? 'procedural-normal-opengl.jpg' : 'procedural-material.jpg')]];
+    if (uploads.some(([, file]) => !file || typeof file.arrayBuffer !== 'function' || !file.size)) { status('程序化材质没有生成有效的 JPG 贴图'); return; }
+    const revision = relief || messageType === 'procedural-normal-material' ? ++proceduralReliefRevision : proceduralReliefRevision;
     const previousName = $('name').value;
     try {
-      status(messageType === 'procedural-normal-material' ? '正在载入程序化法线 JPG…' : '正在载入程序化材质 JPG…');
-      await uploadMap(mapKey, new File([file], event.data.name || (mapKey === 'normalMap' ? 'procedural-normal-opengl.jpg' : 'procedural-material.jpg'), { type: file.type || 'image/jpeg' }));
+      status(relief ? '正在载入程序化法线与 AO JPG…' : '正在载入程序化材质 JPG…');
+      for (const [mapKey, file, name] of uploads) {
+        if (messageType !== 'procedural-material' && revision !== proceduralReliefRevision) return;
+        await uploadMap(mapKey, new File([file], name, { type: file.type || 'image/jpeg' }));
+        if (messageType !== 'procedural-material' && revision !== proceduralReliefRevision) return;
+      }
       if (previousName) $('name').value = previousName;
       const widthCm = Number(event.data.physical?.widthCm), heightCm = Number(event.data.physical?.heightCm);
       if (Number.isFinite(widthCm) && widthCm > 0 && Number.isFinite(heightCm) && heightCm > 0) {
         physical = readPhysical({ ...physical, widthCm, heightCm, mode: 'physical', sizeSource: 'manual' });
         syncPhysicalControls(); configureMaps();
       }
-      dirty = true; status(messageType === 'procedural-normal-material' ? '程序化法线已自动应用，可继续生成其他贴图或切换到材质编辑器保存' : '程序化材质已自动应用，可继续生成法线或切换到材质编辑器保存');
+      dirty = true; status('');
     } catch (error) { status('应用程序化材质失败：' + error.message); }
   });
   $('newMaterial').onclick = () => { if (!dirty || confirm('当前材质尚未保存，确定新建？')) { dirty = false; location.href = './material-editor.html'; } };
