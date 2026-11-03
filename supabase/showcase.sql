@@ -36,6 +36,9 @@ create table if not exists public.spenic_project_comments (
 create index if not exists spenic_project_comments_project on public.spenic_project_comments(project_id, created_at, id);
 create index if not exists spenic_showcase_items_project on public.spenic_showcase_items(project_id);
 create index if not exists spenic_project_comments_rate on public.spenic_project_comments(showcase_id, created_at);
+-- Nullable for existing comments: names alone cannot establish guest ownership.
+alter table public.spenic_project_comments add column if not exists author_token_hash text
+  check (author_token_hash ~ '^[a-f0-9]{64}$');
 
 alter table public.spenic_album_photos add column if not exists project_id uuid references public.spenic_projects(id) on delete set null;
 create index if not exists spenic_album_project_created on public.spenic_album_photos(project_id, created_at desc, id desc);
@@ -129,7 +132,8 @@ begin
   if found then
     if saved.author_name is distinct from trim(comment_data->>'authorName') or saved.body is distinct from trim(comment_data->>'body')
       or saved.model_hash is distinct from comment_data->>'modelHash' or saved.host is distinct from (comment_data->>'host')::integer
-      or saved.point is distinct from comment_data->'point' or saved.showcase_id is distinct from s.showcase_id then raise exception 'Request already used'; end if;
+      or saved.point is distinct from comment_data->'point' or saved.showcase_id is distinct from s.showcase_id
+      or saved.author_token_hash is distinct from comment_data->>'authorHash' then raise exception 'Request already used'; end if;
     return saved;
   end if;
   if p.manifest->'files'->(p.manifest->>'modelPath')->>'hash' is distinct from comment_data->>'modelHash' then raise exception 'Model changed; reopen project'; end if;
@@ -140,9 +144,9 @@ begin
   if share_hash is not null and (select count(*) from spenic_project_comments where showcase_id = s.showcase_id and created_at > clock_timestamp() - interval '1 minute') >= 60 then
     raise exception 'Too many comments; try again later';
   end if;
-  insert into spenic_project_comments(project_id, showcase_id, request_id, author_name, body, model_hash, host, point)
+  insert into spenic_project_comments(project_id, showcase_id, request_id, author_name, body, model_hash, host, point, author_token_hash)
     values(p.id, s.showcase_id, (comment_data->>'requestId')::uuid, trim(comment_data->>'authorName'), trim(comment_data->>'body'),
-      comment_data->>'modelHash', (comment_data->>'host')::integer, comment_data->'point')
+      comment_data->>'modelHash', (comment_data->>'host')::integer, comment_data->'point', comment_data->>'authorHash')
     on conflict(project_id, request_id) do nothing returning * into saved;
   if saved.id is null then raise exception 'Request already used; retry'; end if;
   return saved;
@@ -150,24 +154,29 @@ end $$;
 revoke all on function public.spenic_submit_project_comment(jsonb, text) from public, anon;
 grant execute on function public.spenic_submit_project_comment(jsonb, text) to authenticated, service_role;
 
-create or replace function public.spenic_reposition_project_comment(comment_id uuid, model_hash_value text, host_value integer, point_value jsonb)
-returns public.spenic_project_comments language plpgsql security definer set search_path = public as $$
-declare saved public.spenic_project_comments; coordinate jsonb;
+create or replace function public.spenic_delete_guest_comment(project_id_value uuid, comment_id_value uuid, share_hash text, author_hash text)
+returns void language plpgsql security definer set search_path = public as $$
+declare s public.spenic_showcase_shares;
 begin
-  if jsonb_typeof(point_value) is distinct from 'array' or jsonb_array_length(point_value) <> 3 then raise exception 'Invalid point'; end if;
-  for coordinate in select value from jsonb_array_elements(point_value) loop
-    if jsonb_typeof(coordinate) <> 'number' or abs(coordinate::text::numeric) > 1e12 then raise exception 'Invalid point'; end if;
-  end loop;
-  update spenic_project_comments c set model_hash = model_hash_value, host = host_value, point = point_value
-    from spenic_projects p where c.id = comment_id and p.id = c.project_id and p.owner_id = auth.uid()
-      and p.manifest->'files'->(p.manifest->>'modelPath')->>'hash' = model_hash_value returning c.* into saved;
-  if not found then raise exception 'Project unavailable or model changed' using errcode = '42501'; end if;
-  return saved;
+  if author_hash is null or author_hash !~ '^[a-f0-9]{64}$' then
+    raise exception 'Comment author required' using errcode = '42501';
+  end if;
+  select * into s from spenic_showcase_shares where token_hash = share_hash and enabled for update;
+  if not found or not exists (
+    select 1 from spenic_showcase_items i join spenic_showcases c on c.id = i.showcase_id
+      join spenic_projects p on p.id = i.project_id and p.owner_id = c.owner_id and p.kind = 'project'
+    where i.showcase_id = s.showcase_id and i.project_id = project_id_value
+  ) then raise exception 'Share unavailable' using errcode = '42501'; end if;
+  delete from spenic_project_comments where id = comment_id_value and project_id = project_id_value and author_token_hash = author_hash;
+  if not found then raise exception 'Comment unavailable or not owned' using errcode = '42501'; end if;
 end $$;
-revoke all on function public.spenic_reposition_project_comment(uuid, text, integer, jsonb) from public, anon;
-grant execute on function public.spenic_reposition_project_comment(uuid, text, integer, jsonb) to authenticated;
+revoke all on function public.spenic_delete_guest_comment(uuid, uuid, text, text) from public, anon, authenticated;
+grant execute on function public.spenic_delete_guest_comment(uuid, uuid, text, text) to service_role;
+
+drop function if exists public.spenic_reposition_project_comment(uuid, text, integer, jsonb);
 
 -- The server is the only anonymous-access gateway; no table or bucket is public.
 grant select on public.spenic_showcases, public.spenic_showcase_items, public.spenic_showcase_shares,
   public.spenic_project_comments, public.spenic_projects, public.spenic_album_photos to service_role;
+notify pgrst, 'reload schema';
 commit;

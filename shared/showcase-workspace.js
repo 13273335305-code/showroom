@@ -16,7 +16,7 @@ export async function createShowcaseWorkspace({ token }) {
   let pendingImport = requestedAddId;
   let collection = guest ? await publicStore.read() : null, collections = [], summaries = new Map();
   let runtime, activeId = null, baseManifest = null, loaded = null, switching = false, pendingId = null, saveJob = null;
-  let photoVersion = 0, photos = [], filter = 'all', previewIndex = -1, previewVersion = 0, previewUrl = null, previewFile = null;
+  let photoVersion = 0, photos = [], previewIndex = -1, previewVersion = 0, previewUrl = null, previewFile = null;
 
   // Keep the design DOM as an inert compatibility shell, but mount no material editor or drop handlers.
   for (const id of ['assetPicker', 'compactMaterialPanel', 'legacyMaterialControls']) { $(id).hidden = true; $(id).inert = true; }
@@ -42,9 +42,12 @@ export async function createShowcaseWorkspace({ token }) {
   errorBox.innerHTML = '<strong>项目读取失败</strong><p></p><button type="button">重试</button>';
   $('viewport').append(errorBox);
   const album = document.createElement('section'); album.id = 'showcaseAlbumPanel'; album.className = 'panel showcase-album';
-  album.innerHTML = `<div class="showcase-album-heading"><select id="showcasePhotoFilter" aria-label="图片来源"><option value="all">全部图片</option><option value="capture">普通出图</option><option value="ai">AI 图</option></select><button id="showcasePhotoRefresh" type="button">刷新</button></div>
-    <p id="showcasePhotoStatus" role="status">打开项目后查看画册</p><div id="showcasePhotos" class="showcase-photos"></div>`;
+  album.innerHTML = '<p id="showcasePhotoStatus" role="status">打开项目后查看画册</p><div id="showcasePhotos" class="showcase-photos"></div>';
   document.querySelector('#inspector .panel-scroll').prepend(album);
+  const photoRefresh = button('', () => refreshPhotos(activeId), 'showcase-album-refresh');
+  photoRefresh.id = 'showcasePhotoRefresh'; photoRefresh.title = '刷新画册'; photoRefresh.setAttribute('aria-label', '刷新画册'); photoRefresh.hidden = true;
+  photoRefresh.innerHTML = '<img src="assets/album-refresh.svg" width="16" height="16" alt="" aria-hidden="true">';
+  $('collapseInspector').before(photoRefresh);
   mountDialogs();
 
   function status(message) { runtime?.notify(message, 6000); }
@@ -52,7 +55,7 @@ export async function createShowcaseWorkspace({ token }) {
   function setBusy(value) {
     switching = value;
     const busy = value || Boolean(saveJob);
-    for (const id of ['showcaseCollection', 'showcaseManage', 'showcaseAdd', 'saveProject', 'snapshot', 'annotationMode', 'showcaseRefresh', 'showcaseLight']) { const node = $(id); if (node) node.disabled = busy || (!activeId && ['saveProject', 'snapshot', 'annotationMode'].includes(id)); }
+    for (const id of ['showcaseCollection', 'showcaseManage', 'showcaseAdd', 'saveProject', 'snapshot', 'annotationMode', 'showcaseRefresh', 'showcaseLight', 'showcasePhotoRefresh']) { const node = $(id); if (node) node.disabled = busy || (!activeId && ['saveProject', 'snapshot', 'annotationMode', 'showcasePhotoRefresh'].includes(id)); }
     actions.querySelector('.showcase-share-button').disabled = busy;
     $('showcaseProjects').setAttribute('aria-busy', String(busy));
     if (value) runtime?.collapse(true);
@@ -90,11 +93,11 @@ export async function createShowcaseWorkspace({ token }) {
   const { startWorkspace } = await import('../app.js');
   runtime = await startWorkspace({ mode: guest ? 'showcase-guest' : 'showcase-owner', services: {
     save: () => run(save), downloadResource: guest ? ref => publicStore.resource(runtime.current().id, ref) : undefined,
-    feedback: guest ? { comments: id => publicStore.comments(id), addComment: data => publicStore.addComment(data) } : store,
+    feedback: guest ? { comments: id => publicStore.comments(id), addComment: data => publicStore.addComment(data), removeComment: (id, projectId) => publicStore.removeComment(projectId, id) } : store,
     sceneConfig: collection?.sceneConfig, defaultCamera: collection?.defaultCamera,
   } });
   $('inspectorToggle').onclick = () => { runtime.panel('scene'); runtime.collapse(false); };
-  $('restoreInspector').setAttribute('aria-label', '展开项目画册');
+  $('restoreInspector').setAttribute('aria-label', '展开画册');
   $('restoreInspector').onclick = () => { runtime.panel('album'); runtime.collapse(false); };
   $('closeInspector').onclick = () => { if(!album.hidden)runtime.collapse(true);else{runtime.panel('album');runtime.collapse(false);} };
   $('showcaseAlbum').onclick = () => { runtime.panel('album'); runtime.collapse(false); };
@@ -107,8 +110,6 @@ export async function createShowcaseWorkspace({ token }) {
     loaded = baseManifest = null; await selectProject(activeId); status('已恢复设计稿设置，保存后应用到分享链接');
   });
   $('showcaseRefresh').onclick = () => run(() => selectProject(activeId));
-  $('showcasePhotoRefresh').onclick = () => refreshPhotos(activeId);
-  $('showcasePhotoFilter').onchange = event => { filter = event.target.value; renderPhotos(); };
   $('showcaseAdd').onclick = () => run(openProjectPicker);
   $('showcaseProjectError').querySelector('button').onclick = () => run(() => selectProject(errorBox.dataset.project));
   window.addEventListener('spenic-project-photo', event => { if (event.detail.projectId === activeId) void refreshPhotos(activeId); });
@@ -151,7 +152,7 @@ export async function createShowcaseWorkspace({ token }) {
     try {
       while (pendingId) {
         const requested = pendingId; pendingId = null;
-        errorBox.hidden = true; $('showcasePhotoStatus').textContent = '正在打开项目…';
+        errorBox.hidden = true; setPhotoStatus('正在打开项目…');
         try {
           const saved = guest ? await publicStore.project(requested) : await getProject(requested);
           if (!saved?.manifest) throw new Error('项目不存在或已删除');
@@ -175,35 +176,35 @@ export async function createShowcaseWorkspace({ token }) {
   }
   async function refreshPhotos(id) {
     const request = ++photoVersion; $('showcasePhotos').replaceChildren();
-    if (!id) { $('showcasePhotoStatus').textContent = '打开项目后查看画册'; return; }
-    $('showcasePhotoStatus').textContent = '正在读取项目图片…';
+    if (!id) { setPhotoStatus('打开项目后查看画册'); return; }
+    photoRefresh.disabled = true; setPhotoStatus('正在读取图片…');
     try {
       const result = guest ? await publicStore.photos(id) : await listPhotos({ projectId: id });
       if (request !== photoVersion || id !== activeId) return;
       photos = result; renderPhotos();
-    } catch (error) { if (request === photoVersion) { photos = []; $('showcasePhotoStatus').textContent = error.message; } }
+    } catch (error) { if (request === photoVersion) { photos = []; setPhotoStatus(error.message); } }
+    finally { if (request === photoVersion) photoRefresh.disabled = switching || Boolean(saveJob) || !activeId; }
   }
-  const filteredPhotos = () => photos.filter(photo => filter === 'all' || photo.source === filter || filter === 'capture' && !photo.source);
+  function setPhotoStatus(message = '') { $('showcasePhotoStatus').textContent = message; $('showcasePhotoStatus').hidden = !message; }
   function renderPhotos() {
-    const host = $('showcasePhotos'); host.replaceChildren(); const items = filteredPhotos();
-    $('showcasePhotoStatus').textContent = items.length ? `${items.length} 张图片` : '暂无项目图片，新拍摄和 AI 成品会自动显示在这里。';
-    items.forEach((photo, index) => {
+    const host = $('showcasePhotos'); host.replaceChildren();
+    setPhotoStatus(photos.length ? '' : '暂无图片，新拍摄和 AI 成品会自动显示在这里。');
+    photos.forEach((photo, index) => {
       const card = button('', () => openPreview(index), 'showcase-photo'); const image = new Image();
       image.src = photo.thumbnailUrl || ''; image.alt = photo.name; image.loading = 'lazy'; image.decoding = 'async';
       image.onerror = () => { image.removeAttribute('src'); image.alt = '预览暂不可用，点击查看原图'; };
-      const label = document.createElement('span'); label.textContent = photo.source === 'ai' ? 'AI 图' : '普通出图';
       const name = document.createElement('strong'); name.textContent = photo.name.replace(/\.png$/i, ''); name.title = photo.name;
-      card.append(image, label, name); host.append(card);
+      card.append(image, name); host.append(card);
     });
   }
   function closePreview() { previewVersion++; $('showcasePreview').close(); if (previewUrl) URL.revokeObjectURL(previewUrl); previewUrl = previewFile = null; $('showcasePreviewImage').removeAttribute('src'); }
   async function openPreview(index) {
-    const items = filteredPhotos(), photo = items[index], projectId = activeId; if (!photo || !projectId) return;
+    const photo = photos[index], projectId = activeId; if (!photo || !projectId) return;
     const request = ++previewVersion; previewIndex = index; previewFile = null;
     if (previewUrl) URL.revokeObjectURL(previewUrl); previewUrl = null;
     $('showcasePreviewImage').removeAttribute('src'); $('showcasePreviewName').textContent = photo.name;
     $('showcasePreviewStatus').textContent = '正在读取原图…'; $('showcaseDownload').disabled = true;
-    $('showcasePrev').disabled = index === 0; $('showcaseNext').disabled = index === items.length - 1;
+    $('showcasePrev').disabled = index === 0; $('showcaseNext').disabled = index === photos.length - 1;
     if (!$('showcasePreview').open) $('showcasePreview').showModal();
     try {
       const file = guest ? await publicStore.photo(projectId, photo.id) : await downloadPhoto(photo.id);

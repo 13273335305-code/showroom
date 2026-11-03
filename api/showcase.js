@@ -34,6 +34,7 @@ export function createShowcaseHandler({ fetchImpl = fetch, serviceKey = () => pr
           if (['42P01', '42703', 'PGRST202', 'PGRST205'].includes(data?.code)) throw fail(503, '展示服务尚未初始化，请联系展示者');
           if (data?.message?.includes('Too many comments')) throw fail(429, '留言过于频繁，请稍后重试');
           if (data?.message?.includes('Model changed')) throw fail(409, '模型已经更新，请重新打开项目后留言');
+          if (data?.message?.includes('Comment unavailable') || data?.message?.includes('Comment author')) throw fail(403, '留言已删除或不属于当前浏览器');
           if (['42501'].includes(data?.code)) throw fail(403, '分享链接无效或项目已移出');
           throw fail(502, '展示服务暂时不可用，请重试');
         }
@@ -45,6 +46,7 @@ export function createShowcaseHandler({ fetchImpl = fetch, serviceKey = () => pr
         for (let offset = 0; ; offset += 200) { const page = await rows(table, { ...params, limit: '200', offset: String(offset) }); result.push(...page); if (page.length < 200) return result; }
       }
       const hash = createHash('sha256').update(input.token).digest('hex');
+      const authorHash = /^[a-f\d]{64}$/.test(input.visitorToken || '') ? createHash('sha256').update(input.visitorToken).digest('hex') : null;
       const [share] = await rows('spenic_showcase_shares', { token_hash: 'eq.' + hash, enabled: 'eq.true', limit: '1' });
       if (!share) throw fail(404, '分享链接无效或已停用');
       const [collection] = await rows('spenic_showcases', { id: 'eq.' + share.showcase_id, limit: '1' });
@@ -93,12 +95,19 @@ export function createShowcaseHandler({ fetchImpl = fetch, serviceKey = () => pr
         if (!photo) throw fail(404, '图片不存在或不属于此项目');
         return send(200, { url: await sign(ALBUM_BUCKET, photo.image_path), name: photo.name.replace(/^AI::/, ''), size: Number(photo.bytes) });
       }
-      if (input.action === 'comments') return send(200, (await allRows('spenic_project_comments', { project_id: 'eq.' + project.id, order: 'created_at.asc,id.asc' })).map(commentRecord));
+      if (input.action === 'comments') return send(200, (await allRows('spenic_project_comments', { project_id: 'eq.' + project.id, order: 'created_at.asc,id.asc' }))
+        .map(row => ({ ...commentRecord(row), canDelete: Boolean(authorHash && row.author_token_hash === authorHash) })));
       if (input.action === 'comment') {
         let data; try { data = validateComment(input.comment); } catch (error) { throw fail(400, error.message); }
         if (data.projectId !== project.id) throw fail(403, '留言所属项目无效');
-        const result = await cloud('/rest/v1/rpc/spenic_submit_project_comment', { method: 'POST', body: JSON.stringify({ comment_data: data, share_hash: hash }) });
+        const result = await cloud('/rest/v1/rpc/spenic_submit_project_comment', { method: 'POST', body: JSON.stringify({ comment_data: { ...data, authorHash }, share_hash: hash }) });
         return send(200, commentRecord(Array.isArray(result) ? result[0] : result));
+      }
+      if (input.action === 'delete-comment') {
+        if (!uuid.test(input.commentId || '')) throw fail(400, '留言无效');
+        if (!authorHash) throw fail(403, '只能删除当前浏览器提交的本人留言');
+        await cloud('/rest/v1/rpc/spenic_delete_guest_comment', { method: 'POST', body: JSON.stringify({ project_id_value: project.id, comment_id_value: input.commentId, share_hash: hash, author_hash: authorHash }) });
+        return send(200, { deleted: true });
       }
       throw fail(400, '不支持此操作');
     } catch (error) { send(error.status || 503, { error: { message: error.status ? error.message : '展示服务连接失败，请稍后重试' } }); }

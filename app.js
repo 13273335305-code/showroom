@@ -50,16 +50,14 @@ import { annotationId, projectModelHash } from './shared/showcase-data.js';
 import { createShowcaseStore } from './shared/showcase-store.js';
 import { mountProjectFeedback, feedbackAuthorName } from './shared/project-feedback.js';
 let workspaceMode='design',workspaceServices={},workspaceResolve=null,workspaceReject=null,currentProjectManifest=null;
-let commentPlacement=false,commentReposition=null,feedbackUI=null,feedbackStore=null;
+let commentPlacement=false,feedbackUI=null,feedbackStore=null;
 const isDesign=()=>workspaceMode==='design';
 const isGuest=()=>workspaceMode==='showcase-guest';
 function feedbackContext(){return {id:activeProjectId,modelHash:projectModelHash(currentProjectManifest)};}
 function initProjectFeedback(){
  feedbackStore=workspaceServices.feedback||createShowcaseStore(workspaceClient);
- feedbackUI=mountProjectFeedback({host:$('annotationPanel'),guest:isGuest(),current:feedbackContext,list:id=>feedbackStore.comments(id),remove:id=>feedbackStore.removeComment(id),notify,
-  start:()=>{if(!activeProjectId)return notify('请先保存并打开项目');commentPlacement=true;commentReposition=null;setAnnotationMode(true);notify('点击模型表面添加留言');},
-  select:id=>{const a=annotations.find(a=>a.comment?.id===id);if(a){setAnnotationMode(true);selectAnnotation(a);}else notify('此留言的位置需要项目所有者重新定位');},
-  reposition:id=>{commentReposition=id;setAnnotationMode(true);notify('点击模型表面重新定位留言');},
+ feedbackUI=mountProjectFeedback({host:$('annotationPanel'),guest:isGuest(),current:feedbackContext,list:id=>feedbackStore.comments(id),remove:(id,projectId)=>feedbackStore.removeComment(id,projectId),notify,
+  select:id=>{const a=annotations.find(a=>a.comment?.id===id);if(a){setAnnotationMode(true);selectAnnotation(a);}else notify('模型已更换，此留言仅在列表中保留');},
   changed:comments=>{
    const old=annotations.filter(a=>a.comment);old.forEach(a=>a.el.remove());annotations=annotations.filter(a=>!a.comment);if(selectedAnnotation?.comment)selectedAnnotation=null;
    const hosts=[];model?.traverse(o=>{if(o.isMesh)hosts.push(o);});
@@ -83,12 +81,6 @@ async function submitCommentDraft(a,value){
   a.el.remove();annotations=annotations.filter(item=>item!==a);commentPlacement=false;selectedAnnotation=null;await feedbackUI.refresh();notify('留言已随项目保存');
  }catch(error){notify(error.message||'留言保存失败，请重试',6000);}
  finally{a.submitting=false;a.window.querySelectorAll('button,input').forEach(node=>node.disabled=false);}
-}
-async function repositionProjectComment(hit){
- const id=commentReposition,project=activeProjectId,generation=modelGeneration,hosts=[];if(isGuest()||!id)return;
- model.traverse(o=>{if(o.isMesh)hosts.push(o);});commentReposition=null;
- try{await feedbackStore.repositionComment(id,{modelHash:projectModelHash(currentProjectManifest),host:hosts.indexOf(hit.mesh),point:hit.mesh.worldToLocal(hit.point.clone()).toArray()});if(project===activeProjectId&&generation===modelGeneration){await feedbackUI.refresh();notify('留言位置已更新');}}
- catch(error){notify(error.message);}
 }
 async function loadDesignAsset(id){
  const summary=await readAsset(id,{runtime:true,previewOnly:true});
@@ -1617,6 +1609,7 @@ function resetMaterial(){if(!selected)return;const e=selected;for(const[key]of M
 function showPanel(tab){
  if(!isDesign()&&(tab==='material'||tab==='pattern'))tab='album';
  const album=$('showcaseAlbumPanel');if(album)album.hidden=tab!=='album';
+ const albumRefresh=$('showcasePhotoRefresh');if(albumRefresh)albumRefresh.hidden=tab!=='album';
  if(showroom?.active)return;
  const marking=tab==='annotation',measuring=tab==='ruler',material=tab==='material'||tab==='pattern';
  if(!marking&&annotationMode)setAnnotationMode(false,{keepInspector:true});
@@ -1626,7 +1619,7 @@ function showPanel(tab){
  for(const name of ['material','pattern','scene']){$(name+'Panel').hidden=name!=='scene'||tab!=='scene';$(name+'Tab').setAttribute('aria-selected',String(name===tab));}
  $('compactMaterialPanel').hidden=!material;$('inspectorHeading').textContent=marking?'标记属性':material?'材质栏':'属性编辑器';
  if(measuring)$('inspectorHeading').textContent='测量属性';
- if(tab==='album')$('inspectorHeading').textContent='项目画册';
+ if(tab==='album')$('inspectorHeading').textContent='画册';
  if(material||marking)setInspectorCollapsed(false);
  if(measuring)setInspectorCollapsed(false);
 }
@@ -2078,10 +2071,10 @@ function bindEvents(){
   $('addLibraryMaterial').onclick=async()=>{const button=$('addLibraryMaterial'),id=$('libraryMaterial').value;if(!id)return notify('请先选择资产库中的材质');button.disabled=true;try{await addMaterialAsset(await loadDesignAsset(id));}catch(error){notify('添加材质失败：'+error.message,6000);}finally{button.disabled=false;}};
  window.addEventListener('focus',refreshLibrary);refreshLibrary();
  }
- $('annotationMode').onclick=()=>{commentPlacement=isGuest();commentReposition=null;setAnnotationMode(!annotationMode);if(annotationMode)notify('标记模式已开启，点击模型添加标记；Esc 退出');};
+ $('annotationMode').onclick=()=>{commentPlacement=isGuest();setAnnotationMode(!annotationMode);if(annotationMode)notify('标记模式已开启，点击模型添加标记；Esc 退出');};
  let annotationStart=null,rulerClickStart=null;
  $('canvas').addEventListener('pointerdown',event=>{annotationStart=annotationMode&&event.button===0&&dismissedDraftPointer!==event.pointerId?{x:event.clientX,y:event.clientY}:null;},true);
- $('canvas').addEventListener('pointerup',event=>{const start=annotationStart;annotationStart=null;if(!annotationMode||!start||Math.hypot(event.clientX-start.x,event.clientY-start.y)>5)return;const hit=pickModelMaterial(event.clientX,event.clientY);if(hit){if(commentReposition){void repositionProjectComment(hit);}else addAnnotation({object:hit.mesh,point:hit.point});}},true);
+ $('canvas').addEventListener('pointerup',event=>{const start=annotationStart;annotationStart=null;if(!annotationMode||!start||Math.hypot(event.clientX-start.x,event.clientY-start.y)>5)return;const hit=pickModelMaterial(event.clientX,event.clientY);if(hit)addAnnotation({object:hit.mesh,point:hit.point});},true);
  $('canvas').addEventListener('pointercancel',()=>{annotationStart=null;});
  $('canvas').addEventListener('pointerup',event=>{
   const start=rulerClickStart;rulerClickStart=null;
@@ -2359,7 +2352,7 @@ function workspaceRuntime(){
  return {
   clear(){
    if(loadingModel)throw new Error('请等待当前项目载入完成');
-   showroom?.exit();cameraTween?.cancel();setAnnotationMode(false);commentPlacement=false;commentReposition=null;
+   showroom?.exit();cameraTween?.cancel();setAnnotationMode(false);commentPlacement=false;
    activeProjectId=null;activeProjectName='';activeProjectRevision=null;currentProjectManifest=null;modelGeneration++;
    feedbackUI?.clear();for(const a of annotations)a.el.remove();annotations=[];selectedAnnotation=null;annotationFocus=null;syncAnnotationPanel();
    finishReveal();clearPatterns();clearPatternSources();clearRulerMeasurement({silent:true});
@@ -2370,7 +2363,7 @@ function workspaceRuntime(){
   },
   async open(saved){
    if(loadingModel)throw new Error('请等待当前项目载入完成');
-   cancelDraftAnnotation();commentPlacement=false;commentReposition=null;feedbackUI?.clear();
+   cancelDraftAnnotation();commentPlacement=false;feedbackUI?.clear();
    currentProjectManifest=saved.manifest;activeProjectId=saved.id;activeProjectName=saved.name;activeProjectRevision=saved.revision;
    try{await openProject(saved.manifest);showPanel(isDesign()?'scene':'album');if(!isDesign()&&innerWidth>760)setInspectorCollapsed(false);await feedbackUI?.refresh();}
    catch(error){activeProjectId=null;currentProjectManifest=null;throw error;}

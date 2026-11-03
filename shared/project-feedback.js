@@ -1,17 +1,13 @@
 // Project feedback is independent of the editable design annotation snapshot.
-export function mountProjectFeedback({ host, guest, current, list, remove, start, select, reposition, changed, notify }) {
+export function mountProjectFeedback({ host, guest, current, list, remove, select, changed, notify }) {
   const section = document.createElement('section'); section.className = 'project-feedback';
-  section.innerHTML = `<div class="section-heading"><h2>客户留言</h2><button type="button" data-refresh>刷新</button></div>
-    <p class="feedback-description">此项目的留言对所有收到项目链接的客户可见。</p>
-    <button type="button" class="button full" data-add>在模型上添加留言</button>
-    <p data-status role="status"></p><ol class="feedback-list" aria-label="客户留言"></ol>`;
+  section.innerHTML = '<p data-status role="status"></p><ol class="feedback-list" aria-label="客户留言"></ol>';
   host.append(section);
   const status = section.querySelector('[data-status]'), items = section.querySelector('ol');
   let version = 0;
   function clear() { version++; items.replaceChildren(); status.textContent = ''; changed([]); }
   async function refresh() {
     const project = current(), request = ++version; items.replaceChildren(); changed([]);
-    section.querySelector('[data-add]').disabled = !project.id;
     if (!project.id) { status.textContent = '保存项目后即可接收客户留言。'; return; }
     status.textContent = '正在读取留言…';
     try {
@@ -25,20 +21,18 @@ export function mountProjectFeedback({ host, guest, current, list, remove, start
         const text = document.createElement('button'); text.type = 'button'; text.className = 'feedback-body'; text.textContent = comment.body;
         text.onclick = () => select(comment.id); row.append(heading, text);
         const anchored = comment.modelHash === project.modelHash;
-        if (!anchored) { const note = document.createElement('small'); note.textContent = '模型已更换，此留言待重新定位'; row.append(note); }
-        if (!guest) {
-          const actions = document.createElement('div'); actions.className = 'feedback-actions';
-          const move = document.createElement('button'); move.type = 'button'; move.textContent = '重新定位'; move.onclick = () => reposition(comment.id);
-          const del = document.createElement('button'); del.type = 'button'; del.textContent = '删除留言';
-          del.onclick = async () => { del.disabled = true; try { await remove(comment.id); await refresh(); } catch (error) { notify(error.message); } finally { del.disabled = false; } };
-          actions.append(move, del); row.append(actions);
+        if (!anchored) { const note = document.createElement('small'); note.textContent = '模型已更换，此留言仅在列表中保留'; row.append(note); }
+        if (!guest || comment.canDelete) {
+          const del = document.createElement('button'); del.type = 'button'; del.className = 'feedback-delete';
+          const label = guest ? '删除我的留言' : '删除留言'; del.title = label; del.setAttribute('aria-label', label);
+          del.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5"/></svg>';
+          del.onclick = async () => { if(del.disabled)return; del.disabled = true; try { await remove(comment.id, project.id); await refresh(); } catch (error) { notify(error.message); } finally { del.disabled = false; } };
+          row.append(del);
         }
         items.append(row);
       }
-    } catch (error) { if (request === version) status.textContent = error.message || '留言读取失败，点击刷新重试。'; }
+    } catch (error) { if (request === version) status.textContent = error.message || '留言读取失败，请重新打开项目重试。'; }
   }
-  section.querySelector('[data-refresh]').onclick = refresh;
-  section.querySelector('[data-add]').onclick = start;
   return { refresh, clear };
 }
 

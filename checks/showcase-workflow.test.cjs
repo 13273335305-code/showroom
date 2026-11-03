@@ -58,9 +58,13 @@ async function makeModel() {
       const data = args.comment_data, share = args.share_hash ? [...shares.values()].find(s => s.enabled && s.token_hash === args.share_hash) : null;
       if (args.share_hash && (!share || !items.has(share.showcase_id + ':' + data.projectId))) throw Error('Share unavailable');
       const old = [...comments.values()].find(c => c.project_id === data.projectId && c.request_id === data.requestId); if (old) return old;
-      const row = { id: randomUUID(), request_id: data.requestId, project_id: data.projectId, author_name: data.authorName, body: data.body, model_hash: data.modelHash, host: data.host, point: data.point, created_at: stamp() }; comments.set(row.id, row); return row;
+      const row = { id: randomUUID(), request_id: data.requestId, project_id: data.projectId, author_name: data.authorName, body: data.body, model_hash: data.modelHash, host: data.host, point: data.point, author_token_hash: data.authorHash || null, created_at: stamp() }; comments.set(row.id, row); return row;
     }
-    if (name === 'spenic_reposition_project_comment') { const row = comments.get(args.comment_id); Object.assign(row, { model_hash: args.model_hash_value, host: args.host_value, point: args.point_value }); return row; }
+    if (name === 'spenic_delete_guest_comment') {
+      const share = [...shares.values()].find(s => s.enabled && s.token_hash === args.share_hash), row = comments.get(args.comment_id_value);
+      if (!share || !items.has(share.showcase_id + ':' + args.project_id_value) || !row || row.project_id !== args.project_id_value || !args.author_hash || row.author_token_hash !== args.author_hash) throw Error('Comment unavailable or not owned');
+      comments.delete(row.id); return null;
+    }
     throw Error('Unknown RPC ' + name);
   }
   const { createShowcaseHandler } = await import(pathToFileURL(path.join(root, 'api/showcase.js')));
@@ -153,9 +157,15 @@ async function makeModel() {
     await owner.locator('#showcaseLight').click(); await owner.locator('#resetScene').click(); await ready(owner, first);
     await owner.locator('#saveProject').click(); await owner.waitForFunction(() => document.getElementById('toast').textContent === '展示清单与展示效果已保存');
     assert.deepEqual(items.get(collectionId + ':' + first).config, {});
-    await owner.locator('#showcaseAlbum').click(); await owner.locator('#showcasePhotoFilter').selectOption('ai'); assert.equal(await owner.locator('.showcase-photo').count(), 1);
-    await owner.locator('.showcase-photo').click(); await owner.locator('#showcaseDownload:enabled').waitFor(); await owner.locator('#showcasePreviewClose').click();
-    await owner.locator('#showcasePhotoFilter').selectOption('all');
+    await owner.locator('#showcaseAlbum').click(); assert.equal(await owner.locator('#inspectorHeading').textContent(), '画册');
+    assert.equal(await owner.locator('#showcasePhotoFilter, .showcase-photo span').count(), 0);
+    assert.equal(await owner.locator('#showcasePhotoStatus').isVisible(), false);
+    const albumCards = await owner.locator('.showcase-photo').evaluateAll(cards => cards.map(card => { const r = card.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width}; }));
+    assert.equal(albumCards.length, 2); assert.equal(albumCards[0].x, albumCards[1].x); assert.ok(albumCards[1].y > albumCards[0].y);
+    const refreshBounds = await owner.locator('#showcasePhotoRefresh').boundingBox(), collapseBounds = await owner.locator('#collapseInspector').boundingBox();
+    assert.ok(refreshBounds.x + refreshBounds.width <= collapseBounds.x);
+    await owner.locator('#showcasePhotoRefresh').click(); await owner.waitForFunction(() => document.querySelectorAll('.showcase-photo').length === 2);
+    await owner.locator('.showcase-photo').first().click(); await owner.locator('#showcaseDownload:enabled').waitFor(); await owner.locator('#showcasePreviewClose').click();
     await owner.evaluate(() => { const cards = document.querySelectorAll('.showcase-project-open'); cards[1].click(); cards[0].click(); cards[1].click(); }); await ready(owner, second);
     await owner.waitForFunction(() => document.querySelectorAll('.showcase-photo').length === 1); assert.equal(await owner.evaluate(() => readShowcaseRuntime().entries[0].material.color.getHexString()), 'd98f72');
     await owner.locator('.showcase-project-open').first().click(); await ready(owner, first);
@@ -175,8 +185,25 @@ async function makeModel() {
     await guest.waitForFunction(() => document.querySelectorAll('.feedback-row').length === 1); assert.equal(comments.size, 1);
     await guest.reload(); await ready(guest, first); await guest.locator('#annotationMode').click(); await guest.locator('.feedback-row').waitFor();
     assert.equal(await guest.locator('.annotation-card.project-comment').count(), 1); assert.equal(await guest.locator('.feedback-actions').count(), 0);
+    assert.equal(await guest.locator('.feedback-description, .project-feedback h2, .project-feedback [data-refresh], .project-feedback [data-add]').count(), 0);
+    assert.equal(await guest.getByRole('button', { name: '删除我的留言', exact: true }).count(), 1);
+    // A different share of the same project keeps authorship in this browser.
+    const otherShow = randomUUID(), otherToken = 'e'.repeat(64);
+    collections.set(otherShow, { id: otherShow, owner_id: alice, name: '同项目另一展示', updated_at: stamp() });
+    items.set(otherShow + ':' + first, { showcase_id: otherShow, project_id: first, position: 0, config: {} });
+    shares.set(otherShow, { showcase_id: otherShow, token_hash: createHash('sha256').update(otherToken).digest('hex'), enabled: true });
+    const sameAuthor = await guestContext.newPage(); await sameAuthor.goto(base + '/showcase.html#share=' + otherToken); await ready(sameAuthor, first);
+    await sameAuthor.locator('#annotationMode').click(); await sameAuthor.getByRole('button', { name: '删除我的留言', exact: true }).click();
+    await sameAuthor.waitForFunction(() => document.querySelectorAll('.feedback-row').length === 0 && document.querySelectorAll('.annotation-card.project-comment').length === 0);
+    assert.equal(comments.size, 0); await sameAuthor.reload(); await ready(sameAuthor, first); assert.equal(await sameAuthor.locator('.feedback-row').count(), 0); await sameAuthor.close();
+    await guest.reload(); await ready(guest, first); await guest.locator('#annotationMode').click();
+    await guest.mouse.click(spot.x, spot.y); await guest.locator('.annotation-draft-input').fill('客户确认：这里需要调整'); await guest.locator('.annotation-card.draft .annotation-confirm').click();
+    await guest.locator('.feedback-row').waitFor(); assert.equal(comments.size, 1);
     await guest.screenshot({ path: path.join(root, '.codex-project-check/showcase-guest.png') });
     const mobileContext = await setup({ width: 390, height: 844 }, true), mobile = await mobileContext.newPage(); await mobile.goto(link); await ready(mobile, first);
+    await mobile.evaluate(() => localStorage.setItem('spenic-feedback-name', '客户甲'));
+    await mobile.locator('#annotationMode').click(); await mobile.locator('.feedback-row').waitFor();
+    assert.equal(await mobile.locator('.feedback-delete').count(), 0, 'A same-name customer in a different browser cannot delete another customer’s comment');
     assert.equal(await mobile.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true); await mobile.locator('#showcaseAlbum').click();
     await mobile.waitForFunction(()=>document.querySelector('.workspace').style.getPropertyValue('--inspector-progress')==='1'); await mobile.screenshot({ path: path.join(root, '.codex-project-check/showcase-mobile.png') });
     assert.equal(await mobile.locator('#showcaseAlbumPanel').isVisible(), true);
@@ -186,7 +213,8 @@ async function makeModel() {
     const headerBounds = await owner.locator('.header-actions').boundingBox(); assert.ok(headerBounds.x + headerBounds.width <= 390, 'mobile owner controls stay on screen');
     const design = await ownerContext.newPage(); await design.goto(base + '/design.html?project=' + first); await design.waitForFunction(() => document.getElementById('loading').hidden, null, { timeout: 60000 });
     await design.locator('#annotationMode').click(); await design.locator('.feedback-row').waitFor(); assert.match(await design.locator('.feedback-row').textContent(), /客户确认/);
-    await design.locator('.feedback-actions button').last().click(); await design.waitForFunction(() => document.querySelectorAll('.feedback-row').length === 0); assert.equal(comments.size, 0);
+    assert.equal(await design.getByRole('button', { name: '重新定位', exact: true }).count(), 0);
+    await design.getByRole('button', { name: '删除留言', exact: true }).click(); await design.waitForFunction(() => document.querySelectorAll('.feedback-row').length === 0); assert.equal(comments.size, 0);
     const invalid = await guestContext.newPage(); await invalid.goto(base + '/showcase.html#share=');
     await invalid.locator('.showcase-boot-error').waitFor(); assert.match(await invalid.locator('.showcase-boot-error').textContent(), /分享链接无效/);
     await owner.locator('.showcase-share-button').click(); await owner.locator('#showcaseDisableShare').click();

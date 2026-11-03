@@ -48,12 +48,17 @@ export function createShowcaseStore(access) {
     },
     async addComment(input) { const { client } = await access(); return commentRecord(one(checked(await client.rpc('spenic_submit_project_comment', { comment_data: validateComment(input), share_hash: null })))); },
     async removeComment(id) { const { client } = await access(); const rows = checked(await client.from('spenic_project_comments').delete().eq('id', id).select('id')); if (!rows.length) throw new Error('留言已删除或没有权限'); },
-    async repositionComment(id, anchor) {
-      const { client } = await access(); return commentRecord(one(checked(await client.rpc('spenic_reposition_project_comment', { comment_id: id, model_hash_value: anchor.modelHash, host_value: anchor.host, point_value: anchor.point }))));
-    },
   };
 }
 export function createGuestShowcase(token, { request = fetch } = {}) {
+  let visitor = null;
+  function visitorToken() {
+    if (visitor) return visitor;
+    try { const saved = localStorage.getItem('spenic-feedback-visitor-token'); if (/^[a-f\d]{64}$/.test(saved || '')) return visitor = saved; } catch {}
+    visitor = [...crypto.getRandomValues(new Uint8Array(32))].map(b => b.toString(16).padStart(2, '0')).join('');
+    try { localStorage.setItem('spenic-feedback-visitor-token', visitor); } catch {}
+    return visitor;
+  }
   async function call(action, values = {}) {
     const response = await request('./api/showcase', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...values, action, token }), cache: 'no-store' });
     const result = await response.json().catch(() => null);
@@ -62,8 +67,9 @@ export function createGuestShowcase(token, { request = fetch } = {}) {
   }
   return {
     read: () => call('collection'), project: projectId => call('project', { projectId }),
-    photos: projectId => call('photos', { projectId }), comments: projectId => call('comments', { projectId }),
-    addComment: input => call('comment', { comment: validateComment(input), projectId: input.projectId }),
+    photos: projectId => call('photos', { projectId }), comments: projectId => call('comments', { projectId, visitorToken: visitorToken() }),
+    addComment: input => call('comment', { comment: validateComment(input), projectId: input.projectId, visitorToken: visitorToken() }),
+    removeComment: (projectId, commentId) => call('delete-comment', { projectId, commentId, visitorToken: visitorToken() }),
     async resource(projectId, reference) {
       const result = await call('resource', { projectId, path: reference.path });
       const response = await request(result.url); if (!response.ok) throw new Error('项目资源读取失败');

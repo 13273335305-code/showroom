@@ -40,23 +40,44 @@ test('showcase ownership, revisions, share revocation, project feedback and phot
     const comment = { projectId: project, requestId: crypto.randomUUID(), authorName: '客户甲', body: '请看这里', modelHash: hash, host: 0, point: [1, 2, 3] };
     const submit = async (value = comment, share = token) => (await db.query('select * from spenic_submit_project_comment($1::jsonb,$2)', [JSON.stringify(value), share])).rows[0];
     const posted = await submit(); assert.equal(posted.author_name, '客户甲'); assert.equal((await submit()).id, posted.id);
+    const authorHash = 'e'.repeat(64), owned = await submit({ ...comment, requestId: crypto.randomUUID(), authorHash });
+    await assert.rejects(submit({ ...comment, requestId: owned.request_id, authorHash: 'f'.repeat(64) }), /already used/);
+    async function guestDelete(id, share = token, author = authorHash, targetProject = project) {
+      await db.exec('reset role; set role service_role');
+      try { await db.query('select spenic_delete_guest_comment($1,$2,$3,$4)', [targetProject, id, share, author]); }
+      finally { await login(alice); }
+    }
+    await assert.rejects(guestDelete(owned.id, token, 'f'.repeat(64)), /not owned/);
+    await assert.rejects(guestDelete(owned.id, token, null), /author required/);
+    await assert.rejects(guestDelete(owned.id, token, authorHash, otherShow), /Share unavailable/);
+    await assert.rejects(guestDelete(posted.id), /not owned/, 'legacy comments cannot be claimed by a matching name');
+    await login();
+    await assert.rejects(db.query('select spenic_delete_guest_comment($1,$2,$3,$4)', [project, owned.id, token, authorHash]), /permission denied/);
+    await login(bob);
+    await assert.rejects(db.query('select spenic_delete_guest_comment($1,$2,$3,$4)', [project, owned.id, token, authorHash]), /permission denied/);
+    await login(alice);
     await assert.rejects(submit({ ...comment, body: 'different' }), /already used/);
     await assert.rejects(submit({ ...comment, requestId: crypto.randomUUID(), point: [null, 0, 0] }), /Invalid point/);
     await db.query('select spenic_set_showcase_share($1,null,false)', [showroom]);
+    await assert.rejects(guestDelete(owned.id), /Share unavailable/);
     await assert.rejects(submit({ ...comment, requestId: crypto.randomUUID() }), /Share unavailable/);
     await db.query('select spenic_set_showcase_share($1,$2,true)', [showroom, 'c'.repeat(64)]);
+    await assert.rejects(guestDelete(owned.id), /Share unavailable/);
     await assert.rejects(submit(), /Share unavailable/);
     const second = await save(otherShow, [{ projectId: project }]);
     await db.query('select spenic_set_showcase_share($1,$2,true)', [otherShow, 'd'.repeat(64)]);
     await submit({ ...comment, requestId: crypto.randomUUID(), authorName: '客户乙' }, 'd'.repeat(64));
+    await guestDelete(owned.id, 'd'.repeat(64));
+    await assert.rejects(guestDelete(owned.id, 'd'.repeat(64)), /not owned/);
     assert.equal((await db.query('select * from spenic_project_comments where project_id=$1', [project])).rows.length, 2);
     await save(otherShow, [], second.updated_at);
+    await assert.rejects(guestDelete(posted.id, 'd'.repeat(64)), /Share unavailable/);
     await assert.rejects(submit({ ...comment, requestId: crypto.randomUUID() }, 'd'.repeat(64)), /Share unavailable/);
     const photo = crypto.randomUUID();
     await db.query('insert into spenic_album_photos(id,name,width,height,bytes,image_path,thumbnail_path,project_id) values($1,$2,1,1,3,$3,$4,$5)', [photo, 'photo.png', alice + '/' + photo + '/image.png', alice + '/' + photo + '/thumbnail.png', project]);
     await login(bob); const foreignPhoto = crypto.randomUUID();
     await assert.rejects(db.query('insert into spenic_album_photos(id,name,width,height,bytes,image_path,thumbnail_path,project_id) values($1,$2,1,1,3,$3,$4,$5)', [foreignPhoto, 'bad.png', bob + '/' + foreignPhoto + '/image.png', bob + '/' + foreignPhoto + '/thumbnail.png', project]), /row-level security/);
-    await assert.rejects(db.query('select spenic_reposition_project_comment($1,$2,0,$3)', [posted.id, hash, '[0,0,0]']), /unavailable/);
+    assert.equal((await db.query("select to_regprocedure('public.spenic_reposition_project_comment(uuid,text,integer,jsonb)') as removed")).rows[0].removed, null);
     await login(alice); await db.query('delete from spenic_projects where id=$1', [project]);
     assert.equal((await db.query('select project_id from spenic_album_photos where id=$1', [photo])).rows[0].project_id, null);
     assert.equal((await db.query('select * from spenic_project_comments')).rows.length, 0);
