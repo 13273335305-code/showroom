@@ -32,6 +32,17 @@ drop policy if exists spenic_album_read on public.spenic_album_photos;
 create policy spenic_album_read on public.spenic_album_photos for select to authenticated using (owner_id = auth.uid());
 drop policy if exists spenic_album_insert on public.spenic_album_photos;
 create policy spenic_album_insert on public.spenic_album_photos for insert to authenticated with check (owner_id = auth.uid());
+-- Retain project ownership checks when this base migration is rerun after showcase.sql.
+do $$ begin
+  if exists(select 1 from information_schema.columns where table_schema = 'public' and table_name = 'spenic_album_photos' and column_name = 'project_id') then
+    drop policy spenic_album_insert on public.spenic_album_photos;
+    create policy spenic_album_insert on public.spenic_album_photos for insert to authenticated with check (
+      owner_id = auth.uid() and (project_id is null or exists (
+        select 1 from public.spenic_projects p where p.id = project_id and p.owner_id = auth.uid() and p.kind = 'project'
+      ))
+    );
+  end if;
+end $$;
 drop policy if exists spenic_album_delete on public.spenic_album_photos;
 create policy spenic_album_delete on public.spenic_album_photos for delete to authenticated using (owner_id = auth.uid());
 

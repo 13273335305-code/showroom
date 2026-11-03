@@ -9,7 +9,22 @@
 
 const $ = (id) => document.getElementById(id);
 const embeddedInMaterialEditor = new URLSearchParams(location.search).get("embed") === "1";
+const inlinePanel = embeddedInMaterialEditor && new URLSearchParams(location.search).get('panel') === 'inline';
 document.body.classList.toggle("embedded", embeddedInMaterialEditor);
+document.documentElement.classList.toggle('inline-panel', inlinePanel);
+document.body.classList.toggle('inline-panel', inlinePanel);
+if (inlinePanel) {
+  // Let the editor own scrolling; only the parameter content determines the
+  // frame height, so changing the frame itself cannot trigger a resize loop.
+  let lastHeight = 0;
+  new ResizeObserver(() => {
+    const height = Math.ceil(document.querySelector('.controls').getBoundingClientRect().height);
+    if (height > 0 && height !== lastHeight) {
+      lastHeight = height;
+      window.parent.postMessage({ type: 'procedural-panel-size', height }, '*');
+    }
+  }).observe(document.querySelector('.controls'));
+}
 const inputCanvas = $("inputCanvas");
 const outputCanvas = $("outputCanvas");
 const inputCtx = inputCanvas.getContext("2d", { willReadFrequently: true });
@@ -54,10 +69,30 @@ const state = {
   renderOptions: null,
   sourceFile: null,
   sourceLoadId: 0,
+  sourceLoading: false,
   sourceName: "",
   requestId: null
 };
 let paletteColorPicker = null, paletteColorIndex = null;
+function setRenderButtonState(id, status) {
+  const button = $(id);
+  const statuses = {
+    empty: ['待上传 BMP', '上传 BMP 后即可渲染'],
+    loading: ['读取 BMP…', '正在读取 BMP'],
+    pending: id === 'normalButton'
+      ? ['需刷新 · 点击渲染', '高度参数已变更，点击重新渲染高度、法线和 AO 贴图']
+      : ['等待自动刷新', '纹理参数已变更，即将自动刷新渲染'],
+    rendering: ['渲染中…', '正在渲染，请稍候'],
+    ready: ['已更新', '当前渲染已更新，点击可重新渲染'],
+    error: ['失败 · 点击重试', '渲染失败，请点击重新渲染']
+  };
+  const [label, hint] = statuses[status];
+  button.dataset.renderState = status;
+  button.querySelector('.render-action-status').textContent = label;
+  button.title = hint;
+  button.setAttribute('aria-busy', String(status === 'rendering' || status === 'loading'));
+  button.disabled = !state.imageData || ['empty', 'loading', 'rendering'].includes(status);
+}
 function paletteColorButton(index) {
   return index === "background" ? $("backgroundColorSwatch") : $("paletteControls").querySelector(`[data-color-index="${index}"]`);
 }
@@ -68,12 +103,20 @@ function positionPaletteColorEditor() {
   if (!editorRect.width || !editorRect.height) return;
   let left = buttonRect.right - editorRect.width;
   left = Math.max(margin, Math.min(window.innerWidth - editorRect.width - margin, left));
+  let minTop = margin, maxBottom = window.innerHeight - margin;
+  if (inlinePanel && window.frameElement) {
+    const frame = window.frameElement.getBoundingClientRect();
+    const panel = window.frameElement.closest('.editor-panel').getBoundingClientRect();
+    const scale = frame.height / window.innerHeight || 1;
+    minTop = Math.max(minTop, (Math.max(0, panel.top) - frame.top) / scale + margin);
+    maxBottom = Math.min(maxBottom, (Math.min(window.parent.innerHeight, panel.bottom) - frame.top) / scale - margin);
+  }
   let top = buttonRect.bottom + gap, above = false;
-  if (top + editorRect.height > window.innerHeight - margin) {
+  if (top + editorRect.height > maxBottom) {
     top = buttonRect.top - editorRect.height - gap;
     above = true;
   }
-  top = Math.max(margin, Math.min(window.innerHeight - editorRect.height - margin, top));
+  top = Math.max(minTop, Math.min(maxBottom - editorRect.height, top));
   editor.style.left = `${Math.round(left)}px`;
   editor.style.top = `${Math.round(top)}px`;
   editor.style.setProperty("--palette-transform-origin", `${Math.round(buttonRect.right - left)}px ${above ? "100%" : "0%"}`);
@@ -114,7 +157,9 @@ function ensurePaletteColorPicker() {
       const entry = state.palette.find(item => item.index === paletteColorIndex);
       if (!entry) return;
       entry.loopHex = color; entry.loopRgb = hexToRgb(color);
-      $("paletteControls").querySelector(`[data-color-index="${entry.index}"]`).style.backgroundColor = color;
+      const swatch = $("paletteControls").querySelector(`[data-color-index="${entry.index}"]`);
+      swatch.style.backgroundColor = color;
+      swatch.closest('.palette-row').querySelector('.palette-hex').value = color.toUpperCase();
       closePaletteColorEditor(true); postProceduralState(); requestRender();
     },
     onCancel() { closePaletteColorEditor(true); }
@@ -161,6 +206,9 @@ function postProceduralState(includeSource = false, resetGeneratedMaps = false, 
   if (!embeddedInMaterialEditor || !state.sourceFile) return;
   window.parent.postMessage({
     type: "procedural-state",
+    sourceRevision: state.sourceLoadId,
+    baseRevision: state.renderId,
+    reliefRevision: state.normalRenderId,
     resetGeneratedMaps,
     resetReliefMaps,
     sourceFile: includeSource ? state.sourceFile : undefined,
@@ -168,144 +216,13 @@ function postProceduralState(includeSource = false, resetGeneratedMaps = false, 
   }, "*");
 }
 
-const previewViewports = [];
-function mountPreviewViewport(viewport, canvas, label) {
-  if (!viewport || !canvas) return null;
-  const view = { viewport, canvas, scale: 1, fitScale: 1, offsetX: 0, offsetY: 0, initialized: false, dragging: null };
-  let filteredPreview = null, previewKey = '';
-  const renderFilteredPreview = () => {
-    if (canvas === inputCanvas) return;
-    const pixelScale = view.scale * (window.devicePixelRatio || 1);
-    const minified = pixelScale < 1;
-    canvas.style.visibility = minified ? 'hidden' : '';
-    if (!minified) {
-      if (filteredPreview) filteredPreview.style.display = 'none';
-      return;
-    }
-    if (!filteredPreview) {
-      filteredPreview = document.createElement('canvas');
-      filteredPreview.className = 'filtered-texture-preview';
-      filteredPreview.setAttribute?.('aria-hidden', 'true');
-      filteredPreview.style.pointerEvents = 'none';
-      viewport.appendChild?.(filteredPreview);
-    }
-    const width = Math.max(1, Math.round(canvas.width * pixelScale));
-    const height = Math.max(1, Math.round(canvas.height * pixelScale));
-    const key = `${width}x${height}`;
-    if (previewKey !== key) {
-      // CSS transforms alone use too small a sampling footprint for dense
-      // knit rasters. Reduce in stages, then filter to device-pixel size.
-      // The original canvas remains intact for JPG export and 1:1 inspection.
-      let source = canvas;
-      while (source.width > width * 2 || source.height > height * 2) {
-        const next = document.createElement('canvas');
-        next.width = Math.max(width, Math.ceil(source.width / 2));
-        next.height = Math.max(height, Math.ceil(source.height / 2));
-        const ctx = next.getContext('2d');
-        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(source, 0, 0, next.width, next.height);
-        if (source !== canvas) source.width = source.height = 1;
-        source = next;
-      }
-      filteredPreview.width = width; filteredPreview.height = height;
-      const ctx = filteredPreview.getContext('2d');
-      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(source, 0, 0, width, height);
-      if (source !== canvas) source.width = source.height = 1;
-      previewKey = key;
-    }
-    filteredPreview.style.display = 'block';
-    filteredPreview.style.width = canvas.style.width;
-    filteredPreview.style.height = canvas.style.height;
-    filteredPreview.style.transform = canvas.style.transform;
-  };
-  const renderView = () => {
-    if (!canvas.width || !canvas.height) return;
-    const bounds = viewport.getBoundingClientRect();
-    const fitScale = Math.min((bounds.width - 24) / canvas.width, (bounds.height - 24) / canvas.height);
-    if (!(fitScale > 0)) return;
-    view.fitScale = Math.max(.02, Math.min(8, fitScale));
-    if (!view.initialized) { view.scale = view.fitScale; view.initialized = true; }
-    // Size BMP pixels before translating: scaling a rasterized transform can
-    // shift texel edges at fractional display/page zoom away from crop lines.
-    const pixelated = canvas === inputCanvas;
-    canvas.style.width = `${canvas.width * (pixelated ? view.scale : 1)}px`;
-    canvas.style.height = `${canvas.height * (pixelated ? view.scale : 1)}px`;
-    canvas.style.transform = `translate(calc(-50% + ${view.offsetX}px),calc(-50% + ${view.offsetY}px))${pixelated ? '' : ` scale(${view.scale})`}`;
-    renderFilteredPreview();
-    if (label) label.textContent = `${Math.round(view.scale / view.fitScale * 100)}%`;
-    view.onTransform?.();
-  };
-  const reset = () => { previewKey = ''; view.initialized = false; view.offsetX = view.offsetY = 0; renderView(); };
-  viewport.addEventListener('wheel', event => {
-    if (!canvas.width) return;
-    event.preventDefault();
-    const bounds = viewport.getBoundingClientRect();
-    const cursorX = event.clientX - bounds.left - bounds.width / 2 - view.offsetX;
-    const cursorY = event.clientY - bounds.top - bounds.height / 2 - view.offsetY;
-    const next = Math.max(view.fitScale * .35, Math.min(view.fitScale * 12, view.scale * (event.deltaY < 0 ? 1.12 : .89)));
-    const factor = next / view.scale;
-    view.offsetX -= cursorX * (factor - 1);
-    view.offsetY -= cursorY * (factor - 1);
-    view.scale = next;
-    renderView();
-  }, { passive: false });
-  viewport.addEventListener('pointerdown', event => {
-    if (!canvas.width || !(view.canPan ? view.canPan(event) : event.button === 0)) return;
-    view.dragging = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
-    event.preventDefault();
-    viewport.setPointerCapture?.(event.pointerId);
-    viewport.classList.add('is-panning');
-  });
-  viewport.addEventListener('pointermove', event => {
-    if (!view.dragging || view.dragging.pointerId !== event.pointerId) return;
-    view.offsetX += event.clientX - view.dragging.x;
-    view.offsetY += event.clientY - view.dragging.y;
-    view.dragging.x = event.clientX; view.dragging.y = event.clientY;
-    renderView();
-  });
-  const stop = event => {
-    if (!view.dragging || (event.pointerId !== undefined && view.dragging.pointerId !== event.pointerId)) return;
-    view.dragging = null; viewport.classList.remove('is-panning');
-  };
-  viewport.addEventListener('pointerup', stop); viewport.addEventListener('pointercancel', stop); viewport.addEventListener('lostpointercapture', stop);
-  new ResizeObserver(renderView).observe(viewport);
-  view.render = renderView; view.reset = reset;
-  previewViewports.push(view);
-  return view;
-}
-
-const inputViewport = mountPreviewViewport($('inputPreviewWrap'), inputCanvas, $('inputZoomLabel'));
-const outputViewport = mountPreviewViewport($('outputWrap'), outputCanvas, $('textureZoomLabel'));
-const heightViewport = mountPreviewViewport($('heightPreviewWrap'), heightPreviewCanvas, $('heightZoomLabel'));
-const normalViewport = mountPreviewViewport($('normalPreviewWrap'), normalPreviewCanvas, $('normalZoomLabel'));
-const aoViewport = mountPreviewViewport($('aoPreviewWrap'), aoPreviewCanvas, $('aoZoomLabel'));
-const previewPanels = { input: $('inputPreviewPanel'), fabric: $('fabricPreviewPanel'), height: $('heightPreviewPanel'), normal: $('normalPreviewPanel'), ao: $('aoPreviewPanel') };
-const previewViewByMode = { input: inputViewport, fabric: outputViewport, height: heightViewport, normal: normalViewport, ao: aoViewport };
-function setPreviewMap(mode) {
-  if (mode !== 'input') cropTool?.cancel();
-  for (const [key, panel] of Object.entries(previewPanels)) if (panel) panel.hidden = key !== mode;
-  document.querySelectorAll('[data-preview-map]').forEach(button => {
-    const active = button.dataset.previewMap === mode;
-    button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active));
-  });
-  requestAnimationFrame(() => {
-    // Each map has its own pan/zoom state. Returning to a map should start at
-    // the complete image so its preview can be compared directly with the
-    // downloaded file.
-    previewViewByMode[mode]?.reset?.();
-    previewViewports.forEach(view => view.render?.());
-  });
-}
-document.querySelectorAll('[data-preview-map]').forEach(button => { button.addEventListener('click', () => setPreviewMap(button.dataset.previewMap)); });
-const cropTool = mountBmpCropTool({
-  viewport: $('inputPreviewWrap'), canvas: inputCanvas, view: inputViewport,
-  button: $('cropButton'), toolbar: $('cropToolbar'), progress: $('cropProgress'),
-  reset: $('cropReset'), cancel: $('cropCancel'), apply: $('cropApply'),
-  showInput: () => setPreviewMap('input'), onApply: applyBmpCrop,
-  onError: error => setStatus(error.message, false)
+// The host owns visible previews and crop interaction; these canvases only
+// retain source/generated pixels for encoding and export.
+$("cropButton").disabled = true;
+if (!embeddedInMaterialEditor || inlinePanel) $("cropButton").hidden = true;
+$("cropButton").addEventListener("click", () => {
+  if (embeddedInMaterialEditor && state.sourceFile) window.parent.postMessage({ type: "procedural-crop-request" }, "*");
 });
-setPreviewMap('fabric');
 
 function outputDpi() {
   const input = $("dpi");
@@ -394,31 +311,27 @@ function renderPaletteControls() {
   container.replaceChildren();
   ensurePaletteColorPicker();
   closePaletteColorEditor();
-  if (!state.palette.length) {
-    $("resetPalette").disabled = true;
-    return;
-  }
+  if (!state.palette.length) return;
   for (const entry of state.palette) {
     const row = document.createElement("div");
     row.className = "palette-row";
     const relief = document.createElement("input");
     relief.type = "checkbox";
-    relief.className = "relief-toggle";
+    relief.className = "relief-toggle source-swatch";
+    relief.id = `relief-color-${entry.index}`;
+    relief.style.backgroundColor = entry.sourceHex;
     relief.checked = state.recessedClasses.has(entry.index);
-    relief.title = `色号 ${entry.index} 的像素生成径向凹陷`;
-    relief.setAttribute("aria-label", `色号 ${entry.index} 生成凹陷`);
+    relief.title = `初始色 ${entry.sourceHex}${entry.sourceIndex === null ? "" : ` · BMP#${entry.sourceIndex}`} · 点击选择凹陷区域`;
+    relief.setAttribute("aria-label", `${entry.index}号色生成凹陷`);
     relief.addEventListener("change", () => {
       if (relief.checked) state.recessedClasses.add(entry.index);
       else state.recessedClasses.delete(entry.index);
       invalidateNormal();
     });
-    const id = document.createElement("span");
+    const id = document.createElement("label");
     id.className = "palette-id";
-    id.textContent = `色号 ${entry.index}`;
-    const source = document.createElement("span");
-    source.className = "source-swatch";
-    source.title = `BMP 原色 ${entry.sourceHex}${entry.sourceIndex === null ? "" : ` · BMP#${entry.sourceIndex}`}`;
-    source.style.backgroundColor = entry.sourceHex;
+    id.htmlFor = relief.id;
+    id.textContent = `${entry.index}号色`;
     const input = document.createElement("button");
     input.type = "button";
     input.className = "compact-procedural-swatch";
@@ -429,13 +342,13 @@ function renderPaletteControls() {
     input.setAttribute("aria-controls", "paletteColorEditor");
     input.setAttribute("aria-expanded", String(paletteColorIndex === entry.index));
     input.onclick = () => openPaletteColorEditor(entry.index, entry.loopHex);
-    const count = document.createElement("output");
-    count.className = "palette-count";
-    count.value = `${entry.count.toLocaleString()} px`;
-    row.append(relief, id, source, input, count);
+    const hex = document.createElement("output");
+    hex.className = "palette-hex";
+    hex.setAttribute('aria-label', `${entry.index}号色的线圈颜色`);
+    hex.value = entry.loopHex.toUpperCase();
+    row.append(relief, id, input, hex);
     container.append(row);
   }
-  $("resetPalette").disabled = false;
 }
 
 function analyzePalette(data, indexedBmp = null) {
@@ -461,7 +374,7 @@ function analyzePalette(data, indexedBmp = null) {
   });
   // The dominant/background color remains flat by default. Other color
   // classes are selected so the first generated map is useful immediately;
-  // the checkboxes let the user refine the set per color number.
+  // the source swatches let the user refine the set per color number.
   state.recessedClasses = new Set(state.palette.map((entry) => entry.index).filter((index) => index > 0));
   const lookup = new Map(state.palette.map((entry) => [entry.key, entry.index]));
   state.classMap = new Uint32Array(state.pixels);
@@ -474,10 +387,24 @@ function analyzePalette(data, indexedBmp = null) {
   renderPaletteControls();
 }
 
+function postPreviewStatus(kind, busy, error = '', extra = {}) {
+  if (!embeddedInMaterialEditor) return;
+  window.parent.postMessage({ type: 'procedural-preview-status', kind, busy, error,
+    sourceRevision: state.sourceLoadId, baseRevision: state.renderId, reliefRevision: state.normalRenderId, ...extra }, '*');
+}
+
 async function loadFile(file, resetGeneratedMaps = true) {
   if (!file) return;
   const loadId = ++state.sourceLoadId;
-  cropTool.cancel();
+  state.sourceLoading = true;
+  state.renderJob?.cancel(); state.renderJob = null; state.renderId++; state.jpegEncodeId++;
+  invalidateNormal(false);
+  setRenderButtonState('renderButton', 'loading');
+  setRenderButtonState('normalButton', 'loading');
+  postPreviewStatus('source', true, '', { resetGeneratedMaps });
+  state.renderedId = 0; $('downloadButton').disabled = true;
+  if (state.jpegUrl) URL.revokeObjectURL(state.jpegUrl);
+  state.jpegUrl = null;
   $('cropButton').disabled = true;
   setStatus("读取 BMP…", false);
   try {
@@ -498,16 +425,14 @@ async function loadFile(file, resetGeneratedMaps = true) {
     inputCtx.clearRect(0, 0, state.width, state.height);
     inputCtx.drawImage(bitmap, 0, 0);
     $("inputEmptyState").hidden = true;
-    inputViewport?.reset();
     state.imageData = inputCtx.getImageData(0, 0, state.width, state.height);
+    state.sourceLoading = false;
     state.pixels = state.width * state.height;
     const usableIndexedBmp = indexedBmp && indexedBmp.width === state.width && indexedBmp.height === state.height ? indexedBmp : null;
     state.indexedBmp = usableIndexedBmp;
     analyzePalette(state.imageData.data, usableIndexedBmp);
     $('cropButton').disabled = false;
     updatePhysicalSizeInfo();
-    $("renderButton").disabled = false;
-    $("normalButton").disabled = false;
     invalidateNormal(false);
     setStatus(`已载入 ${file.name}`, true);
     postProceduralState(true, resetGeneratedMaps);
@@ -515,14 +440,24 @@ async function loadFile(file, resetGeneratedMaps = true) {
   } catch (error) {
     if (loadId !== state.sourceLoadId) return;
     console.error(error);
+    state.bitmap?.close(); state.bitmap = null; state.imageData = null;
+    state.sourceLoading = false;
+    state.sourceFile = null; state.classMap = null; state.indexedBmp = null;
+    state.width = state.height = state.pixels = 0; state.palette = [];
+    inputCanvas.width = inputCanvas.height = outputCanvas.width = outputCanvas.height = 0;
+    setRenderButtonState('renderButton', 'empty');
+    invalidateNormal(false);
+    renderPaletteControls(); updatePhysicalSizeInfo();
     setStatus("读取失败，请选择标准 BMP", false);
+    postPreviewStatus('source', false, '读取失败，请选择标准 BMP');
   } finally {
-    if (loadId === state.sourceLoadId) $('cropButton').disabled = !state.imageData;
+    if (loadId === state.sourceLoadId) $('cropButton').disabled = !embeddedInMaterialEditor || !state.imageData;
   }
 }
 
 function applyBmpCrop(rect) {
   const image = BmpCrop.cropPixels(state.imageData, rect);
+  state.sourceLoadId++;
   const indexedBmp = BmpCrop.cropIndexed(state.indexedBmp, rect);
   const bytes = BmpCrop.encodeBmp(image, indexedBmp);
   const sourceName = (state.sourceName || 'source.bmp').replace(/(?:-crop)?\.bmp$/i, '') + '-crop.bmp';
@@ -546,10 +481,10 @@ function applyBmpCrop(rect) {
     if (previous.recessed) state.recessedClasses.add(entry.index);
   }
   renderPaletteControls(); invalidateNormal(false);
-  outputCanvas.width = outputCanvas.height = 0; $('textureZoomLabel').textContent = '';
+  outputCanvas.width = outputCanvas.height = 0;
   $('emptyState').textContent = ''; $('renderInfo').textContent = '';
   $('sourceFileName').textContent = sourceName; $('sourceFileName').title = sourceName;
-  inputViewport.reset(); updatePhysicalSizeInfo(); setStatus('', true);
+  updatePhysicalSizeInfo(); setStatus('', true);
   postProceduralState(true, true); render();
 }
 
@@ -601,6 +536,20 @@ function applyProceduralMapping(mapping = {}) {
 
 window.addEventListener("message", async event => {
   const data = event.data;
+  if (event.source !== window.parent || (event.origin !== location.origin && event.origin !== 'null')) return;
+  if (data?.type === 'procedural-dismiss-picker') { closePaletteColorEditor(); return; }
+  if (data?.type === 'procedural-upload') {
+    state.requestId = null;
+    if (data.sourceFile) await loadFile(data.sourceFile);
+    return;
+  }
+  if (data?.type === 'procedural-crop') {
+    try {
+      if (data.sourceRevision !== state.sourceLoadId) throw new Error('BMP 已更新，请重新裁剪');
+      applyBmpCrop(data.rect);
+    } catch (error) { window.parent.postMessage({ type: 'procedural-error', message: error.message }, '*'); }
+    return;
+  }
   if (!data || !["procedural-load", "procedural-update"].includes(data.type)) return;
   try {
     state.requestId = data.requestId ?? null;
@@ -625,8 +574,7 @@ function invalidateNormal(resetMaterial = true) {
   clearMapResults();
   const download = $("normalDownloadButton");
   if (download) download.disabled = true;
-  const button = $("normalButton");
-  if (button) button.disabled = !state.imageData;
+  setRenderButtonState('normalButton', state.sourceLoading ? 'loading' : state.imageData ? 'pending' : 'empty');
   const info = $("normalInfo");
   if (info) info.textContent = "";
   if (resetMaterial) postProceduralState(false, false, true);
@@ -717,20 +665,18 @@ function clearMapResults() {
   for (const canvas of [heightPreviewCanvas, normalPreviewCanvas, aoPreviewCanvas]) {
     if (canvas) canvas.width = canvas.height = 0;
   }
-  for (const id of ["heightZoomLabel", "normalZoomLabel", "aoZoomLabel"]) {
-    if ($(id)) $(id).textContent = "";
-  }
   if ($("heightEmptyState")) $("heightEmptyState").hidden = false;
   if ($("normalEmptyState")) $("normalEmptyState").hidden = false;
   if ($("aoEmptyState")) $("aoEmptyState").hidden = false;
 }
 
 async function renderNormal() {
-  if (!state.imageData || !state.classMap?.length) return;
+  if (!state.imageData || state.sourceLoading || !state.classMap?.length) return;
   const id = ++state.normalRenderId;
+  postPreviewStatus("relief", true);
   state.normalJob?.cancel();
   clearMapResults();
-  $("normalButton").disabled = true;
+  setRenderButtonState('normalButton', 'rendering');
   const base = state.reliefOptions = currentRenderOptions();
   const jpegSettings = { dpi: base.dpi, quality: Number($("quality").value) / 100 };
   const names = { "height-field": "计算高度场", "blur-x": "高斯模糊", "blur-y": "高斯模糊", height: "生成高度图", normal: "生成法线图", ao: "生成 AO 图" };
@@ -743,7 +689,6 @@ async function renderNormal() {
       async onMap(kind, image) {
         if (id !== state.normalRenderId) return;
         showMapPreview(...previews[kind], image);
-        previewViewByMode[kind]?.reset();
         $(`${kind}EmptyState`).hidden = true;
         $("normalInfo").textContent = `正在导出${kind === "height" ? "高度" : kind === "normal" ? "法线" : " AO "}图…`;
         await replaceMapUrl(kind, image, jpegSettings, id);
@@ -755,19 +700,24 @@ async function renderNormal() {
     await applyRenderedRelief();
     if (id !== state.normalRenderId) return;
     $("normalInfo").textContent = "";
+    setRenderButtonState('normalButton', 'ready');
   } catch (error) {
     if (id !== state.normalRenderId || error.name === "AbortError") return;
     console.error(error);
     clearMapResults();
+    postPreviewStatus("relief", false, error.message);
     $("normalInfo").textContent = "高度图 / 法线图 / AO 图生成失败：" + error.message;
+    setRenderButtonState('normalButton', 'error');
   } finally {
     if (id === state.normalRenderId) { state.normalJob = null; $("normalButton").disabled = false; }
   }
 }
 
 function render() {
-  if (!state.imageData || state.renderQueued) return;
+  if (!state.imageData || state.sourceLoading || state.renderQueued) return;
   state.renderQueued = true;
+  setRenderButtonState('renderButton', 'rendering');
+  $("downloadButton").disabled = true;
   requestAnimationFrame(() => { state.renderQueued = false; renderNow(); });
 }
 function requestRender() { render(); }
@@ -809,18 +759,22 @@ async function applyJpegDpi(blob, dpi) {
 async function exportJpeg(id) {
   const encodeId = ++state.jpegEncodeId;
   const settings = { dpi: state.renderOptions?.dpi ?? outputDpi(), quality: Number($("quality").value) / 100 };
+  setRenderButtonState('renderButton', 'rendering');
   $("downloadButton").disabled = true;
   const fail = (error) => {
-    if (id !== state.renderId) return;
+    if (id !== state.renderId || encodeId !== state.jpegEncodeId || state.renderQueued) return;
     console.error(error);
     $("renderInfo").textContent = "JPG 导出失败：" + error.message;
+    postPreviewStatus("base", false, error.message);
+    setRenderButtonState('renderButton', 'error');
   };
   try {
     const jpeg = await encodeCanvasJpeg(outputCanvas, settings);
-    if (id !== state.renderId || encodeId !== state.jpegEncodeId) return;
+    if (id !== state.renderId || encodeId !== state.jpegEncodeId || state.renderQueued) return;
     if (state.jpegUrl) URL.revokeObjectURL(state.jpegUrl);
     state.jpegUrl = URL.createObjectURL(jpeg);
     $("downloadButton").disabled = false;
+    setRenderButtonState('renderButton', 'ready');
     if (embeddedInMaterialEditor) void applyRenderedMaterial();
   } catch (error) { fail(error); }
 }
@@ -839,34 +793,38 @@ async function applyRenderedMaterial() {
       name: "procedural-material.jpg",
       file,
       requestId: state.requestId,
+      sourceRevision: state.sourceLoadId, baseRevision: renderId,
       physical: metrics ? { widthCm: metrics.widthCm, heightCm: metrics.heightCm } : null
     }, "*");
     setStatus("纹理 JPG 已自动应用到材质编辑器", true);
   } catch (error) {
+    if (renderId !== state.renderId || jpegUrl !== state.jpegUrl) return;
     console.error(error);
     setStatus("应用 JPG 失败：" + error.message, false);
+    postPreviewStatus("base", false, error.message);
   }
 }
 
 async function applyRenderedRelief() {
-  if (!embeddedInMaterialEditor || !state.normalUrl || !state.aoUrl) return;
-  const renderId = state.normalRenderId, normalUrl = state.normalUrl, aoUrl = state.aoUrl;
-  const options = state.reliefOptions;
-  const [normalResponse, aoResponse] = await Promise.all([fetch(normalUrl), fetch(aoUrl)]);
-  if (!normalResponse.ok || !aoResponse.ok) throw new Error("无法读取生成的法线 / AO JPG");
-  const [normalFile, aoFile] = await Promise.all([normalResponse.blob(), aoResponse.blob()]);
-  if (renderId !== state.normalRenderId || normalUrl !== state.normalUrl || aoUrl !== state.aoUrl) return;
-  window.parent.postMessage({
-    type: "procedural-relief-material",
-    maps: { normalMap: normalFile, aoMap: aoFile },
-    requestId: state.requestId,
+  if (!embeddedInMaterialEditor || !state.heightUrl || !state.normalUrl || !state.aoUrl) return;
+  const renderId = state.normalRenderId, urls = [state.heightUrl, state.normalUrl, state.aoUrl];
+  const options = state.reliefOptions, sourceRevision = state.sourceLoadId;
+  const responses = await Promise.all(urls.map(url => fetch(url)));
+  if (responses.some(response => !response.ok)) throw new Error('无法读取生成的高度 / 法线 / AO JPG');
+  const [height, normalMap, aoMap] = await Promise.all(responses.map(response => response.blob()));
+  if (renderId !== state.normalRenderId || sourceRevision !== state.sourceLoadId) return;
+  window.parent.postMessage({ type: 'procedural-relief-material', maps: { height, normalMap, aoMap },
+    requestId: state.requestId, sourceRevision, reliefRevision: renderId,
     physical: options ? { widthCm: options.physicalWidthCm, heightCm: options.physicalHeightCm } : null
-  }, "*");
+  }, '*');
 }
 
 async function renderNow() {
+  if (!state.imageData || state.sourceLoading) return;
   const id = ++state.renderId;
+  postPreviewStatus("base", true);
   state.renderJob?.cancel();
+  setRenderButtonState('renderButton', 'rendering');
   $("downloadButton").disabled = true;
   try {
     const metrics = physicalMetrics(outputDpi());
@@ -888,7 +846,6 @@ async function renderNow() {
     if (id !== state.renderId) return;
     outputCanvas.width = image.width; outputCanvas.height = image.height;
     outputCtx.putImageData(new ImageData(image.data, image.width, image.height), 0, 0);
-    outputViewport?.reset();
     state.renderedId = id;
     $("emptyState").hidden = true;
     $("renderInfo").textContent = "";
@@ -897,7 +854,11 @@ async function renderNow() {
     if (id !== state.renderId || error.name === "AbortError") return;
     console.error(error);
     $("renderInfo").textContent = "渲染失败：" + error.message;
+    postPreviewStatus("base", false, error.message);
     $("emptyState").textContent = "渲染失败，请点击“渲染纹理”重试。";
+    if (!state.renderQueued) setRenderButtonState('renderButton', 'error');
+  } finally {
+    if (id === state.renderId) state.renderJob = null;
   }
 }
 
@@ -929,15 +890,6 @@ $("fileInput").addEventListener("change", (event) => {
   void loadFile(file);
 });
 $("renderButton").addEventListener("click", render);
-$("resetPalette").addEventListener("click", () => {
-  for (const entry of state.palette) {
-    entry.loopHex = entry.sourceHex;
-    entry.loopRgb = hexToRgb(entry.loopHex);
-  }
-  renderPaletteControls();
-  postProceduralState();
-  requestRender();
-});
 $("backgroundColor").addEventListener("input", () => {
   $("backgroundColorValue").value = $("backgroundColor").value.toUpperCase();
   syncPaletteColorSelection(); postProceduralState();

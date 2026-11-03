@@ -16,6 +16,7 @@ const getAsset = id => readAsset(id, { runtime: true });
 import { MATERIAL_MAPS, readSurface, applySurface, readLegacyUV, applyLegacyUV } from './shared/material-data.js';
 import { filterMaterialMaps, filterMaterialSurface } from './shared/material-map-definitions.js';
 import { createDesignWorkspace } from './design-workspace.js';
+import { mountColorInputs } from './shared/color-picker-controls.js';
 import { mountFabricScanner } from './shared/fabric-scanner.js';
 import { validateScannedFabric } from './shared/fabric-identity.js';
 import { FABRIC_PART_TYPES, normalizeFabricCategory, normalizePartType } from './shared/fabric-category.js';
@@ -45,6 +46,50 @@ import { workspaceClient } from './shared/auth.js';
 import { createDefaultCameraStore } from './shared/default-camera-store.js';
 import { createCaptureAiStore, CAPTURE_AI_DEFAULT_BASE, CAPTURE_AI_DEFAULTS } from './shared/capture-ai-store.js';
 import { createSceneConfigStore } from './shared/scene-config.js';
+import { annotationId, projectModelHash } from './shared/showcase-data.js';
+import { createShowcaseStore } from './shared/showcase-store.js';
+import { mountProjectFeedback, feedbackAuthorName } from './shared/project-feedback.js';
+let workspaceMode='design',workspaceServices={},workspaceResolve=null,workspaceReject=null,currentProjectManifest=null;
+let commentPlacement=false,commentReposition=null,feedbackUI=null,feedbackStore=null;
+const isDesign=()=>workspaceMode==='design';
+const isGuest=()=>workspaceMode==='showcase-guest';
+function feedbackContext(){return {id:activeProjectId,modelHash:projectModelHash(currentProjectManifest)};}
+function initProjectFeedback(){
+ feedbackStore=workspaceServices.feedback||createShowcaseStore(workspaceClient);
+ feedbackUI=mountProjectFeedback({host:$('annotationPanel'),guest:isGuest(),current:feedbackContext,list:id=>feedbackStore.comments(id),remove:id=>feedbackStore.removeComment(id),notify,
+  start:()=>{if(!activeProjectId)return notify('请先保存并打开项目');commentPlacement=true;commentReposition=null;setAnnotationMode(true);notify('点击模型表面添加留言');},
+  select:id=>{const a=annotations.find(a=>a.comment?.id===id);if(a){setAnnotationMode(true);selectAnnotation(a);}else notify('此留言的位置需要项目所有者重新定位');},
+  reposition:id=>{commentReposition=id;setAnnotationMode(true);notify('点击模型表面重新定位留言');},
+  changed:comments=>{
+   const old=annotations.filter(a=>a.comment);old.forEach(a=>a.el.remove());annotations=annotations.filter(a=>!a.comment);if(selectedAnnotation?.comment)selectedAnnotation=null;
+   const hosts=[];model?.traverse(o=>{if(o.isMesh)hosts.push(o);});
+   for(const comment of comments){if(comment.modelHash!==projectModelHash(currentProjectManifest)||!hosts[comment.host])continue;const host=hosts[comment.host];host.updateWorldMatrix(true,false);
+    const a=addAnnotation({object:host,point:host.localToWorld(new THREE.Vector3().fromArray(comment.point))},comment.authorName+' · '+new Date(comment.createdAt).toLocaleString('zh-CN')+'\n'+comment.body,false,{id:comment.id,comment});a.el.classList.add('project-comment');
+   }
+   invalidateAnnotations();syncAnnotationPanel();
+  }
+ });
+}
+async function submitCommentDraft(a,value){
+ if(a.submitting)return;const text=value.trim();if(!text)return notify('请输入留言内容');
+ const context=feedbackContext(),generation=modelGeneration,hosts=[];model?.traverse(o=>{if(o.isMesh)hosts.push(o);});
+ if(!context.id||loadingModel)return notify('请先完成项目载入');
+ a.submitting=true;a.window.querySelectorAll('button,input').forEach(node=>node.disabled=true);
+ try{
+  const authorName=await feedbackAuthorName();
+  if(context.id!==activeProjectId||generation!==modelGeneration)throw new Error('项目已经切换，请重新留言');
+  await feedbackStore.addComment({projectId:context.id,modelHash:context.modelHash,requestId:a.id,authorName,body:text,host:hosts.indexOf(a.host),point:a.point.toArray()});
+  if(context.id!==activeProjectId||generation!==modelGeneration)return;
+  a.el.remove();annotations=annotations.filter(item=>item!==a);commentPlacement=false;selectedAnnotation=null;await feedbackUI.refresh();notify('留言已随项目保存');
+ }catch(error){notify(error.message||'留言保存失败，请重试',6000);}
+ finally{a.submitting=false;a.window.querySelectorAll('button,input').forEach(node=>node.disabled=false);}
+}
+async function repositionProjectComment(hit){
+ const id=commentReposition,project=activeProjectId,generation=modelGeneration,hosts=[];if(isGuest()||!id)return;
+ model.traverse(o=>{if(o.isMesh)hosts.push(o);});commentReposition=null;
+ try{await feedbackStore.repositionComment(id,{modelHash:projectModelHash(currentProjectManifest),host:hosts.indexOf(hit.mesh),point:hit.mesh.worldToLocal(hit.point.clone()).toArray()});if(project===activeProjectId&&generation===modelGeneration){await feedbackUI.refresh();notify('留言位置已更新');}}
+ catch(error){notify(error.message);}
+}
 async function loadDesignAsset(id){
  const summary=await readAsset(id,{runtime:true,previewOnly:true});
  if(!summary)return null;
@@ -84,6 +129,12 @@ const materialHoldResets = new WeakMap();
 import { createInspectorTransition, inspectorMorph } from './shared/inspector-transition.js';
 let inspectorTransition=null,inspectorOrigin=null;
 let cameraTween=null,annotationMode=false,rulerMode=false,rulerAnimating=false,rulerClosing=false,rulerAnimationTimer=null,selectedAnnotation=null,annotations=[],annotationMoving=false,annotationIdleTimer=null,rulerMeasurements=[],rulerMeasurementNextId=0;
+// Keep the camera's OrbitControls target fixed while the model turns around
+// its own centered root. The angle matches OrbitControls' frame-based
+// autoRotateSpeed below so the existing showroom rhythm stays unchanged.
+const MODEL_AUTO_ROTATE_SPEED=.6;
+const MODEL_AUTO_ROTATE_ANGLE=(Math.PI*2/60/60)*MODEL_AUTO_ROTATE_SPEED;
+let modelAutoRotation=0,modelAutoRotateActive=false,modelAutoRotateInteracting=false;
 let patterns=[],selectedPattern=null,patternAsset=null,patternPlaceMode=false,patternUploadToken=0;
 let activeFabric='其他';
 function fabricCategory(entry){return normalizeFabricCategory(entry.category||(/包边|滚边|piping|binding/i.test(entry.name)?'辅料':/边布|侧布|side/i.test(entry.name)?'边布':'面布'));}
@@ -193,6 +244,7 @@ function renderDesignScene(){
  }
 }
 function setCaptureMode(active){
+ if(isGuest())return;
  if(active===captureMode)return;
  if(active){
   if(!model||loadingModel)return notify('请等待模型载入完成后再进入拍摄模式');
@@ -389,6 +441,17 @@ function extractCaptureImage(payload,text=''){
  const visit=(value,seenObjects=new Set(),key='')=>{if(value==null)return;if(typeof value==='string'){scanText(value);if(/image|data|base64|b64|inline/i.test(key)&&value.length>100&&/^[A-Za-z0-9+/=\s]+$/.test(value))add(value);return}if(typeof value!=='object'||seenObjects.has(value))return;seenObjects.add(value);if(value.inlineData?.data)add(value.inlineData.data,value.inlineData.mimeType||'image/png');if(value.inline_data?.data)add(value.inline_data.data,value.inline_data.mime_type||'image/png');if(value.b64_json)add(value.b64_json,value.mimeType||value.mime_type||'image/png');if(typeof value.url==='string'){if(value.url.startsWith('data:image/'))scanText(value.url);else addUrl(value.url)}if(Array.isArray(value))value.forEach(item=>visit(item,seenObjects,key));else Object.entries(value).forEach(([childKey,item])=>visit(item,seenObjects,childKey));};
  visit(payload);scanText(text);return found[0]||null;
 }
+async function ensureCaptureProject(){
+ if(isGuest()||loadingModel||!model)throw new Error('请先打开可出图的项目');
+ const generation=modelGeneration,{userId}=await workspaceClient();
+ let project=activeProjectId?await getStoredProject(activeProjectId):null;
+ if(!project||project.ownerId!==userId){
+  if(!isDesign())throw new Error('只能为自己的项目出图');
+  project=await saveProject({silent:true});
+ }
+ if(!project?.id||generation!==modelGeneration||loadingModel)throw new Error('项目未保存或已经切换，请重试');
+ return project.id;
+}
 async function captureFrameBlob({transparent=false,width,height}={}){
  const checkbox=$('captureTransparent'),previous=checkbox.checked;
  if(transparent&&!previous){checkbox.checked=true;setCaptureTransparent(true)}
@@ -401,7 +464,7 @@ function captureFilename(){return albumPhotoName(modelSource?.name||$('modelName
 async function captureImage(){
  if(!captureMode||!renderer||!camera||$('captureShoot').disabled)return;const width=Math.round(Number($('captureWidth').value)),height=Math.round(Number($('captureHeight').value));if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width>8192||height>8192){notify('请输入 1–8192 范围内的像素值');return}
  const photoName=captureFilename(),transparent=$('captureTransparent').checked,flash=$('captureFlash');if(flash){flash.classList.remove('is-flashing');void flash.offsetWidth;flash.classList.add('is-flashing');clearTimeout(captureFlashTimer);captureFlashTimer=setTimeout(()=>{flash.classList.remove('is-flashing');captureFlashTimer=null},320)}
- $('captureShoot').disabled=true;$('captureShoot').textContent='正在拍摄…';try{const result=await captureFrameBlob({transparent,width,height});$('captureShoot').textContent='正在保存到云端…';await addPhoto(result,{name:photoName,width,height,transparent,source:'capture'});notify('已保存到云端图册，仅当前账号可见')}catch(error){notify(error.message||'图片保存失败，请重试。',6500);console.warn('图册保存失败',error)}finally{$('captureShoot').disabled=false;$('captureShoot').textContent='拍摄'}
+ $('captureShoot').disabled=true;$('captureShoot').textContent='正在拍摄…';try{const generation=modelGeneration,projectId=await ensureCaptureProject();if(generation!==modelGeneration)throw new Error('项目已经切换，请重试');const result=await captureFrameBlob({transparent,width,height});$('captureShoot').textContent='正在保存到云端…';await addPhoto(result,{name:photoName,width,height,transparent,source:'capture',projectId});window.dispatchEvent(new CustomEvent('spenic-project-photo',{detail:{projectId}}));notify('已保存到云端图册和项目画册')}catch(error){notify(error.message||'图片保存失败，请重试。',6500);console.warn('图册保存失败',error)}finally{$('captureShoot').disabled=false;$('captureShoot').textContent='拍摄'}
 }
 async function captureAiGenerate(){
  if(!captureMode||$('captureAiGenerate').disabled||!captureAiLoaded)return;
@@ -417,10 +480,12 @@ async function captureAiGenerate(){
   if(version!==captureAiVersion||request.signal.aborted)throw new Error('账号已切换，本次生成已终止');
  };
  try{
+  const captureGeneration=modelGeneration,projectId=await ensureCaptureProject();
   const config=await saveCaptureAiConfig();key=config.apiKey;
   const {model,aspect,size}=config,prompt=(typeof selectedCaptureAiPrompt==='function'?selectedCaptureAiPrompt():String(config.prompt||'').trim());
   if(!key)throw new Error('请先填写当前账号的 API Key');
   if(!prompt)throw new Error('请先在系统配置中添加快捷提示词');
+  if(captureGeneration!==modelGeneration)throw new Error('项目已经切换，请重试');
   setCaptureAiStatus('正在拍摄透明底图并请求 AI…');
   const input=await captureFrameBlob({transparent:true,width,height});
   const encoded=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(cleanCaptureBase64(reader.result));reader.onerror=()=>reject(new Error('读取输入图片失败'));reader.readAsDataURL(input)});
@@ -444,8 +509,9 @@ async function captureAiGenerate(){
   output.width=resultWidth;output.height=resultHeight;output.getContext('2d').drawImage(bitmap,0,0,resultWidth,resultHeight);bitmap.close();
   const png=await new Promise(resolve=>output.toBlob(resolve,'image/png'));if(!png)throw new Error('无法转换 AI 成品图片');
   await checkAccount();
-  await addPhoto(png,{name:photoName,width:resultWidth,height:resultHeight,transparent:false,source:'ai',ownerId});
-  await checkAccount();setCaptureAiStatus(`已生成 ${resultWidth} × ${resultHeight} 并保存到云端图册`,'ok');notify('AI 成品已保存到云端图册，仅当前账号可见');
+  await addPhoto(png,{name:photoName,width:resultWidth,height:resultHeight,transparent:false,source:'ai',ownerId,projectId});
+  window.dispatchEvent(new CustomEvent('spenic-project-photo',{detail:{projectId}}));
+  await checkAccount();setCaptureAiStatus(`已生成 ${resultWidth} × ${resultHeight} 并保存到云端图册`,'ok');notify('AI 成品已保存到云端图册和项目画册');
  }catch(error){
   const message=timedOut?'AI 生成超时，请稍后重试':error.name==='AbortError'?'账号已变更，本次生成已终止':error.message||'AI 绘画失败，请重试';
   setCaptureAiStatus(key?message.split(key).join('***'):message,'error');
@@ -462,7 +528,7 @@ function init(){
  renderer=new THREE.WebGLRenderer({canvas:$('canvas'),antialias:true,alpha:true,preserveDrawingBuffer:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
  scene=new THREE.Scene();scene.background=new THREE.Color(state.backgroundColor);scene.fog=new THREE.Fog(state.backgroundColor,18,48);
  camera=new THREE.PerspectiveCamera(36,1,.02,100);camera.position.set(6,3.7,7);
- controls=new OrbitControls(camera,$('canvas'));controls.enableDamping=true;controls.dampingFactor=.07;controls.minDistance=.3;controls.maxDistance=35;controls.maxPolarAngle=Math.PI*.49;controls.autoRotateSpeed=.6;
+ controls=new OrbitControls(camera,$('canvas'));controls.enableDamping=true;controls.dampingFactor=.07;controls.minDistance=.3;controls.maxDistance=35;controls.maxPolarAngle=Math.PI*.49;controls.autoRotateSpeed=MODEL_AUTO_ROTATE_SPEED;
  controls.mouseButtons={LEFT:THREE.MOUSE.ROTATE,MIDDLE:THREE.MOUSE.PAN,RIGHT:THREE.MOUSE.PAN};controls.screenSpacePanning=true;controls.enablePan=true;
  $('canvas').addEventListener('pointerdown',e=>{if(e.button===1)e.preventDefault();});$('canvas').addEventListener('auxclick',e=>{if(e.button===1)e.preventDefault();});
  const pmrem=new THREE.PMREMGenerator(renderer),room=new RoomEnvironment();scene.environment=pmrem.fromScene(room,.04).texture;room.dispose();pmrem.dispose();
@@ -479,15 +545,15 @@ function init(){
  grid=new THREE.GridHelper(14,28,0x9eb3ca,0xcbd5e1);grid.position.y=.002;grid.material.transparent=true;grid.material.opacity=.5;scene.add(grid);
  new ResizeObserver(resize).observe($('viewport'));resize();applyScene();
  $('canvas').addEventListener('webglcontextlost',e=>{e.preventDefault();busy('显卡渲染上下文已暂停','请刷新页面，或关闭其他占用显卡的窗口后重新打开。');});
- developerPanel=createDeveloperPanel({renderer,read:()=>state,apply:next=>{Object.assign(state,next);applyScene();},cycle:()=>daylightCycle,showroom:()=>showroom,status:()=>({loading:loadingModel,ready:!!model,name:$('modelName').textContent}),readCamera:readCurrentCameraView,getSettings:()=>developerSettings,setSettings:value=>{developerSettings=value;applyShowroomScale();applyScene();},getDefaultView:()=>designDefaultView,saveDefaultView:saveDesignDefaultView,notify,download});
- renderer.setAnimationLoop(()=>{if(pageLeaving)return;developerPanel.beginFrame();try{if(cameraTween?.update)cameraTween.update();else controls.update();syncPatterns();updateAnnotations(false);updateRuler();renderDesignScene();}finally{developerPanel.endFrame();}});bindEvents();buildSlots();showPanel('scene');
- loadDesignDefaultView().finally(async()=>{
+ developerPanel=isGuest()?{beginFrame(){},endFrame(){}}:createDeveloperPanel({renderer,read:()=>state,apply:next=>{Object.assign(state,next);applyScene();},cycle:()=>daylightCycle,showroom:()=>showroom,status:()=>({loading:loadingModel,ready:!!model,name:$('modelName').textContent}),readCamera:readCurrentCameraView,getSettings:()=>developerSettings,setSettings:value=>{developerSettings=value;applyShowroomScale();applyScene();},getDefaultView:()=>designDefaultView,saveDefaultView:saveDesignDefaultView,notify,download});
+ renderer.setAnimationLoop(()=>{if(pageLeaving)return;developerPanel.beginFrame();try{if(cameraTween?.update)cameraTween.update();else controls.update();advanceModelAutoRotation();syncPatterns();updateAnnotations(false);updateRuler();renderDesignScene();}finally{developerPanel.endFrame();}});bindEvents();if(isDesign())buildSlots();showPanel('scene');
+ (isGuest()?Promise.resolve().then(()=>{if(workspaceServices.defaultCamera)designDefaultView=readStoredDesignView(workspaceServices.defaultCamera);}):loadDesignDefaultView()).finally(async()=>{
   let sceneConfig;
-  try{sceneConfig=await createSceneConfigStore({access:workspaceClient}).load();}
+  try{sceneConfig=isGuest()?workspaceServices.sceneConfig?{...workspaceServices.sceneConfig,source:'cloud'}:await createSceneConfigStore({access:async()=>{throw new Error('guest');},warn:()=>{}}).load():await createSceneConfigStore({access:workspaceClient}).load();}
   catch(error){notify('光影流转配置未能读取，已使用默认场景：'+error.message,6000);}
   const globalConfig=sceneConfig?.source==='cloud'||sceneConfig?.source==='local';
-  return createSceneCycle({button:$('dayCycle'),read:()=>state,apply:(next,appearance)=>{Object.assign(state,next);applyScene(appearance);},name:value=>{currentSceneName=value;},notify,savedPresets:globalConfig?sceneConfig.scenes:developerSettings.presets,defaultScene:globalConfig?sceneConfig.defaultScene:'morning'}).then(cycle=>{daylightCycle=cycle;loadExample();});
- });
+  return createSceneCycle({button:$('dayCycle'),read:()=>state,apply:(next,appearance)=>{Object.assign(state,next);applyScene(appearance);},name:value=>{currentSceneName=value;},notify,savedPresets:globalConfig?sceneConfig.scenes:developerSettings.presets,defaultScene:globalConfig?sceneConfig.defaultScene:'morning'}).then(async cycle=>{daylightCycle=cycle;if(isDesign())await loadExample();else{hideBusy();setOpeningDockHidden(false);setOpeningDayHidden(false);}workspaceResolve?.(workspaceRuntime());});
+ }).catch(error=>{workspaceReject?.(error);console.error(error);});
 }
 // Stop the render loop before a navigation/reload. Leaving a live WebGL loop
 // running while Chromium tears down the document can leave the GPU process
@@ -606,7 +672,8 @@ function updateAnnotations(){
  const changed=camera.position.distanceToSquared(annotationCameraPosition)>1e-8||1-Math.abs(camera.quaternion.dot(annotationCameraRotation))>1e-9||!camera.projectionMatrix.equals(annotationProjection)||(model&&!model.matrixWorld.equals(annotationModelMatrix));
  if(changed||annotationPointerActive||cameraTween)invalidateAnnotations();
  annotationCameraPosition.copy(camera.position);annotationCameraRotation.copy(camera.quaternion);annotationProjection.copy(camera.projectionMatrix);if(model)annotationModelMatrix.copy(model.matrixWorld);
- annotationMoving=annotationPointerActive||!!cameraTween||!!(controls?.autoRotate&&controls.enabled);
+ const modelAutoRotating=model?.userData?.modelAutoRotateActive===true;
+ annotationMoving=annotationPointerActive||!!cameraTween||!!(controls?.autoRotate&&controls.enabled)||modelAutoRotating;
  const layer=$('annotationLayer');
  if(annotationMoving){if(!layer.hidden)layer.hidden=true;return;}
  if(layer.hidden)layer.hidden=false;
@@ -948,9 +1015,19 @@ function updateRuler(grow=false){
  });
 }
 function setAnnotationMoving(moving){if(moving)cancelDraftAnnotation();annotationPointerActive=moving;invalidateAnnotations();updateAnnotations();}
+function advanceModelAutoRotation(){
+ if(!model||!modelAutoRotateActive||modelAutoRotateInteracting)return;
+ modelAutoRotation=(modelAutoRotation+MODEL_AUTO_ROTATE_ANGLE)%(Math.PI*2);
+ model.rotation.y=THREE.MathUtils.degToRad(state.rotation)+modelAutoRotation;
+}
+function resetModelAutoRotation(){modelAutoRotation=0;}
 function syncAutoRotate(){
- controls.autoRotate=state.autoRotate&&!annotationMode&&!rulerMode&&!draggedMaterial&&!cameraTween;
- $('autoRotate').setAttribute('aria-pressed',String(controls.autoRotate));
+ modelAutoRotateActive=state.autoRotate&&!annotationMode&&!rulerMode&&!draggedMaterial&&!cameraTween;
+ if(model)model.userData.modelAutoRotateActive=modelAutoRotateActive;
+ // OrbitControls remains available for manual camera input, but its built-in
+ // auto rotation is disabled so the camera never orbits during this mode.
+ controls.autoRotate=false;
+ $('autoRotate').setAttribute('aria-pressed',String(modelAutoRotateActive));
  $('autoRotate').title=state.autoRotate&&annotationMode?'自动旋转（标记模式中暂停）':state.autoRotate&&rulerMode?'自动旋转（标尺模式中暂停）':'自动旋转';
 }
 function setAnnotationMode(active,{keepInspector=false}={}){
@@ -965,13 +1042,15 @@ function setAnnotationMode(active,{keepInspector=false}={}){
 }
 const ANNOTATION_CONFIRM_ICON='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="m8 12 2.6 2.7 5.4-5.4"/></svg>';
 function saveAnnotation(a,value){
+ if(a.comment||isGuest()&&!a.commentDraft)return false;
+ if(a.commentDraft){void submitCommentDraft(a,value);return true;}
  const text=value.trim();
  if(!text){notify('请输入标记信息');return false;}
  a.text=text.slice(0,300);a.saved=true;a.editing=false;a.draft=a.text;
  renderAnnotation(a);syncAnnotationPanel();return true;
 }
 function cancelDraftAnnotation(){
- const index=annotations.findIndex(a=>!a.saved);if(index<0)return false;
+ const index=annotations.findIndex(a=>!a.saved&&!a.submitting);if(index<0)return false;
  const a=annotations[index];a.el.remove();annotations.splice(index,1);
  // Preserve the other rows so the outside click can still activate its target.
  $('annotationList').children[index]?.remove();
@@ -980,6 +1059,7 @@ function cancelDraftAnnotation(){
  $('annotationEmpty').hidden=!!annotations.length;invalidateAnnotations();return true;
 }
 function deleteAnnotation(a){
+ if(isGuest()||a.comment)return;
  const index=annotations.indexOf(a);if(index<0)return;
  a.el.remove();annotations.splice(index,1);invalidateAnnotations();
  if(selectedAnnotation===a)selectedAnnotation=annotations[Math.min(index,annotations.length-1)]||null;
@@ -1001,7 +1081,7 @@ function renderAnnotation(a){
 }
 function syncAnnotationPanel(){
  const list=$('annotationList');list.replaceChildren();
- annotations.forEach((a,i)=>{
+ annotations.filter(a=>!a.comment).forEach((a,i)=>{
   a.el.classList.toggle('selected',a===selectedAnnotation);a.el.querySelector('.annotation-dot').setAttribute('aria-pressed',String(a===selectedAnnotation));
   const row=document.createElement('li');row.className='annotation-row'+(a===selectedAnnotation?' selected':'');
   const number=document.createElement('span');number.className='annotation-number';number.textContent=String(i+1).padStart(2,'0');row.append(number);
@@ -1012,21 +1092,21 @@ function syncAnnotationPanel(){
   }else{
    const text=document.createElement('button');text.className='annotation-row-text';text.textContent=a.saved?(a.text||'未填写标记'):'待输入…';text.title=a.saved?a.text:'请在模型标记框中输入信息';
    text.onclick=()=>{selectAnnotation(a);if(!a.saved)focusAnnotationDraft(a);};row.append(text);
-   if(a.saved){const edit=document.createElement('button');edit.className='annotation-edit';edit.setAttribute('aria-label','编辑标记 '+(i+1));edit.title='编辑标记';edit.innerHTML='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m15 5 4 4M4 20l5-1L20 8a2.8 2.8 0 0 0-4-4L5 15z"/></svg>';edit.onclick=()=>{setAnnotationMode(true);selectedAnnotation=a;a.editing=true;a.draft=a.text;syncAnnotationPanel();list.children[i].querySelector('input').focus();};row.append(edit);}
+   if(a.saved&&!isGuest()){const edit=document.createElement('button');edit.className='annotation-edit';edit.setAttribute('aria-label','编辑标记 '+(i+1));edit.title='编辑标记';edit.innerHTML='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m15 5 4 4M4 20l5-1L20 8a2.8 2.8 0 0 0-4-4L5 15z"/></svg>';edit.onclick=()=>{setAnnotationMode(true);selectedAnnotation=a;a.editing=true;a.draft=a.text;syncAnnotationPanel();list.children[i].querySelector('input').focus();};row.append(edit);}
   }
-  const remove=document.createElement('button');remove.className='annotation-row-delete';remove.textContent='×';remove.setAttribute('aria-label','删除标记 '+(i+1));remove.title='删除标记';remove.onclick=()=>deleteAnnotation(a);row.append(remove);list.append(row);
+  if(!isGuest()){const remove=document.createElement('button');remove.className='annotation-row-delete';remove.textContent='×';remove.setAttribute('aria-label','删除标记 '+(i+1));remove.title='删除标记';remove.onclick=()=>deleteAnnotation(a);row.append(remove);}list.append(row);
  });
- $('annotationEmpty').hidden=!!annotations.length;
+ $('annotationEmpty').hidden=annotations.some(a=>!a.comment);
 }
 function selectAnnotation(a){
  selectedAnnotation=a;syncAnnotationPanel();showPanel('annotation');
 }
-function addAnnotation(hit,text='',select=true){
+function addAnnotation(hit,text='',select=true,options={}){
  const pending=select&&annotations.find(a=>!a.saved);
  if(pending){selectAnnotation(pending);focusAnnotationDraft(pending);return pending;}
  const el=document.createElement('div');el.className='annotation-card';
  el.innerHTML='<button class="annotation-dot" aria-label="查看标记信息"></button><div class="annotation-window"></div>';
- const a={el,text:String(text).slice(0,300),draft:'',saved:!select,editing:false,window:el.querySelector('.annotation-window'),host:hit.object,point:hit.object.worldToLocal(hit.point.clone()),occluded:false};
+ const a={id:options.id||crypto.randomUUID(),comment:options.comment||null,commentDraft:select&&(isGuest()||commentPlacement),el,text:String(text).slice(0,300),draft:'',saved:!select,editing:false,window:el.querySelector('.annotation-window'),host:hit.object,point:hit.object.worldToLocal(hit.point.clone()),occluded:false};
  renderAnnotation(a);$('annotationLayer').append(el);annotations.push(a);
  el.querySelector('.annotation-dot').onclick=()=>{setAnnotationMode(true);selectAnnotation(a);if(!a.saved)focusAnnotationDraft(a);};
  annotationPointerActive=false;updateAnnotations();
@@ -1042,7 +1122,7 @@ function applyScene(appearance=daylightCycle?.appearance||sceneAppearance(state)
  key.target.position.set(0,.5,0);key.position.set(Math.sin(a)*radius,.5+Math.sin(elevation)*distance,Math.cos(a)*radius);fill.intensity=state.fillLight;
  key.shadow.intensity=appearance.shadow;floor.receiveShadow=true;stage.children.forEach(o=>{if(o.material?.isShadowMaterial)o.visible=appearance.shadow>0;});stage.visible=state.floorVisible;reflector.visible=state.reflection;grid.visible=state.grid;syncAutoRotate();
  floor.material.color.set(appearance.floorColor);hemi.intensity=appearance.hemi;reflector.material.uniforms.color.value.set(appearance.reflectorColor);
- if(model){model.rotation.y=THREE.MathUtils.degToRad(state.rotation);model.scale.setScalar(state.scale);}
+ if(model){model.rotation.y=THREE.MathUtils.degToRad(state.rotation)+modelAutoRotation;model.scale.setScalar(state.scale);}
  for(const entry of entries){entry.material.wireframe=state.renderMode==='wire';if(entry.material.flatShading!==(state.renderMode==='flat')){entry.material.flatShading=state.renderMode==='flat';entry.material.needsUpdate=true;}}
  $('renderInfo').textContent=state.renderMode==='wire'?'WIREFRAME':'PBR';
  for(const[k,v]of Object.entries(state)){const el=$(k);if(!el)continue;if(el.type==='checkbox')el.checked=v;else if(el.tagName==='INPUT'||el.tagName==='SELECT')el.value=v;if($(k+'Value'))$(k+'Value').textContent=['rotation','lightAngle','lightElevation'].includes(k)?Math.round(v)+'°':Number(v).toFixed(2);}
@@ -1098,10 +1178,10 @@ async function loadModel(buffer,name,files=[],{restore=null,parts=null,runtime=f
  busy('正在加载贴图');await yieldFrame();if(pageLeaving||request!==currentLoad)return;if(!parsed.prepared)prepareAnnotationPicking(parsed.object);materialPicker=createMaterialPicker(parsed.object);
  busy('正在加载模型');await yieldFrame();if(pageLeaving||request!==currentLoad)return;if(!parsed.prepared)preparePhysicalUV(parsed.object);
  const center=box.getCenter(new THREE.Vector3()),s=4.2/max,normalizer=new THREE.Group(),root=new THREE.Group();normalizer.add(parsed.object);normalizer.scale.setScalar(s);normalizer.position.set(-center.x*s,-box.min.y*s+.014,-center.z*s);root.add(normalizer);
- finishReveal();if(model){for(const a of annotations)a.el.remove();annotations=[];selectedAnnotation=null;syncAnnotationPanel();clearPatterns();scene.remove(model);disposeObject(model,entries);clearPatternSources();}clearRulerMeasurement({silent:true});model=root;model.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});restorePartAssignments(parts);modelSource={buffer:buffer.slice(0),name,files,runtime:!!parsed.prepared,textureConvention:parsed.textureConvention};physicalModel=nextPhysicalModel;updateModelDimensions();modelGeneration++;assignmentHistory=[];redoHistory=[];$('undoMaterial').disabled=true;syncHeaderUndo();entries=info.entries;for(const entry of entries)entry.material.userData.partTypes=partAssignments.get(entry.id)||new Set();configuredMaterialSlots=captureConfiguredMaterialSlots(model,partTypesForMaterial);selected=null;scene.add(model);state.rotation=0;state.scale=DEFAULTS.scale;$('isolate').checked=false;applyScene();fit('perspective',{immediate:true});
+ finishReveal();if(model){for(const a of annotations)a.el.remove();annotations=[];selectedAnnotation=null;syncAnnotationPanel();clearPatterns();scene.remove(model);disposeObject(model,entries);clearPatternSources();}clearRulerMeasurement({silent:true});model=root;modelAutoRotation=0;model.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});restorePartAssignments(parts);modelSource={buffer:buffer.slice(0),name,files,runtime:!!parsed.prepared,textureConvention:parsed.textureConvention};physicalModel=nextPhysicalModel;updateModelDimensions();modelGeneration++;assignmentHistory=[];redoHistory=[];$('undoMaterial').disabled=true;syncHeaderUndo();entries=info.entries;for(const entry of entries)entry.material.userData.partTypes=partAssignments.get(entry.id)||new Set();configuredMaterialSlots=captureConfiguredMaterialSlots(model,partTypesForMaterial);selected=null;scene.add(model);state.rotation=0;state.scale=DEFAULTS.scale;$('isolate').checked=false;applyScene();fit('perspective',{immediate:true});
  $('modelName').textContent=name;$('modelName').title=name;$('modelStats').textContent=`${info.meshCount} 网格 · ${formatCount(info.triangles)} 三角面`;$('materialCount').textContent=String(entries.length).padStart(2,'0');selectEntry(entries[0]);renderMaterials();if(restore)await restore(entries);if(pageLeaving||request!==currentLoad)return;showPanel('scene');
  await renderer.compileAsync(scene,camera);if(pageLeaving||request!==currentLoad)return;renderer.render(scene,camera);
-  fit('perspective',restore?{intro:true,fromCurrent:true}:{intro:true});
+  fit('perspective',restore?(isDesign()?{intro:true,fromCurrent:true}:{immediate:true,fromCurrent:true}):{intro:true});
   if(rulerMode){const layer=$('rulerLayer');layer.removeAttribute('hidden');scheduleRulerReveal();updateRuler(true);}
  hideBusy();
  notify(`已载入 ${entries.length} 个独立材质`+(parsed.missing.length?'；缺少 '+parsed.missing.length+' 个外部纹理，可在右侧补充':'')+(info.uvMissing?'；部分网格没有 UV，无法显示贴图':''),6000);
@@ -1115,7 +1195,7 @@ async function loadExample(){
   catch(error){hideBusy();setOpeningDockHidden(false);setOpeningDayHidden(false);notify('打开项目失败：'+error.message,6000);return;}
  }
   if(assetId)try{asset=await loadDesignAsset(assetId);if(!asset)throw new Error('资产不存在，可能已被删除');}catch(error){assetError=error;}
- if(!assetId&&!params.has('new'))try{const session=await loadDesignSession();if(session){await openStoredProject(session);return;}}catch(error){console.warn('恢复设计台状态失败',error);}
+ if(!assetId&&!params.has('new'))try{const session=await loadDesignSession();if(session){await openStoredProject(session,{useDefaultView:true});return;}}catch(error){console.warn('恢复设计台状态失败',error);}
  try{
   // The model named "默认模型" in the model library is the site's starting model.
   // Keep the bundled model as a compatibility fallback for deployments without it.
@@ -1263,6 +1343,7 @@ async function saveSelectedToLibrary(){
  }catch(error){notify('保存资产失败：'+error.message,6000);}finally{button.disabled=false;}
 }
 function renderMaterials(){
+ if(!isDesign())return;
  const host=$('materialList'),categories=[...document.querySelectorAll('[data-fabric]')];
  if(!categories.some(button=>button.dataset.fabric===activeFabric))activeFabric=categories[0]?.dataset.fabric||'面布';
  categories.forEach(button=>{button.classList.toggle('active',button.dataset.fabric===activeFabric);button.setAttribute('aria-pressed',String(button.dataset.fabric===activeFabric));});
@@ -1497,7 +1578,7 @@ window.addEventListener('message',async event=>{
  notify('正在高亮显示「'+entry.name+'」应用的模型部件',2200);
 }
 function decorateSwatch(el,entry){const color='#'+entry.material.color.getHexString();el.style.background=color;const src=entry.previewUrl||(entry.assetPreviewChecked?null:entry.material.map&&(entry.uploads.map?.preview||entry.thumbnails.map));if(el.id==='compactSwatch'){renderFabricPreview(el,{source:src,info:entry.previewInfo,pending:entry.fabricColorPending,identity:entry});return;}el.replaceChildren();if(src){const img=new Image();img.src=src;img.alt='';img.draggable=false;if(el.classList.contains('material-thumb')&&!el.closest('.pattern-item')){renderConvexPreview(img,src,entry.previewInfo,color);}else if(entry.previewUrl){el.style.position='relative';fitMaterialPreview(img,entry.previewInfo,el.clientHeight?el.clientWidth/el.clientHeight:1);}el.append(img);}else if(entry.assetPreviewChecked){const empty=document.createElement('span');empty.className='material-preview-empty';empty.textContent='无预览图';el.append(empty);}}
-function selectEntry(entry){if(!entry||entry.removed)return;selected=entry;activeFabric=fabricCategory(entry);$('fabricCategory').value=activeFabric;$('materialName').value=entry.name;$('materialUsage').textContent=`材质 ${String(entry.id+1).padStart(2,'0')} · 应用于 ${entry.meshes.size} 个网格`;decorateSwatch($('selectedSwatch'),entry);$('baseColor').value='#'+entry.material.color.getHexString();const vals={roughness:entry.material.roughness,metalness:entry.material.metalness,normalStrength:Math.abs(entry.material.normalScale.x),aoStrength:entry.material.aoMapIntensity};for(const[id,v]of Object.entries(vals)){$(id).value=v;$(id+'Value').textContent=Number(v).toFixed(2);}$('repeatU').value=entry.repeat[0];$('repeatV').value=entry.repeat[1];updatePhysicalPanel(entry);$('flipNormal').checked=entry.flip;updateSlots();renderMaterials();applyIsolation();designUI?.select({kind:'fabric',entry});}
+function selectEntry(entry){if(!entry||entry.removed)return;if(!isDesign()){selected=entry;return;}selected=entry;activeFabric=fabricCategory(entry);$('fabricCategory').value=activeFabric;$('materialName').value=entry.name;$('materialUsage').textContent=`材质 ${String(entry.id+1).padStart(2,'0')} · 应用于 ${entry.meshes.size} 个网格`;decorateSwatch($('selectedSwatch'),entry);$('baseColor').value='#'+entry.material.color.getHexString();const vals={roughness:entry.material.roughness,metalness:entry.material.metalness,normalStrength:Math.abs(entry.material.normalScale.x),aoStrength:entry.material.aoMapIntensity};for(const[id,v]of Object.entries(vals)){$(id).value=v;$(id+'Value').textContent=Number(v).toFixed(2);}$('repeatU').value=entry.repeat[0];$('repeatV').value=entry.repeat[1];updatePhysicalPanel(entry);$('flipNormal').checked=entry.flip;updateSlots();renderMaterials();applyIsolation();designUI?.select({kind:'fabric',entry});}
 function buildSlots(){for(const[key,label,english]of MAPS){const wrap=document.createElement('div');wrap.className='texture-slot';wrap.id='slot-'+key;const upload=document.createElement('button');upload.className='texture-upload';upload.setAttribute('aria-label','上传'+label+'贴图');const span=document.createElement('span');const plus=document.createElement('strong');plus.textContent='＋';span.append(plus,document.createTextNode(label));upload.append(span);const input=document.createElement('input');input.type='file';input.accept='image/png,image/jpeg,image/webp,image/bmp';input.id='texture-'+key;input.onchange=async()=>{const entry=selected,file=input.files[0];input.value='';if(entry&&file){try{await uploadTexture(entry,key,file);}catch{}}};upload.onclick=()=>{if(!selected)return notify('请先从资产库打开模型');input.click();};const remove=document.createElement('button');remove.className='remove-texture';remove.textContent='×';remove.title='移除'+label+'贴图';remove.setAttribute('aria-label','移除'+label+'贴图');remove.onclick=()=>removeTexture(selected,key);wrap.append(upload,input,remove);wrap.title=label+' / '+english;$('textureSlots').append(wrap);}}
 function updateSlots(){for(const[key,label]of MAPS){const wrap=$('slot-'+key);const has=!!selected?.material[key];wrap.classList.toggle('has-image',has);wrap.querySelectorAll('img').forEach(i=>i.remove());const src=selected?.uploads[key]?.preview||selected?.thumbnails[key];if(has&&src){const img=new Image();img.src=src;img.alt=label+'预览';wrap.prepend(img);}wrap.querySelector('strong').textContent=has?'✓':'＋';wrap.querySelector('.remove-texture').hidden=!has;wrap.title=selected?.uploads[key]?.file.name||label+(has?' · 模型内置贴图':' · 点击上传');}}
 function configureTexture(entry,texture,key){texture.colorSpace=MAPS.find(([k])=>k===key)[3]?THREE.SRGBColorSpace:THREE.NoColorSpace;texture.wrapS=texture.wrapT=THREE.RepeatWrapping;delete texture.userData?.formPlacementBase;if(entry.legacyMaps?.[key])applyLegacyUV(texture,entry.legacyMaps[key]);else if(entry.physical.mode==='physical'){const measured=entry.physical.sizeSource==='dpi'?texture.userData.density:null;setPhysicalTransform(texture,measured?{...entry.physical,...measured}:entry.physical,physicalModel.cmPerUnit);}else{texture.channel=0;texture.matrixAutoUpdate=true;texture.center.set(0,0);texture.offset.set(0,0);texture.rotation=0;texture.repeat.set(...entry.repeat);texture.updateMatrix();}if(entry.placement)applyPlacement(texture,entry.placement);configureTextureSampling(texture,renderer);}
@@ -1534,6 +1615,8 @@ function removeTexture(entry,key){if(!entry)return;entry.mapTokens[key]=(entry.m
 function applyIsolation(){invalidateAnnotations();for(const entry of entries)entry.material.visible=!$('isolate').checked||entry===selected;}
 function resetMaterial(){if(!selected)return;const e=selected;for(const[key]of MAPS){e.mapTokens[key]=(e.mapTokens[key]||0)+1;if(e.material[key]&&e.material[key]!==e.baseline[key])e.material[key].dispose();}Object.values(e.uploads).forEach(u=>URL.revokeObjectURL(u.preview));e.uploads={};e.material.copy(e.baseline);installRoughnessShader(e.material);e.material.needsUpdate=true;e.repeat=[1,1];e.physical=defaultPhysical();e.pendingDpi={};e.densityInfo=null;e.flip=e.material.normalScale.y<0;e.name=e.baseline.name||'未命名材质 '+(e.id+1);applyScene();selectEntry(e);notify('已恢复该材质的模型初始设置');}
 function showPanel(tab){
+ if(!isDesign()&&(tab==='material'||tab==='pattern'))tab='album';
+ const album=$('showcaseAlbumPanel');if(album)album.hidden=tab!=='album';
  if(showroom?.active)return;
  const marking=tab==='annotation',measuring=tab==='ruler',material=tab==='material'||tab==='pattern';
  if(!marking&&annotationMode)setAnnotationMode(false,{keepInspector:true});
@@ -1543,6 +1626,7 @@ function showPanel(tab){
  for(const name of ['material','pattern','scene']){$(name+'Panel').hidden=name!=='scene'||tab!=='scene';$(name+'Tab').setAttribute('aria-selected',String(name===tab));}
  $('compactMaterialPanel').hidden=!material;$('inspectorHeading').textContent=marking?'标记属性':material?'材质栏':'属性编辑器';
  if(measuring)$('inspectorHeading').textContent='测量属性';
+ if(tab==='album')$('inspectorHeading').textContent='项目画册';
  if(material||marking)setInspectorCollapsed(false);
  if(measuring)setInspectorCollapsed(false);
 }
@@ -1903,7 +1987,7 @@ function bindPhysicalControls(){
 function patternUnit(){return 4.2/Math.max(...physicalModel.rawSize)/physicalModel.cmPerUnit*state.scale;}
 function syncPatterns(){for(const p of patterns){p.host.updateWorldMatrix(true,false);p.mesh.matrix.copy(p.host.matrixWorld);p.mesh.visible=p.host.visible&&slotMaterial(p.host,p.slot)?.visible!==false;}}
 function selectPattern(p){selectedPattern=p;$('patternLayers').value=p?String(patterns.indexOf(p)):'';if(p){$('patternWidth').value=p.width;$('patternHeight').value=p.height;$('patternRotation').value=p.angle;$('patternRotationValue').textContent=p.angle+'°';} $('patternDelete').disabled=!p;$('patternMove').disabled=!p;drawPatternUV();syncPatternPbr();}
-function renderPatternList(){const list=$('patternLayers');list.replaceChildren();patterns.forEach((p,i)=>{const o=document.createElement('option');o.value=i;o.textContent=(i+1)+'. '+p.name;list.append(o);});selectPattern(selectedPattern);}
+function renderPatternList(){if(!isDesign())return;const list=$('patternLayers');list.replaceChildren();patterns.forEach((p,i)=>{const o=document.createElement('option');o.value=i;o.textContent=(i+1)+'. '+p.name;list.append(o);});selectPattern(selectedPattern);}
 function clearPatterns(){finishPatternReveals();for(const p of patterns){scene.remove(p.mesh);p.mesh.geometry.dispose();p.mesh.material.dispose();disposePatternMaps(p);}patterns=[];selectedPattern=null;patternPlaceMode=false;controls.enabled=true;renderPatternList();}
 function rebuildPattern(p){
  p.host.updateWorldMatrix(true,false);const point=p.point.clone().applyMatrix4(p.host.matrixWorld),normal=p.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(p.host.matrixWorld)).normalize();
@@ -1974,7 +2058,8 @@ function bindPatterns(){
  document.addEventListener('keydown',e=>{if(e.key==='Escape')setPatternMode(false);});
 }
 function bindEvents(){
- bindDesignWorkspace();
+ if(isDesign())bindDesignWorkspace();
+ initProjectFeedback();
  const leaveAnnotationsForMaterials=event=>{if(annotationMode)setAnnotationMode(false,{keepInspector:!!event.target.closest('.material-item')});};
  const materialDock=document.querySelector('.material-dock');
  materialDock.addEventListener('pointerdown',leaveAnnotationsForMaterials,true);
@@ -1987,14 +2072,16 @@ function bindEvents(){
  },true);
  document.addEventListener('wheel',event=>{const draft=annotations.find(a=>!a.saved);if(draft&&!draft.window.contains(event.target))cancelDraftAnnotation();},{capture:true,passive:true});
  document.addEventListener('focusin',event=>{const draft=annotations.find(a=>!a.saved);if(draft&&!draft.window.contains(event.target))cancelDraftAnnotation();});
+ if(isDesign()){
  $('saveToLibrary').onclick=saveSelectedToLibrary;
  $('refreshLibrary').onclick=refreshLibrary;
   $('addLibraryMaterial').onclick=async()=>{const button=$('addLibraryMaterial'),id=$('libraryMaterial').value;if(!id)return notify('请先选择资产库中的材质');button.disabled=true;try{await addMaterialAsset(await loadDesignAsset(id));}catch(error){notify('添加材质失败：'+error.message,6000);}finally{button.disabled=false;}};
  window.addEventListener('focus',refreshLibrary);refreshLibrary();
- $('annotationMode').onclick=()=>{setAnnotationMode(!annotationMode);if(annotationMode)notify('标记模式已开启，点击模型添加标记；Esc 退出');};
+ }
+ $('annotationMode').onclick=()=>{commentPlacement=isGuest();commentReposition=null;setAnnotationMode(!annotationMode);if(annotationMode)notify('标记模式已开启，点击模型添加标记；Esc 退出');};
  let annotationStart=null,rulerClickStart=null;
  $('canvas').addEventListener('pointerdown',event=>{annotationStart=annotationMode&&event.button===0&&dismissedDraftPointer!==event.pointerId?{x:event.clientX,y:event.clientY}:null;},true);
- $('canvas').addEventListener('pointerup',event=>{const start=annotationStart;annotationStart=null;if(!annotationMode||!start||Math.hypot(event.clientX-start.x,event.clientY-start.y)>5)return;const hit=pickModelMaterial(event.clientX,event.clientY);if(hit)addAnnotation({object:hit.mesh,point:hit.point});},true);
+ $('canvas').addEventListener('pointerup',event=>{const start=annotationStart;annotationStart=null;if(!annotationMode||!start||Math.hypot(event.clientX-start.x,event.clientY-start.y)>5)return;const hit=pickModelMaterial(event.clientX,event.clientY);if(hit){if(commentReposition){void repositionProjectComment(hit);}else addAnnotation({object:hit.mesh,point:hit.point});}},true);
  $('canvas').addEventListener('pointercancel',()=>{annotationStart=null;});
  $('canvas').addEventListener('pointerup',event=>{
   const start=rulerClickStart;rulerClickStart=null;
@@ -2015,10 +2102,10 @@ function bindEvents(){
  document.addEventListener('keyup',event=>{if(event.key==='Shift')setRulerShiftPressed(false);});
  window.addEventListener('blur',()=>{rulerClickStart=null;setRulerShiftPressed(false);});
  document.addEventListener('keydown',event=>{if(event.key==='Escape')setAnnotationMode(false);});
- controls.addEventListener('start',()=>{cameraTween?.cancel();setAnnotationMoving(true);});controls.addEventListener('end',()=>setAnnotationMoving(false));
+ controls.addEventListener('start',()=>{cameraTween?.cancel();modelAutoRotateInteracting=true;setAnnotationMoving(true);});controls.addEventListener('end',()=>{modelAutoRotateInteracting=false;setAnnotationMoving(false);});
  document.querySelectorAll('[data-fabric]').forEach(b=>b.onclick=()=>{activeFabric=b.dataset.fabric;$('materialList').scrollLeft=0;renderMaterials();});
  $('fabricCategory').onchange=()=>{if(selected){selected.category=$('fabricCategory').value;activeFabric=selected.category;renderMaterials();}};
- bindPatterns();
+ if(isDesign())bindPatterns();
  const workspace=document.querySelector('.workspace'),inspector=$('inspector');
  inspectorTransition=createInspectorTransition({render:renderInspectorProgress});renderInspectorProgress(0);inspector.inert=true;
  showroom=createShowroom({button:$('showroomMode'),ready:()=>!!model&&!loadingModel,cycle:()=>daylightCycle,notify,timing:()=>developerSettings.timing,
@@ -2026,6 +2113,7 @@ function bindEvents(){
   enter:()=>{cameraTween?.cancel();endMaterialDrag();setPatternMode(false);setAnnotationMode(false);designUI?.exitRemoval();setInspectorCollapsed(true);$('toast').classList.remove('show');state.autoRotate=true;applyScene();if($('viewport').dataset.cameraMotion==='intro')fit('perspective',{immediate:true});},
   restore:snapshot=>{state={...snapshot.state};currentSceneName=sceneName(snapshot.name);applyScene(snapshot.appearance);setAnnotationMode(snapshot.annotationMode);setInspectorCollapsed(snapshot.inspectorCollapsed);}
  });
+ if(!isGuest()){
  syncCaptureAiPromptPicker();
  const captureAiPromptButton=$('captureAiPromptSlider'),captureAiPromptMenu=$('captureAiPromptMenu'),captureAiPromptShell=captureAiPromptButton?.closest('.capture-ai-prompt-picker');
  document.body.append(captureAiPromptMenu);
@@ -2044,12 +2132,13 @@ function bindEvents(){
  window.addEventListener('scroll',positionCaptureAiPromptMenu,true);
  void initCaptureAiConfig();
  $('captureAiSettingsOpen').onclick=()=>{setCaptureAiSettingsOpen(true);void loadCaptureAiConfig()};$('captureAiSettingsBack').onclick=closeCaptureAiSettings;$('captureAiSettingsDone').onclick=closeCaptureAiSettings;
+ }
  $('collapseInspector').onclick=()=>setInspectorCollapsed(true);$('restoreInspector').onclick=()=>setInspectorCollapsed(!workspace.classList.contains('inspector-collapsed'));$('captureExit').onclick=()=>setCaptureMode(false);$('captureShoot').onclick=captureImage;$('captureAiGenerate').onclick=captureAiGenerate;
  $('captureLandscape').onclick=()=>setCaptureOrientation(true);$('capturePortrait').onclick=()=>setCaptureOrientation(false);$('captureWidth').oninput=syncCaptureOrientation;$('captureHeight').oninput=syncCaptureOrientation;$('captureTransparent').onchange=event=>setCaptureTransparent(event.target.checked);syncCaptureOrientation();
  $('materialTab').onclick=()=>showPanel('material');$('sceneTab').onclick=()=>showPanel('scene');$('inspectorToggle').onclick=()=>setInspectorCollapsed(!workspace.classList.contains('inspector-collapsed'));$('closeInspector').onclick=()=>setInspectorCollapsed(true);
- bindMaterialDrop();bindPhysicalControls();
+ if(isDesign()){bindMaterialDrop();bindPhysicalControls();}
  $('undoMaterial').onclick=undoMaterialAssignment;
- $('fitView').onclick=()=>setRulerMode(!rulerMode);$('rulerAxesToggle').onclick=()=>setRulerAxesVisible(!rulerAxesVisible);$('autoRotate').onclick=()=>{state.autoRotate=!state.autoRotate;applyScene();};$('fullscreen').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch{notify('此浏览器不支持全屏，请使用浏览器的 F11。');}};
+ $('fitView').onclick=()=>setRulerMode(!rulerMode);$('rulerAxesToggle').onclick=()=>setRulerAxesVisible(!rulerAxesVisible);$('autoRotate').onclick=()=>{if(state.autoRotate&&model){state.rotation=THREE.MathUtils.radToDeg(THREE.MathUtils.euclideanModulo(model.rotation.y+Math.PI,Math.PI*2)-Math.PI);resetModelAutoRotation();}state.autoRotate=!state.autoRotate;applyScene();};$('fullscreen').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch{notify('此浏览器不支持全屏，请使用浏览器的 F11。');}};
 
  document.addEventListener('keydown',e=>{if(e.target.matches('input,select,textarea'))return;if(e.key==='2')fit('front');else if(e.key==='4')fit('left');else if(e.key==='6')fit('right');else if(e.key==='8')fit('back');else if(e.key==='5')fit('top');else if(e.key.toLowerCase()==='f'){e.preventDefault();fit();}if(e.key==='Escape'&&innerWidth<=760)setInspectorCollapsed(true);});
  document.addEventListener('keydown',event=>{
@@ -2058,18 +2147,20 @@ function bindEvents(){
   if(event.target.closest('input,select,textarea')||event.target.isContentEditable)return;
   event.preventDefault();(redo?redoWorkspaceAction:undoWorkspaceAction)();
  });
+ if(isDesign()){
  $('materialName').onchange=()=>{if(selected){selected.name=$('materialName').value.trim()||'未命名材质';selected.material.name=selected.name;renderMaterials();}};$('isolate').onchange=applyIsolation;$('resetMaterial').onclick=resetMaterial;
  $('baseColor').oninput=()=>{if(selected){selected.material.color.set($('baseColor').value);decorateSwatch($('selectedSwatch'),selected);renderMaterials();}};
  for(const id of ['roughness','metalness','normalStrength','aoStrength'])$(id).oninput=()=>{if(!selected)return;const v=Number($(id).value),m=selected.material;$(id+'Value').textContent=v.toFixed(2);if(id==='normalStrength')m.normalScale.set(v,selected.flip?-v:v);else m[({aoStrength:'aoMapIntensity'})[id]||id]=v;};
  $('flipNormal').onchange=()=>{if(!selected)return;selected.flip=$('flipNormal').checked;selected.material.normalScale.y=Math.abs(selected.material.normalScale.x)*(selected.flip?-1:1);};
  for(const id of ['repeatU','repeatV'])$(id).onchange=()=>{if(!selected)return;const values=[$('repeatU').valueAsNumber,$('repeatV').valueAsNumber];if(values.some(v=>!Number.isFinite(v)||v<.01||v>100)){notify('UV 重复范围为 0.01–100');selectEntry(selected);return;}selected.repeat=values;for(const[key]of MAPS){const tex=selected.material[key];if(!tex)continue;if(tex===selected.baseline[key])selected.material[key]=tex.clone();configureTexture(selected,selected.material[key],key);}};
- for(const[id,value]of Object.entries(DEFAULTS)){if(!$(id)||id==='autoRotate')continue;$(id).addEventListener('input',()=>{daylightCycle?.cancel();state[id]=typeof value==='boolean'?$(id).checked:typeof value==='number'?Number($(id).value):$(id).value;applyScene();});}
- $('resetScene').onclick=()=>{daylightCycle?.cancel();state={...DEFAULTS};applyScene();fit();};
- $('canvas').addEventListener('dblclick',event=>{if(annotationMode||rulerMode)return;const hit=pickModelMaterial(event.clientX,event.clientY);if(!hit)return;selectEntry(hit.entry);showPanel('material');$('materialList').querySelector('[data-entry-id="'+hit.entry.id+'"]')?.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'});});
+ }
+ for(const[id,value]of Object.entries(DEFAULTS)){if(!$(id)||id==='autoRotate')continue;$(id).addEventListener('input',()=>{daylightCycle?.cancel();if(id==='rotation')resetModelAutoRotation();state[id]=typeof value==='boolean'?$(id).checked:typeof value==='number'?Number($(id).value):$(id).value;applyScene();});}
+ $('resetScene').onclick=()=>{daylightCycle?.cancel();resetModelAutoRotation();state={...DEFAULTS};applyScene();fit();};
+ $('canvas').addEventListener('dblclick',event=>{if(!isDesign()||annotationMode||rulerMode)return;const hit=pickModelMaterial(event.clientX,event.clientY);if(!hit)return;selectEntry(hit.entry);showPanel('material');$('materialList').querySelector('[data-entry-id="'+hit.entry.id+'"]')?.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'});});
  $('snapshot').onclick=()=>setCaptureMode(!captureMode);
  document.addEventListener('keydown',event=>{if(captureMode&&event.key==='Escape'){event.preventDefault();event.stopPropagation();if(!$('captureAiPromptMenu').hidden){closeCaptureAiPromptMenu(true);return;}if(!$('captureAiSettingsPage').hidden)closeCaptureAiSettings();else setCaptureMode(false);}},true);
- window.__spenicDesignSession={save:()=>saveProject({silent:true})};
- $('headerUndo').onclick=undoWorkspaceAction;$('headerRedo').onclick=redoWorkspaceAction;$('saveProject').onclick=()=>saveProject();
+ if(isDesign())window.__spenicDesignSession={save:()=>saveProject({silent:true})};
+ $('headerUndo').onclick=undoWorkspaceAction;$('headerRedo').onclick=redoWorkspaceAction;$('saveProject').onclick=()=>isDesign()?saveProject():workspaceServices.save?.();
  $('saveScene').onclick=()=>{try{const name=sceneName(currentSceneName);download(packScene(state,name),sceneFilename(name));notify('已导出场景：'+name);}catch(error){notify('导出场景失败：'+error.message,6000);}};
 }
 function snapshotEntry(e){const m=e.material,used=e.meshes.size>0;return {id:e.id,assetId:e.assetId||null,assetMapsLoaded:used&&e.assetMapsLoaded===true,removed:!!e.removed,name:e.name,category:fabricCategory(e),color:m.color.getHexString(),roughness:m.roughness,metalness:m.metalness,normalStrength:Math.abs(m.normalScale.x),aoStrength:m.aoMapIntensity,repeat:e.repeat,physical:{...e.physical},density:Object.fromEntries(MAPS.filter(([k])=>m[k]?.userData.density).map(([k])=>[k,m[k].userData.density])),flip:e.flip,proceduralMapping:e.proceduralMapping?structuredClone(e.proceduralMapping):null,maps:Object.fromEntries(MAPS.map(([k])=>[k,used&&m[k]?(e.uploads[k]?'upload':'original'):null]))};}
@@ -2078,6 +2169,7 @@ function projectThumbnail(){
  return createProjectThumbnail($('canvas'));
 }
 function saveProject(options={}){
+ if(!isDesign())return Promise.reject(new Error('展示台不能覆盖设计稿'));
  if(!projectSavePromise)projectSavePromise=saveOnlineProject(options).finally(()=>{projectSavePromise=null;});
  return projectSavePromise;
 }
@@ -2093,24 +2185,24 @@ async function saveOnlineProject({silent=false}={}){
     if(e.proceduralSource instanceof Blob){const path='procedural/'+e.id+'/source.bmp';files[path]=await uploadProjectResource(e.proceduralSource);config.materials[e.id].proceduralSource={path,name:e.proceduralSource.name||'source.bmp',type:e.proceduralSource.type||'image/bmp'};}
     if(e.meshes.size>0)for(const[key,u]of Object.entries(e.uploads)){const source=u.sourceRef?u.file:u.sourceFile||u.file,path='textures/'+e.id+'/'+key;files[path]=u.projectReference||await createProjectResource(source,u.sourceRef,uploadProjectResource);config.materials[e.id].maps[key]={path,name:source.name,type:source.type};}
    }
- const hosts=[];model.traverse(o=>{if(o.isMesh)hosts.push(o);});config.annotations=annotations.map(a=>({host:hosts.indexOf(a.host),point:a.point.toArray(),text:a.text}));config.patterns=[];
+ const hosts=[];model.traverse(o=>{if(o.isMesh)hosts.push(o);});config.annotations=annotations.filter(a=>!a.comment).map(a=>({id:a.id,host:hosts.indexOf(a.host),point:a.point.toArray(),text:a.text}));config.patterns=[];
  for(let i=0;i<patterns.length;i++){const p=patterns[i],path='patterns/'+i;files[path]=await snapshotPatternFile(p,'map',p.file);const maps={};for(const [key,file] of Object.entries(p.pbrFiles||{})){const mapPath=path+'-'+key;files[mapPath]=await snapshotPatternFile(p,key,file);maps[key]={path:mapPath,name:file.name,type:file.type};}const m=p.mesh.material;config.patterns.push({path,sourceKey:p.sourceKey,name:p.name,type:p.file.type,host:hosts.indexOf(p.host),slot:p.slot,singlePlacement:!!p.singlePlacement,placement:p.placement,surface:readSurface(m),point:p.point.toArray(),normal:p.normal.toArray(),uv:p.uv,width:p.width,height:p.height,angle:p.angle,pbr:{maps,roughness:m.roughness,metalness:m.metalness,normalScale:m.normalScale.toArray()}});}
  config.patternSources=[];for(let i=0;i<patternSources.length;i++){const source=patternSources[i],asset=patternSourceAsset(source),snapshot={};for(const field of ['name','description','designInfo','supplier','previewInfo','materialType','category','surface','physical','repeat','placement','density','legacyMaps'])if(asset[field]!==undefined)snapshot[field]=asset[field];snapshot.maps={};for(const[key,file]of Object.entries(asset.maps)){const path='pattern-sources/'+i+'/'+key;files[path]=asset.projectRefs?.[key]||await createProjectResource(asset.runtimeMaps?.[key]||file,materialSourceReference(asset,key),uploadProjectResource);snapshot.maps[key]={path};}const preview=await createProjectPreview(asset.previewReference||asset.preview,uploadProjectResource);if(preview?.url)snapshot.preview={url:preview.url};else if(preview?.file){const path='pattern-sources/'+i+'/preview';files[path]=preview.file;snapshot.preview={path};}config.patternSources.push({key:source.key,asset:snapshot});}
  if(generation!==modelGeneration)throw new Error('模型已切换，请重新保存项目');
  const saved=await saveStoredProject({id:activeProjectId,revision:activeProjectRevision,name:activeProjectName||projectNameFromModel(modelSource.name),modelName:modelSource.name,manifest:config,thumbnail:await projectThumbnail()});
- activeProjectId=saved.id;activeProjectName=saved.name;activeProjectRevision=saved.revision;await saveDesignSession(saved.id);
+ activeProjectId=saved.id;activeProjectName=saved.name;activeProjectRevision=saved.revision;currentProjectManifest=config;await saveDesignSession(saved.id);feedbackUI?.refresh();
  if(!silent)notify('已保存到项目库');
  return saved;
  }catch(e){console.error(e);notify('保存失败：'+e.message,6000);if(silent)throw e;}finally{hideBusy();}
 }
-async function openStoredProject(id){
+async function openStoredProject(id,{useDefaultView=false}={}){
  const saved=await getStoredProject(id);if(!saved?.manifest)throw new Error('项目不存在，可能已被删除或没有访问权限');
  activeProjectId=saved.id;activeProjectName=saved.name;activeProjectRevision=saved.revision;
- try{await openProject(saved.manifest);await saveDesignSession(saved.id);}catch(error){activeProjectId=null;activeProjectName='';activeProjectRevision=null;throw error;}
+ try{currentProjectManifest=saved.manifest;await openProject(saved.manifest,{useDefaultView});await saveDesignSession(saved.id);feedbackUI?.refresh();}catch(error){activeProjectId=null;activeProjectName='';activeProjectRevision=null;throw error;}
 }
-async function openProject(config){
+async function openProject(config,{useDefaultView=false}={}){
  if(loadingModel)throw new Error('请等待当前载入完成');validateProjectManifest(config);busy('正在打开项目','载入模型、素材与设计设置');await yieldFrame();
- try{const readFile=path=>resolveProjectResource(config.files[path],downloadProjectResource),modelPath=config.modelPath;
+ try{const readFile=path=>resolveProjectResource(config.files[path],workspaceServices.downloadResource||downloadProjectResource),modelPath=config.modelPath;
  const [modelFile,...resources]=await Promise.all([readFile(modelPath),...(config.resources||[]).map(r=>readFile(r.path))]);
  let restoreComplete=false;await loadModel(await modelFile.arrayBuffer(),config.name,resources,{parts:config.partAssignments,runtime:config.modelRuntimeVersion===1,restore:async()=>{
  modelSource.projectReferences={model:config.files[modelPath],resources:(config.resources||[]).map(r=>config.files[r.path])};
@@ -2125,9 +2217,9 @@ async function openProject(config){
  for(const data of config.materials||[]){const entry=entries[data.id];if(entry&&data.surface)applySurface(entry.material,data.surface);}
  restoreAssignments(model,entries,config.assignments);
  for(const data of config.materials||[]){const entry=entries[data.id];if(entry)entry.removed=!!data.removed&&entry.meshes.size===0;}
- const restored={...DEFAULTS};for(const[k,v]of Object.entries(DEFAULTS))if(typeof config.scene?.[k]===typeof v)restored[k]=config.scene[k];daylightCycle?.cancel();state=restored;applyScene();if(config.camera?.position?.length===3&&config.camera?.target?.length===3){camera.position.fromArray(config.camera.position);controls.target.fromArray(config.camera.target);controls.update();}selectEntry(entries.find(e=>e.id===config.selected&&!e.removed)||entries.find(e=>!e.removed));
+ const restored={...DEFAULTS};for(const[k,v]of Object.entries(DEFAULTS))if(typeof config.scene?.[k]===typeof v)restored[k]=config.scene[k];daylightCycle?.cancel();state=restored;applyScene();if(config.camera?.position?.length===3&&config.camera?.target?.length===3){camera.position.fromArray(config.camera.position);controls.target.fromArray(config.camera.target);controls.update();}if(useDefaultView)fit('perspective',{immediate:true});selectEntry(entries.find(e=>e.id===config.selected&&!e.removed)||entries.find(e=>!e.removed));
  const hosts=[];model.traverse(o=>{if(o.isMesh)hosts.push(o);});
- for(const data of config.annotations||[]){if(!hosts[data.host]||!Array.isArray(data.point)||data.point.length!==3||!data.point.every(Number.isFinite))throw new Error('标记数据无效');const host=hosts[data.host];host.updateWorldMatrix(true,false);addAnnotation({object:host,point:host.localToWorld(new THREE.Vector3().fromArray(data.point))},data.text||'',false);}
+ for(const data of config.annotations||[]){if(!hosts[data.host]||!Array.isArray(data.point)||data.point.length!==3||!data.point.every(Number.isFinite))throw new Error('标记数据无效');const host=hosts[data.host];host.updateWorldMatrix(true,false);addAnnotation({object:host,point:host.localToWorld(new THREE.Vector3().fromArray(data.point))},data.text||'',false,{id:annotationId(data,(config.annotations||[]).indexOf(data))});}
  selectedAnnotation=annotations[0]||null;syncAnnotationPanel();
  for(const data of config.patterns||[]){if(!hosts[data.host]||![data.width,data.height].every(v=>Number.isFinite(v)&&v>=.1&&v<=1000)||![...data.point,...data.normal,data.angle].every(Number.isFinite))throw new Error('图案数据无效');
  const file=await readFile(data.path),runtime=config.files[data.path].prepared?file:await compressImageFile(file,RUNTIME_TEXTURE_MAX_SIZE),url=URL.createObjectURL(runtime);let texture;try{texture=await new THREE.TextureLoader().loadAsync(url);}finally{URL.revokeObjectURL(url);}texture.colorSpace=THREE.SRGBColorSpace;configureUploadedTexture(texture);
@@ -2138,7 +2230,7 @@ async function openProject(config){
  if(data.pbr){for(const key of ['roughness','metalness'])if(Number.isFinite(data.pbr[key]))material[key]=THREE.MathUtils.clamp(data.pbr[key],0,1);if(data.pbr.normalScale?.length===2&&data.pbr.normalScale.every(Number.isFinite))material.normalScale.fromArray(data.pbr.normalScale);}material.needsUpdate=true;
  rebuildPattern(p);patterns.push(p);scene.add(mesh);selectedPattern=p;}
  syncPatterns();renderPatternList();
- for(const meta of config.patternSources||[]){const asset={...meta.asset,surface:filterMaterialSurface(meta.asset.surface),kind:'material',maps:{},projectRefs:{}};for(const[key,map]of Object.entries(filterMaterialMaps(meta.asset.maps))){asset.maps[key]=await readFile(map.path);asset.projectRefs[key]=config.files[map.path];}asset.runtimeMaps=Object.fromEntries(Object.entries(asset.maps).filter(([key])=>asset.projectRefs[key].prepared));asset.preview=meta.asset.preview?.path?await readFile(meta.asset.preview.path):meta.asset.preview?.url||null;await addPatternSource(asset,false,meta.key);}
+ for(const meta of isDesign()?config.patternSources||[]:[]){const asset={...meta.asset,surface:filterMaterialSurface(meta.asset.surface),kind:'material',maps:{},projectRefs:{}};for(const[key,map]of Object.entries(filterMaterialMaps(meta.asset.maps))){asset.maps[key]=await readFile(map.path);asset.projectRefs[key]=config.files[map.path];}asset.runtimeMaps=Object.fromEntries(Object.entries(asset.maps).filter(([key])=>asset.projectRefs[key].prepared));asset.preview=meta.asset.preview?.path?await readFile(meta.asset.preview.path):meta.asset.preview?.url||null;await addPatternSource(asset,false,meta.key);}
  renderDesignPatterns();
 
  restoreComplete=true;}});if(!restoreComplete)throw new Error('项目模型或素材未能恢复');
@@ -2237,7 +2329,8 @@ function configurePatternProjectionTexture(texture){
  texture.flipY=!useGLTFTextureConvention();texture.needsUpdate=true;return texture;
 }
 function selectDesignPattern(target){selectedDesignPattern=target;setPatternMode(false);designUI.setType('pattern');designUI.select(target);showPanel('material');renderDesignPatterns();}
-function renderDesignPatterns(){const host=$('patternDock');if(!host)return;host.replaceChildren();const items=[...patternSources.map(source=>({kind:'pattern',source})),...patterns.map(pattern=>({kind:'pattern',pattern}))];
+function renderDesignPatterns(){
+ if(!isDesign())return;const host=$('patternDock');if(!host)return;host.replaceChildren();const items=[...patternSources.map(source=>({kind:'pattern',source})),...patterns.map(pattern=>({kind:'pattern',pattern}))];
  for(const t of items){const item=t.source||t.pattern,b=document.createElement('button');b.className='material-item pattern-item';b.dataset.patternKind=t.source?'source':'placed';b.classList.toggle('active',!!selectedDesignPattern&&(t.source?selectedDesignPattern.source===t.source:selectedDesignPattern.pattern===t.pattern));b.setAttribute('aria-label','选择图案 '+item.name);const art=document.createElement('div');art.className='material-thumb';const m=designMaterial(t);decorateSwatch(art,{material:m,uploads:{},thumbnails:{map:designPreview(m.map)}});const name=document.createElement('strong');name.textContent=item.name;const badge=document.createElement('small');badge.textContent=t.source?(patternSourceUsed(t.source)?'已应用':'待放置'):'已贴合';b.append(art,name,badge);b.onpointerdown=event=>startDesignPatternDrag(event,t);b.onclick=()=>{if(suppressMaterialClick){suppressMaterialClick=false;return;}selectDesignPattern(t);};designUI?.bindDockItem(b,t);host.append(b);}
  designUI?.syncDock();$('dockPatternPlace').disabled=!selectedDesignPattern;$('dockPatternPlace').textContent=selectedDesignPattern?.pattern?'重新放置':'放置图案';
 }
@@ -2256,4 +2349,40 @@ function moveDesignPattern(p,placement){
  }
  p.angle=placement.angle;p.placement=placement;try{rebuildPattern(p);}catch(error){Object.assign(p,previous);throw error;}
 }
-export function startDesign(){try{init();}catch(e){console.error(e);$('loadingTitle').textContent='无法初始化 3D 渲染';}}
+export function startDesign(){return startWorkspace({mode:'design'});}
+export function startWorkspace({mode='design',services={}}={}){
+ if(!['design','showcase-owner','showcase-guest'].includes(mode))throw new Error('未知工作台模式');
+ workspaceMode=mode;workspaceServices=services;
+ return new Promise((resolve,reject)=>{workspaceResolve=resolve;workspaceReject=reject;try{mountColorInputs(document);init();}catch(e){console.error(e);$('loadingTitle').textContent='无法初始化 3D 渲染';reject(e);}});
+}
+function workspaceRuntime(){
+ return {
+  clear(){
+   if(loadingModel)throw new Error('请等待当前项目载入完成');
+   showroom?.exit();cameraTween?.cancel();setAnnotationMode(false);commentPlacement=false;commentReposition=null;
+   activeProjectId=null;activeProjectName='';activeProjectRevision=null;currentProjectManifest=null;modelGeneration++;
+   feedbackUI?.clear();for(const a of annotations)a.el.remove();annotations=[];selectedAnnotation=null;annotationFocus=null;syncAnnotationPanel();
+   finishReveal();clearPatterns();clearPatternSources();clearRulerMeasurement({silent:true});
+   if(model){scene.remove(model);disposeObject(model,entries);}model=null;modelSource=null;materialPicker=null;entries=[];selected=null;
+   assignmentHistory=[];redoHistory=[];partAssignments.clear();configuredMaterialSlots=new WeakMap();syncHeaderUndo();
+   $('showroomMode').disabled=true;$('modelName').textContent='请选择展示项目';$('modelName').title='';$('modelStats').textContent='展示清单';$('materialCount').textContent='00';
+   renderMaterials();invalidateAnnotations();showPanel(isDesign()?'scene':'album');
+  },
+  async open(saved){
+   if(loadingModel)throw new Error('请等待当前项目载入完成');
+   cancelDraftAnnotation();commentPlacement=false;commentReposition=null;feedbackUI?.clear();
+   currentProjectManifest=saved.manifest;activeProjectId=saved.id;activeProjectName=saved.name;activeProjectRevision=saved.revision;
+   try{await openProject(saved.manifest);showPanel(isDesign()?'scene':'album');if(!isDesign()&&innerWidth>760)setInspectorCollapsed(false);await feedbackUI?.refresh();}
+   catch(error){activeProjectId=null;currentProjectManifest=null;throw error;}
+  },
+  presentation(){
+   if(loadingModel||!model||!activeProjectId)throw new Error('请先打开项目');
+   if(annotations.some(a=>!a.saved||a.editing))throw new Error('请先保存或取消正在输入的标记');
+   const hosts=[];model.traverse(o=>{if(o.isMesh)hosts.push(o);});
+   return {modelHash:projectModelHash(currentProjectManifest),scene:{...state},camera:{position:camera.position.toArray(),target:controls.target.toArray()},annotations:annotations.filter(a=>!a.comment).map(a=>({id:a.id,host:hosts.indexOf(a.host),point:a.point.toArray(),text:a.text}))};
+  },
+  panel:showPanel,collapse:setInspectorCollapsed,notify,
+  refreshComments:()=>feedbackUI?.refresh(),
+  current:()=>({id:activeProjectId,name:activeProjectName,manifest:currentProjectManifest,loading:loadingModel}),
+ };
+}

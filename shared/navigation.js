@@ -1,11 +1,11 @@
 export function mountNavigation(active) {
-  if (active !== 'design') window.name = 'spenic-secondary';
+  if (active !== 'design') window.name = active === 'showcase' ? 'spenic-showcase' : 'spenic-secondary';
   const header = document.querySelector('.topbar');
   const brand = header.querySelector('.brand');
-  brand.innerHTML = '<img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic"><span class="brand-divider"></span><strong class="brand-title">' + (active === 'design' ? '\u8bbe\u8ba1\u53f0' : active === 'material' ? '\u6750\u8d28\u7f16\u8f91\u5668' : '\u5de5\u4f5c\u7a7a\u95f4') + '</strong>';
+  brand.innerHTML = '<img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic"><span class="brand-divider"></span><strong class="brand-title">' + (active === 'showcase' ? '展示台' : active === 'design' ? '\u8bbe\u8ba1\u53f0' : active === 'material' ? '\u6750\u8d28\u7f16\u8f91\u5668' : '\u5de5\u4f5c\u7a7a\u95f4') + '</strong>';
   brand.setAttribute('aria-label', active === 'material' ? 'Spenic \u6750\u8d28\u7f16\u8f91\u5668' : 'Spenic \u5de5\u4f5c\u7a7a\u95f4\u9996\u9875');
   const existingNavigation = header.querySelector('.app-navigation');
-  if (active === 'design' || active === 'material') {
+  if (active === 'design' || active === 'material' || active === 'showcase') {
     existingNavigation?.remove();
     mountToolSwitcher(active);
     return;
@@ -40,6 +40,7 @@ export function mountNavigation(active) {
 
 const tools = [
   ['design', '设计台', './design.html'],
+  ['showcase', '展示台', './showcase.html'],
   ['material', '材质编辑器', './material-editor.html'],
   ['assets', '资产库', './asset-library.html'],
   ['projects', '项目库', './project-library.html'],
@@ -91,12 +92,12 @@ export function mountToolSwitcher(active) {
         close();
         return;
       }
-      if (active === 'design') {
+      if (active === 'design' || active === 'showcase') {
         event.preventDefault();
         link.setAttribute('aria-busy', 'true');
         try {
-          await window.__spenicDesignSession?.save?.();
-          window.open(href, 'spenic-secondary');
+          await (active === 'showcase' ? window.__spenicShowcaseSession : window.__spenicDesignSession)?.save?.();
+          window.open(href, id === 'showcase' ? 'spenic-showcase' : id === 'design' ? 'spenic-design' : 'spenic-secondary');
           close();
         } finally { link.removeAttribute('aria-busy'); }
       } else if (id === 'design') {

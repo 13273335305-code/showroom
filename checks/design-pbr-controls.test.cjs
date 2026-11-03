@@ -17,6 +17,7 @@ const keys = ['roughness', 'metalness', 'normalStrength', 'aoStrength', 'sheen',
         let body = await fs.readFile(path.join(root, name));
         if (name === 'app.js') body = body.toString() + `
           window.designPbrProbe = {
+            scene() { return { ...state }; },
             read(id) {
               const entry = entries.find(e => e.id === id);
               return { surface: readSurface(entry.material), flip: entry.flip, normal: entry.material.normalScale.toArray(), used: entry.meshes.size,
@@ -62,7 +63,60 @@ const keys = ['roughness', 'metalness', 'normalStrength', 'aoStrength', 'sheen',
     await page.goto(origin + '/design.html?new=1');
     const ready = () => page.waitForFunction(() => window.designPbrProbe && document.getElementById('loading').hidden && !document.getElementById('dayCycle').disabled, null, { timeout: 90000 });
     await ready();
+    assert.equal(await page.locator('input[type=color]').count(), 0, 'The design and developer panels have no native color controls');
+    await page.locator('#restoreInspector').click();
+    const colorPicker = page.locator('#sharedColorPicker');
+    for (const [id, color] of [['backgroundColor', '#123456'], ['lightColor', '#FFDDAA']]) {
+      const before = (await page.evaluate(() => designPbrProbe.scene()))[id];
+      await page.locator('#' + id + ' + .shared-color-control').click();
+      await colorPicker.locator('input').fill(color);
+      assert.equal((await page.evaluate(() => designPbrProbe.scene()))[id], before, 'Color edits remain drafts');
+      await colorPicker.locator('.compact-procedural-confirm').click();
+      assert.equal((await page.evaluate(() => designPbrProbe.scene()))[id], color.toLowerCase());
+    }
+    await page.locator('.brand-logo').hover(); await page.keyboard.type('admin');
+    await page.locator('#developerToggle').click();
+    await page.locator('[data-dev-scene="backgroundColor"] + .shared-color-control').click();
+    await colorPicker.locator('input').fill('#223344');
+    await colorPicker.locator('.compact-procedural-confirm').click();
+    assert.equal((await page.evaluate(() => designPbrProbe.scene())).backgroundColor, '#223344');
+    assert.equal(await page.locator('[data-dev-scene="backgroundColor"] + .shared-color-control').evaluate(element => getComputedStyle(element).backgroundColor), 'rgb(34, 51, 68)', 'Developer button styles preserve the chosen swatch color');
+    await page.locator('[data-dev-scene="lightColor"] + .shared-color-control').click();
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#developerPanel').isVisible(), true, 'Picker Escape preserves the developer panel');
+    await page.locator('#developerClose').click();
     const a = await page.evaluate(id => designPbrProbe.add(id), ids.a);
+    await page.locator('#compactColor + .shared-color-control').click();
+    await colorPicker.locator('input').fill('#AABBCC');
+    await colorPicker.locator('.compact-procedural-confirm').click();
+    assert.equal((await page.evaluate(id => designPbrProbe.read(id), a)).surface.color, '#aabbcc');
+    await page.locator('#compactColor + .shared-color-control').click();
+    await fs.mkdir(path.join(root, '.codex-project-check/shared-colors'), { recursive: true });
+    await page.screenshot({ path: path.join(root, '.codex-project-check/shared-colors/design-material.png') });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(100);
+    const pickerBounds = await colorPicker.boundingBox();
+    assert.ok(pickerBounds.x >= 0 && pickerBounds.x + pickerBounds.width <= 390 && pickerBounds.y >= 0 && pickerBounds.y + pickerBounds.height <= 844, 'The shared picker fits the phone viewport');
+    await page.screenshot({ path: path.join(root, '.codex-project-check/shared-colors/design-mobile.png') });
+    await page.keyboard.press('Escape');
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.evaluate(id => designPbrProbe.select(id), a);
+    const compactColor = page.locator('#compactColor + .shared-color-control');
+    await compactColor.focus(); await compactColor.press('Enter');
+    await colorPicker.locator('input').fill('#334455');
+    await page.evaluate(id => designPbrProbe.select(id), a);
+    assert.equal(await colorPicker.isVisible(), false, 'Changing the material selection discards an unconfirmed draft');
+    assert.equal((await page.evaluate(id => designPbrProbe.read(id), a)).surface.color, '#aabbcc');
+    await compactColor.click();
+    await page.locator('#compactColor').evaluate(element => { element.disabled = true; });
+    await colorPicker.waitFor({ state: 'hidden' });
+    assert.equal(await compactColor.isDisabled(), true, 'Disabled color sources also disable their triggers');
+    await page.locator('#compactColor').evaluate(element => { element.disabled = false; });
+    await compactColor.click();
+    await page.locator('#compactColor').evaluate(element => { element.value = '#112233'; });
+    assert.equal(await colorPicker.isVisible(), false, 'External color restoration invalidates an older draft');
+    assert.equal(await compactColor.evaluate(element => element.style.getPropertyValue('--color-value')), '#112233');
+    await page.evaluate(id => designPbrProbe.select(id), a);
     const section = page.locator('#compactPbr'), summary = section.locator('summary');
     const input = key => page.locator('#compactPbr-' + key);
     const read = () => page.evaluate(id => designPbrProbe.read(id), a);
@@ -144,7 +198,7 @@ const keys = ['roughness', 'metalness', 'normalStrength', 'aoStrength', 'sheen',
     await summary.click();
     assert.equal(await section.evaluate(el => el.open), false);
     assert.deepEqual(errors, []);
-    console.log('PASS: collapsed numeric-only fabric PBR controls, editor ranges, live rendering, validation, normal direction, lazy textures, material isolation, project save/reopen and desktop/mobile layout.');
+    console.log('PASS: shared scene/developer/material color pickers, confirmation/cancellation, source changes, disabled state, keyboard/mobile layout; numeric PBR, validation, textures, isolation and project save/reopen.');
   } catch (error) {
     await page?.screenshot({ path: path.join(root, 'outputs/design-pbr-strengths-error.png') }).catch(() => {});
     throw error;

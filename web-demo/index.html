@@ -10,46 +10,17 @@
 <body>
   <main class="app-shell">
     <section class="workspace">
-      <section class="panel preview-panel" aria-label="材质预览">
-        <div class="preview-switch" role="group" aria-label="预览图切换">
-          <button type="button" data-preview-map="input" aria-pressed="false">BMP Map</button>
-          <button type="button" class="active" data-preview-map="fabric" aria-pressed="true">Base Color</button>
-          <button type="button" data-preview-map="height" aria-pressed="false">Height</button>
-          <button type="button" data-preview-map="normal" aria-pressed="false">Normal</button>
-          <button type="button" data-preview-map="ao" aria-pressed="false">AO</button>
-        </div>
-        <div id="previewStage" class="preview-stage">
-          <div id="inputPreviewPanel" class="texture-preview-panel" hidden>
-            <div id="inputPreviewWrap" class="texture-viewport"><canvas id="inputCanvas" width="0" height="0" aria-label="输入组织图"></canvas><div id="inputEmptyState" class="empty-state"></div></div>
-            <span id="inputZoomLabel" class="texture-zoom-label"></span>
-          </div>
-          <div id="fabricPreviewPanel" class="texture-preview-panel">
-            <div id="outputWrap" class="texture-viewport"><canvas id="outputCanvas" width="0" height="0" aria-label="面料全图，拖动平移，滚轮缩放"></canvas><div id="emptyState" class="empty-state"></div></div>
-            <span id="textureZoomLabel" class="texture-zoom-label"></span>
-          </div>
-          <div id="heightPreviewPanel" class="texture-preview-panel" hidden>
-            <div id="heightPreviewWrap" class="texture-viewport"><canvas id="heightPreviewCanvas" width="0" height="0" aria-label="高度图"></canvas><div id="heightEmptyState" class="empty-state"></div></div>
-            <span id="heightZoomLabel" class="texture-zoom-label"></span>
-          </div>
-          <div id="normalPreviewPanel" class="texture-preview-panel" hidden>
-            <div id="normalPreviewWrap" class="texture-viewport"><canvas id="normalPreviewCanvas" width="0" height="0" aria-label="OpenGL 法线图"></canvas><div id="normalEmptyState" class="empty-state"></div></div>
-            <span id="normalZoomLabel" class="texture-zoom-label"></span>
-          </div>
-          <div id="aoPreviewPanel" class="texture-preview-panel" hidden>
-            <div id="aoPreviewWrap" class="texture-viewport"><canvas id="aoPreviewCanvas" width="0" height="0" aria-label="环境光遮蔽 AO 图"></canvas><div id="aoEmptyState" class="empty-state"></div></div>
-            <span id="aoZoomLabel" class="texture-zoom-label"></span>
-          </div>
-        </div>
-        <span id="renderInfo" class="render-info" role="status"></span>
-        <div id="cropToolbar" class="crop-toolbar" role="group" aria-label="裁剪组织图" hidden>
-          <span id="cropProgress" class="crop-progress" role="status"></span>
-          <button id="cropReset" type="button" class="secondary compact-button">重选</button>
-          <button id="cropCancel" type="button" class="secondary compact-button">取消</button>
-          <button id="cropApply" type="button" class="primary compact-button" disabled>确认裁剪</button>
-        </div>
-      </section>
+      <div hidden aria-hidden="true">
+        <canvas id="inputCanvas" width="0" height="0"></canvas>
+        <canvas id="outputCanvas" width="0" height="0"></canvas>
+        <canvas id="heightPreviewCanvas" width="0" height="0"></canvas>
+        <canvas id="normalPreviewCanvas" width="0" height="0"></canvas>
+        <canvas id="aoPreviewCanvas" width="0" height="0"></canvas>
+        <span id="emptyState"></span><span id="inputEmptyState"></span>
+        <span id="heightEmptyState"></span><span id="normalEmptyState"></span><span id="aoEmptyState"></span>
+      </div>
       <aside class="panel controls" aria-label="程序化材质参数">
-        <section class="control-group">
+        <section class="control-group source-group">
           <div class="control-heading">
             <h2>组织图</h2>
             <button id="cropButton" type="button" class="secondary compact-button crop-button" aria-pressed="false" disabled><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v13a2 2 0 0 0 2 2h13M3 6h13a2 2 0 0 1 2 2v13"/></svg>裁剪</button>
@@ -60,27 +31,28 @@
           </label>
           <p class="control-status" id="statusPill" role="status"></p>
         </section>
+        <div class="procedural-render-actions" role="group" aria-label="程序化材质渲染">
+          <button id="renderButton" class="primary render-action" type="button" data-render-state="empty" aria-labelledby="renderButtonLabel" aria-describedby="renderButtonStatus" disabled><span class="render-action-indicator" aria-hidden="true"></span><span class="render-action-title"><span id="renderButtonLabel" class="render-action-label">渲染纹理</span><span class="render-action-sheen" aria-hidden="true"><span class="render-action-sheen-text">渲染纹理</span></span></span><span id="renderButtonStatus" class="render-action-status" role="status" aria-live="polite" aria-atomic="true">待上传 BMP</span></button>
+          <button id="normalButton" class="primary render-action" type="button" data-render-state="empty" aria-labelledby="normalButtonLabel" aria-describedby="normalButtonStatus" disabled><span class="render-action-indicator" aria-hidden="true"></span><span class="render-action-title"><span id="normalButtonLabel" class="render-action-label">渲染高度</span><span class="render-action-sheen" aria-hidden="true"><span class="render-action-sheen-text">渲染高度</span></span></span><span id="normalButtonStatus" class="render-action-status" role="status" aria-live="polite" aria-atomic="true">待上传 BMP</span></button>
+        </div>
         <section class="control-group">
           <div class="control-heading">
             <h2>色号映射</h2>
-            <button id="resetPalette" class="secondary compact-button" type="button" disabled>恢复原色</button>
           </div>
           <div id="paletteControls" class="palette-controls"></div>
-          <div class="color-row"><label for="backgroundColorSwatch">背景色</label><button id="backgroundColorSwatch" type="button" class="compact-procedural-swatch" aria-label="编辑背景色" aria-controls="paletteColorEditor" aria-expanded="false"></button><input id="backgroundColor" type="hidden" value="#ffffff"><output id="backgroundColorValue" for="backgroundColor">#FFFFFF</output></div>
+          <div class="color-row palette-background-row"><label for="backgroundColorSwatch">背景色</label><button id="backgroundColorSwatch" type="button" class="compact-procedural-swatch" aria-label="编辑背景色" aria-controls="paletteColorEditor" aria-expanded="false"></button><input id="backgroundColor" type="hidden" value="#ffffff"><output id="backgroundColorValue" for="backgroundColor">#FFFFFF</output></div>
           <div id="paletteColorEditor" class="palette-color-editor" hidden></div>
         </section>
         <section class="control-group">
           <div class="control-heading">
             <h2>纹理参数</h2>
-            <button id="renderButton" class="secondary compact-button" type="button" disabled>渲染纹理</button>
           </div>
           <div class="range-row"><label for="contrast">线圈立体感</label><input id="contrast" type="range" min="0" max="100" step="1" value="66"><output id="contrastValue" for="contrast">66</output></div>
           <div class="range-row"><label for="angle">线圈方向</label><input id="angle" type="range" min="-35" max="35" step="1" value="0"><output id="angleValue" for="angle">0°</output></div>
         </section>
         <section class="control-group">
           <div class="control-heading">
-            <h2>高度、法线与 AO</h2>
-            <button id="normalButton" class="secondary compact-button" type="button" disabled>生成贴图</button>
+            <h2>高级参数</h2>
           </div>
           <div class="number-row"><label for="reliefRadius">渐变半径</label><input id="reliefRadius" type="number" min="0.05" step="0.05" value="5"><span>BMP px</span></div>
           <div class="range-row"><label for="reliefDepth">凹陷深度</label><input id="reliefDepth" type="range" min="0" max="100" step="1" value="60"><output id="reliefDepthValue" for="reliefDepth">60</output></div>
@@ -90,13 +62,14 @@
           <p class="control-status" id="normalInfo" role="status"></p>
         </section>
         <section class="control-group output-group">
-          <h2>输出</h2>
+          <h2>输出参数</h2>
           <div class="number-row"><label for="dpi">分辨率</label><input id="dpi" type="number" min="1" max="1200" step="1" value="100"><span>DPI</span></div>
           <div class="number-row"><label for="bmpPixelsPerCmY">纵向密度</label><input id="bmpPixelsPerCmY" type="number" min="0.01" step="0.01" value="6"><span>px/cm</span></div>
           <div class="range-row"><label for="quality">JPG 质量</label><input id="quality" type="range" min="60" max="100" step="1" value="92"><output id="qualityValue" for="quality">92</output></div>
           <p class="physical-size" id="physicalSizeInfo"></p>
+          <p id="renderInfo" class="control-status" role="status"></p>
           <div class="download-actions" role="group" aria-label="下载 JPG">
-            <button id="downloadButton" class="primary" type="button" aria-label="下载纹理 JPG" disabled>纹理 JPG</button>
+            <button id="downloadButton" class="secondary" type="button" aria-label="下载纹理 JPG" disabled>纹理 JPG</button>
             <button id="heightDownloadButton" class="secondary" type="button" aria-label="下载高度 JPG" disabled>高度 JPG</button>
             <button id="normalDownloadButton" class="secondary" type="button" aria-label="下载法线 JPG" disabled>法线 JPG</button>
             <button id="aoDownloadButton" class="secondary" type="button" aria-label="下载 AO JPG" disabled>AO JPG</button>
@@ -108,7 +81,6 @@
   <script src="./knit-renderer.js"></script>
   <script src="./render-task.js"></script>
   <script src="./bmp-crop.js"></script>
-  <script src="./crop-tool.js"></script>
   <script src="../shared/procedural-color-picker.js"></script>
   <script src="./app.js"></script>
 </body>

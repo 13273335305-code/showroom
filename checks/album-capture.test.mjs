@@ -12,10 +12,10 @@ function harness(save) {
   nodes.canvas = canvas; nodes.captureFrame = { getBoundingClientRect: () => frame };
   const output = { getContext: () => ({ drawImage() {} }), toBlob: resolve => resolve(new Blob(['output'], { type: 'image/png' })) };
   const bitmap = { close() {} };
-  const create = new Function('$', 'notify', 'renderDesignScene', 'createImageBitmap', 'document', 'addPhoto', 'console', 'setCaptureTransparent', 'albumPhotoName', 'modelSource',
-    "let captureMode=true,renderer={},camera={},captureFlashTimer; " + source + ';return captureImage;');
+  const create = new Function('$', 'notify', 'renderDesignScene', 'createImageBitmap', 'document', 'addPhoto', 'console', 'setCaptureTransparent', 'albumPhotoName', 'modelSource', 'ensureCaptureProject', 'window',
+    "let captureMode=true,renderer={},camera={},captureFlashTimer,modelGeneration=1; " + source + ';return captureImage;');
   const capture = create(id=>nodes[id], message=>notifications.push(message), ()=>rendered.push(true), async()=>bitmap,
-    { createElement: ()=>output }, save, { warn() {} }, () => {}, albumPhotoName, { name: 'MM06-展厅版.fbx' });
+    { createElement: ()=>output }, save, { warn() {} }, () => {}, albumPhotoName, { name: 'MM06-展厅版.fbx' }, async()=> '33333333-3333-3333-3333-333333333333', {dispatchEvent(){}});
   return {capture,nodes,notifications,rendered,output};
 }
 
@@ -28,7 +28,7 @@ test('capture waits for cloud save, suppresses duplicate clicks and preserves ou
   await h.capture();assert.equal(count,1);assert.equal(h.notifications.length,0);
   assert.equal(h.output.width,1920);assert.equal(h.output.height,1080);
   assert.equal(saved.metadata.transparent,true);assert.equal(saved.metadata.name,albumPhotoName('MM06-展厅版.fbx'));
-  assert.equal(saved.metadata.source,'capture');
+  assert.equal(saved.metadata.source,'capture');assert.equal(saved.metadata.projectId,'33333333-3333-3333-3333-333333333333');
   resolveSave();await promise;
   assert.equal(h.nodes.captureShoot.disabled,false);assert.equal(h.nodes.captureShoot.textContent,'拍摄');
   assert.match(h.notifications[0],/已保存到云端图册/);assert.equal(h.rendered.length,1);

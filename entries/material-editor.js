@@ -20,6 +20,8 @@ import { updateFabricColorSwatch, renderBatchFabricSwatches } from '../shared/fa
 import { planFabricBatch, enqueueFabricBatch } from '../shared/fabric-batch.js';
 import { enqueueMaterialUpload, getUpload, startUploadQueue, subscribeUploads } from '../shared/upload-queue.js';
 import { normalizeFabricCategory, normalizeAssetCategories } from '../shared/fabric-category.js';
+import { mountProceduralPreview } from '../shared/procedural-preview.js';
+import { bindColorInput } from '../shared/color-picker-controls.js';
 
 const $ = id => document.getElementById(id);
 await requireAuth({ feature: 'material' });
@@ -30,7 +32,16 @@ let previewUv, previewPhysicalUv, previewPositions;
 let physical = { ...defaultPhysical(), sizeSource: 'manual', initialized: true }, repeat = [1, 1];
 let legacyMaps = {}, savedPlacement, libraryMetadata = {};
 let proceduralMapping = null, proceduralSource = null;
-let proceduralReliefRevision = 0;
+let proceduralPreview = null;
+const proceduralJobs = new Set();
+const proceduralRevisions = { source: 0, base: 0, relief: 0 };
+function syncPendingControls() {
+  $('saveMaterial').disabled = pending > 0 || proceduralJobs.size > 0;
+  const sourceName = proceduralSource?.name || '';
+  $('proceduralBmpName').textContent = sourceName || '上传 BMP';
+  $('uploadProceduralBmp').title = sourceName ? `${sourceName} · 点击更换 BMP` : '上传 BMP';
+  $('uploadProceduralBmp').setAttribute('aria-label', sourceName ? `更换 BMP：${sourceName}` : '上传 BMP');
+}
 const files = {}, urls = {}, tokens = {}, density = {}, embeddedDensity = {};
 const patternPreview = createPatternPreview($('patternPreview'));
 let roughnessPreviewCache = null, savedPreview = null, savedPreviewInfo = null, previewGenerationCanvas = null;
@@ -165,6 +176,7 @@ function syncMaterialType() {
   document.querySelectorAll('[data-material-type]').forEach(button => { const active = button.dataset.materialType === $('materialType').value; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
   $('fabricCategoryRow').hidden = pattern;
   $('fabricColorCodeRow').hidden = pattern;
+  $('proceduralWorkspace').hidden = pattern;
   $('fabricSheenSection').hidden = pattern;
   $('materialPreviewModes').hidden = pattern;
   syncFabricColorSwatch();
@@ -176,6 +188,7 @@ function syncMaterialType() {
   $('pbrHeading').hidden = pattern;
   document.body.classList.toggle('pattern-editing', pattern);
   controls.enabled = !pattern;
+  proceduralPreview?.enable(!pattern);
   updatePatternPreview();
 }
 function syncFabricColorSwatch() {
@@ -203,6 +216,7 @@ function configureMaps() {
     configureTextureSampling(texture, renderer);
   }
   material.needsUpdate = true;
+  proceduralPreview?.updatePhysical();
   updatePatternPreview();
 }
 function fillFabricPreview() {
@@ -239,6 +253,11 @@ function removeMap(key) {
   $('preview-' + key).removeAttribute('src'); $('file-' + key).textContent = '拖入或点击上传';
   $('upload-' + key).classList.remove('has-image'); $('remove-' + key).disabled = true;
   material.needsUpdate = true; dirty = true;
+  if (key === 'map') proceduralPreview?.clear('base');
+  if (key === 'normalMap') proceduralPreview?.clear('normal');
+  if (key === 'roughnessMap') proceduralPreview?.clear('roughness');
+  if (key === 'metalnessMap') proceduralPreview?.clear('metalness');
+  if (key === 'aoMap') proceduralPreview?.clear('ao');
   if (key === 'roughnessMap') { applySurface(material, { roughnessInvert: false }); syncSurfaceControls(); }
   if (key === 'map') { physical.sizeSource = 'manual'; configureMaps(); }
   else updatePatternPreview();
@@ -295,7 +314,7 @@ function syncPreviewGeneration() {
   } catch (error) { $('previewGenerationHint').textContent = error.message; $('confirmPreviewGeneration').disabled = true; }
 }
 function openPreviewGeneration() {
-  if (pending) { status('请等待贴图载入完成'); return; }
+  if (pending || proceduralJobs.size) { status('请等待贴图生成或载入完成'); return; }
   const dialog = $('previewGenerationDialog');
   const category = $('category').value, defaults = previewCategorySizes[category] || previewCategorySizes['其他'];
   const savedDimensions = savedPreviewCategory === category ? savedPreviewInfo : null;
@@ -420,12 +439,12 @@ async function syncMaterialUpload() {
     status('后台上传失败，可在资产库上传任务中重试。');
   } else if ($('materialType').value !== 'pattern') status('面料正在上传…');
 }
-async function uploadMap(key, file, restoring = false) {
+async function uploadMap(key, file, restoring = false, preserveIdentity = false) {
   if (!/\.(png|jpe?g|webp|bmp)$/i.test(file.name) && !['image/png', 'image/jpeg', 'image/webp', 'image/bmp', 'image/x-ms-bmp'].includes(file.type)) throw new Error('请选择 PNG、JPG、WebP 或 BMP 图片');
   if (file.size > 64 * 1024 * 1024) throw new Error('单张贴图不能超过 64 MB');
   const token = tokens[key] = (tokens[key] || 0) + 1;
   const originalFile = file;
-  pending++; $('saveMaterial').disabled = true; $('exportMaterial').disabled = true;
+  pending++; syncPendingControls();
   let texture, url, meta;
   try {
     meta = readImageDensity(await originalFile.arrayBuffer());
@@ -446,7 +465,7 @@ async function uploadMap(key, file, restoring = false) {
       delete legacyMaps[key];
       if (key === 'map') applyBaseColorDpi();
       if (key === 'map') material.color.set('#ffffff');
-      if (key === 'map' && $('materialType').value === 'fabric') {
+      if (key === 'map' && $('materialType').value === 'fabric' && !preserveIdentity) {
         const info = fabricInfoFromFilename(originalFile.name);
         $('name').value = info.name;
         $('fabricColorCode').value = info.fabricColorCode;
@@ -457,14 +476,19 @@ async function uploadMap(key, file, restoring = false) {
       dirty = true;
     }
     configureMaps(); syncSurfaceControls();
+    if (key === 'map') proceduralPreview?.setMap('base', material.map);
+    if (key === 'normalMap') proceduralPreview?.setMap('normal', material.normalMap);
+    if (key === 'roughnessMap') proceduralPreview?.setMap('roughness', material.roughnessMap);
+    if (key === 'metalnessMap') proceduralPreview?.setMap('metalness', material.metalnessMap);
+    if (key === 'aoMap') proceduralPreview?.setMap('ao', material.aoMap);
     $('preview-' + key).src = url; $('file-' + key).textContent = file.name;
     $('upload-' + key).classList.add('has-image'); $('remove-' + key).disabled = false;
     if (key === 'roughnessMap') refreshRoughnessPreview();
   } catch (error) { texture?.dispose(); if (url) URL.revokeObjectURL(url); throw error; }
-  finally { pending--; $('saveMaterial').disabled = pending > 0; $('exportMaterial').disabled = pending > 0; }
+  finally { pending--; syncPendingControls(); }
 }
 function currentAsset(overrides = {}) {
-  if (pending) throw new Error('请等待贴图载入完成');
+  if (pending || proceduralJobs.size) throw new Error('请等待贴图生成或载入完成');
   if ($('materialType').value === 'pattern' && !files.map) throw new Error('图案需要基础颜色图片');
   if (!$('name').value.trim()) throw new Error('请输入材质名称');
   return { ...libraryMetadata, preview: savedPreview, previewInfo: savedPreviewInfo, ...overrides, id: assetId, kind: 'material', placement: savedPlacement, materialType: $('materialType').value, name: $('name').value.trim(), category: $('category').value, fabricColorCode: $('fabricColorCode').value.trim(), surface: readSurface(material), physical: { ...physical }, repeat: [...repeat], maps: { ...files }, density: { ...density }, legacyMaps: { ...legacyMaps }, proceduralMapping: proceduralMapping ? structuredClone(proceduralMapping) : undefined, proceduralSource: proceduralSource || undefined };
@@ -522,9 +546,9 @@ function buildPbrRows() {
     const label = document.createElement('label'); label.className = 'pbr-color'; label.textContent = title;
     const controls = document.createElement('div'); controls.className = 'pbr-color-inputs';
     const text = document.createElement('input'); Object.assign(text, { id: id + 'Value', type: 'text', value: initial, maxLength: 7 }); text.setAttribute('aria-label', title + '色值'); text.spellcheck = false;
-    const color = document.createElement('input'); Object.assign(color, { id, type: 'color', value: initial }); color.setAttribute('aria-label', title);
+    const color = document.createElement('input'); Object.assign(color, { id, type: 'hidden', value: initial }); color.setAttribute('aria-label', title);
     text.onchange = () => { if (/^#[\da-f]{6}$/i.test(text.value)) { color.value = text.value; updateSurface(); } else { status('请输入 #RRGGBB 格式的色值'); syncSurfaceControls(); } };
-    controls.append(text, color); label.append(controls); host.append(label);
+    controls.append(text, color); bindColorInput(color); label.append(controls); host.append(label);
   }
   for (const [id, title, max] of sheenParameters) {
     const label = document.createElement('label'); label.htmlFor = id + 'Value';
@@ -624,6 +648,13 @@ async function init() {
   previewPhysicalUv = plane.geometry.attributes.uv2;
   sheenBall = new THREE.Mesh(new THREE.SphereGeometry(24, 64, 48), material);
   preparePhysicalUV(sheenBall); sheenBall.visible = false; scene.add(sheenBall);
+  proceduralPreview = mountProceduralPreview({
+    renderer, plane, ball: sheenBall, material,
+    physical: () => physical,
+    onCrop: rect => $('proceduralFrame').contentWindow?.postMessage({ type: 'procedural-crop', rect, sourceRevision: proceduralRevisions.source }, '*'),
+    onError: error => status(error.message),
+    onPreviewState: blocked => { controls.enabled = !blocked && $('materialType').value !== 'pattern'; }
+  });
   const setPreviewMode = ball => {
     if (sheenPreview === ball) return;
     // Clear pending damping before changing coordinate systems so returning
@@ -654,7 +685,7 @@ async function init() {
     camera.updateProjectionMatrix();
   }).observe($('previewPane'));
   renderer.setAnimationLoop(() => {
-    if (pageLeaving || $('materialType').value === 'pattern') return;
+    if (pageLeaving || proceduralPreview?.cropping || proceduralPreview?.showingInput || $('materialType').value === 'pattern') return;
     controls.update(); fillFabricPreview();
     renderer.render(scene, camera);
   });
@@ -662,6 +693,7 @@ async function init() {
     pageLeaving = true;
     renderer?.setAnimationLoop(null);
     controls?.dispose();
+    proceduralPreview?.dispose();
     renderer?.dispose();
   }, { once: true });
   buildPbrRows();
@@ -716,75 +748,152 @@ async function init() {
   $('cancelPreviewGeneration').onclick = () => $('previewGenerationDialog').close();
   $('previewGenerationDialog').addEventListener('cancel', event => { event.preventDefault(); $('previewGenerationDialog').close(); });
   $('confirmPreviewGeneration').onclick = saveMaterialWithPreview;
-  const editorLayout = document.querySelector('main.editor-layout');
-  const proceduralWorkspace = $('proceduralWorkspace'), proceduralFrame = $('proceduralFrame');
-  const showMaterialEditor = () => {
-    proceduralWorkspace.hidden = true;
-    editorLayout.hidden = false;
-    $('materialEditorMode').classList.add('active');
-    $('materialEditorMode').setAttribute('aria-pressed', 'true');
-    $('exportMaterial').classList.remove('active');
-    $('exportMaterial').setAttribute('aria-pressed', 'false');
+  const proceduralParameters = $('proceduralParameters'), proceduralFrame = $('proceduralFrame'), proceduralWorkspace = $('proceduralWorkspace');
+  const proceduralOrigin = location.origin === 'null' ? '*' : location.origin;
+  let frameReady = null, sourceUploadToken = 0;
+  const ensureProceduralFrame = () => {
+    proceduralWorkspace.open = true;
+    proceduralParameters.hidden = false;
+    return frameReady ||= new Promise((resolve, reject) => {
+      proceduralFrame.addEventListener('load', resolve, { once: true });
+      proceduralFrame.addEventListener('error', () => { frameReady = null; reject(new Error('程序化参数载入失败，请重试')); }, { once: true });
+      proceduralFrame.src = './web-demo/index.html?embed=1&panel=inline';
+    });
   };
-  const showProceduralEditor = () => {
-    status('');
-    editorLayout.hidden = true;
-    proceduralWorkspace.hidden = false;
-    $('materialEditorMode').classList.remove('active');
-    $('materialEditorMode').setAttribute('aria-pressed', 'false');
-    $('exportMaterial').classList.add('active');
-    $('exportMaterial').setAttribute('aria-pressed', 'true');
-    if (!proceduralFrame.src || proceduralFrame.src.endsWith('about:blank')) {
-      proceduralFrame.addEventListener('load', () => {
-        if (proceduralSource && proceduralMapping) proceduralFrame.contentWindow.postMessage({ type: 'procedural-load', sourceFile: proceduralSource, mapping: structuredClone(proceduralMapping) }, '*');
-      }, { once: true });
-      proceduralFrame.src = './web-demo/index.html?embed=1';
+  $('uploadProceduralBmp').onclick = event => {
+    event.preventDefault(); event.stopPropagation();
+    $('proceduralBmpInput').click();
+  };
+  proceduralWorkspace.addEventListener('toggle', () => {
+    if (!proceduralWorkspace.open && frameReady) proceduralFrame.contentWindow?.postMessage({ type: 'procedural-dismiss-picker' }, proceduralOrigin);
+  });
+  $('proceduralBmpInput').onchange = async () => {
+    const file = $('proceduralBmpInput').files[0]; $('proceduralBmpInput').value = '';
+    if (!file) return;
+    const token = ++sourceUploadToken;
+    proceduralJobs.add('source'); syncPendingControls(); status('');
+    try {
+      await ensureProceduralFrame();
+      if (token === sourceUploadToken && !pageLeaving) proceduralFrame.contentWindow.postMessage({ type: 'procedural-upload', sourceFile: file }, proceduralOrigin);
+    } catch (error) {
+      if (token !== sourceUploadToken) return;
+      proceduralJobs.delete('source'); proceduralParameters.hidden = !proceduralSource;
+      syncPendingControls(); status(error.message);
     }
   };
-  $('materialEditorMode').onclick = showMaterialEditor;
-  $('exportMaterial').onclick = showProceduralEditor;
+  document.querySelector('.editor-panel').addEventListener('scroll', () => {
+    if (frameReady) proceduralFrame.contentWindow?.postMessage({ type: 'procedural-dismiss-picker' }, proceduralOrigin);
+  }, { passive: true });
+  const clearRelief = () => {
+    proceduralJobs.delete('relief');
+    proceduralPreview.clear('height'); removeMap('normalMap'); removeMap('aoMap');
+  };
   window.addEventListener('message', async event => {
-    const messageType = event.data?.type;
-    if (event.source !== proceduralFrame.contentWindow || !['procedural-material', 'procedural-normal-material', 'procedural-relief-material', 'procedural-state'].includes(messageType)) return;
-    if (messageType === 'procedural-state') {
-      if (event.data.mapping && (event.data.sourceFile || proceduralSource)) {
-        if (event.data.resetGeneratedMaps || event.data.resetReliefMaps) {
-          proceduralReliefRevision++;
-          removeMap('normalMap'); removeMap('aoMap');
-          if (event.data.resetGeneratedMaps) removeMap('map');
-        }
-        proceduralMapping = structuredClone(event.data.mapping);
-        if (event.data.sourceFile) proceduralSource = event.data.sourceFile;
-        dirty = true;
-      }
+    if (pageLeaving || event.source !== proceduralFrame.contentWindow || (event.origin !== location.origin && event.origin !== 'null')) return;
+    const data = event.data || {}, messageType = data.type;
+    if (messageType === 'procedural-panel-size') {
+      const height = Number(data.height);
+      if (Number.isFinite(height) && height > 0 && height <= 20000) proceduralFrame.style.height = `${Math.ceil(height)}px`;
       return;
     }
-    const relief = messageType === 'procedural-relief-material';
-    const uploads = relief ? [['normalMap', event.data.maps?.normalMap, 'procedural-normal-opengl.jpg'], ['aoMap', event.data.maps?.aoMap, 'procedural-ao.jpg']]
-      : [[messageType === 'procedural-normal-material' ? 'normalMap' : 'map', event.data.file, event.data.name || (messageType === 'procedural-normal-material' ? 'procedural-normal-opengl.jpg' : 'procedural-material.jpg')]];
-    if (uploads.some(([, file]) => !file || typeof file.arrayBuffer !== 'function' || !file.size)) { status('程序化材质没有生成有效的 JPG 贴图'); return; }
-    const revision = relief || messageType === 'procedural-normal-material' ? ++proceduralReliefRevision : proceduralReliefRevision;
-    const previousName = $('name').value;
-    try {
-      status(relief ? '正在载入程序化法线与 AO JPG…' : '正在载入程序化材质 JPG…');
-      for (const [mapKey, file, name] of uploads) {
-        if (messageType !== 'procedural-material' && revision !== proceduralReliefRevision) return;
-        await uploadMap(mapKey, new File([file], name, { type: file.type || 'image/jpeg' }));
-        if (messageType !== 'procedural-material' && revision !== proceduralReliefRevision) return;
+    if (messageType === 'procedural-crop-request') { proceduralPreview.startCrop(); return; }
+    if (messageType === 'procedural-error') { status(data.message || '程序化材质处理失败'); return; }
+    if (messageType === 'procedural-preview-status') {
+      if (!['source', 'base', 'relief'].includes(data.kind)) return;
+      if (data.kind === 'source') {
+        if (data.sourceRevision < proceduralRevisions.source) return;
+        proceduralRevisions.source = data.sourceRevision;
+        proceduralRevisions.base = data.baseRevision; proceduralRevisions.relief = data.reliefRevision;
+        proceduralJobs.clear();
+        if (data.resetGeneratedMaps || data.error) {
+          clearRelief(); removeMap('map'); proceduralPreview.clearSource();
+        }
+        if (data.busy) proceduralJobs.add('source');
+        if (data.error) { proceduralSource = null; proceduralMapping = null; proceduralParameters.hidden = true; dirty = true; status(data.error); }
+        syncPendingControls(); return;
       }
-      if (previousName) $('name').value = previousName;
-      const widthCm = Number(event.data.physical?.widthCm), heightCm = Number(event.data.physical?.heightCm);
-      if (Number.isFinite(widthCm) && widthCm > 0 && Number.isFinite(heightCm) && heightCm > 0) {
+      const kind = data.kind, revision = kind === 'base' ? data.baseRevision : data.reliefRevision;
+      if (data.sourceRevision < proceduralRevisions.source || revision < proceduralRevisions[kind]) return;
+      proceduralRevisions.source = data.sourceRevision;
+      proceduralRevisions[kind] = revision;
+      if (data.busy) {
+        if (kind === 'base') { tokens.map = (tokens.map || 0) + 1; proceduralPreview.clear('base'); }
+        else clearRelief();
+        proceduralJobs.add(kind);
+      } else {
+        proceduralJobs.delete(kind);
+        if (kind === 'base') removeMap('map'); else clearRelief();
+        if (data.error) status('程序化贴图生成失败：' + data.error);
+      }
+      syncPendingControls(); return;
+    }
+    if (messageType === 'procedural-state') {
+      if (!data.mapping || !(data.sourceFile || proceduralSource)) return;
+      if (data.sourceRevision < proceduralRevisions.source) return;
+      proceduralRevisions.source = data.sourceRevision ?? proceduralRevisions.source;
+      proceduralJobs.delete('source');
+      if (data.resetGeneratedMaps) proceduralRevisions.base = Math.max(proceduralRevisions.base, data.baseRevision || 0);
+      if (data.resetGeneratedMaps || data.resetReliefMaps) proceduralRevisions.relief = Math.max(proceduralRevisions.relief, data.reliefRevision || 0);
+      if (data.resetGeneratedMaps || data.resetReliefMaps) clearRelief();
+      if (data.resetGeneratedMaps) { proceduralJobs.delete('base'); removeMap('map'); }
+      proceduralMapping = structuredClone(data.mapping);
+      if (data.sourceFile) {
+        proceduralSource = data.sourceFile;
+        proceduralParameters.hidden = false;
+        proceduralJobs.add('base');
+        void proceduralPreview.setSource(proceduralSource).catch(error => status('BMP 预览载入失败：' + error.message));
+      }
+      const widthCm = data.mapping.width * .1, heightCm = data.mapping.height / (Number(data.mapping.options?.pixelsPerCmY) || 6);
+      if (widthCm > 0 && heightCm > 0) {
         physical = readPhysical({ ...physical, widthCm, heightCm, mode: 'physical', sizeSource: 'manual' });
         syncPhysicalControls(); configureMaps();
       }
-      dirty = true; status('');
-    } catch (error) { status('应用程序化材质失败：' + error.message); }
+      dirty = true; editGeneration++; syncPendingControls(); return;
+    }
+    if (!['procedural-material', 'procedural-normal-material', 'procedural-relief-material'].includes(messageType)) return;
+    const relief = messageType !== 'procedural-material', kind = relief ? 'relief' : 'base';
+    const revision = relief ? data.reliefRevision : data.baseRevision;
+    if ((data.sourceRevision ?? 0) < proceduralRevisions.source || (revision ?? 0) < proceduralRevisions[kind]) return;
+    proceduralRevisions[kind] = revision ?? proceduralRevisions[kind];
+    const sourceRevision = proceduralRevisions.source, runRevision = proceduralRevisions[kind];
+    const valid = () => !pageLeaving && sourceRevision === proceduralRevisions.source && runRevision === proceduralRevisions[kind];
+    const uploads = messageType === 'procedural-relief-material'
+      ? [['normalMap', data.maps?.normalMap, 'procedural-normal-opengl.jpg'], ['aoMap', data.maps?.aoMap, 'procedural-ao.jpg']]
+      : [[relief ? 'normalMap' : 'map', data.file, data.name || (relief ? 'procedural-normal-opengl.jpg' : 'procedural-material.jpg')]];
+    proceduralJobs.add(kind); syncPendingControls();
+    try {
+      if (uploads.some(([, file]) => !file?.size || typeof file.arrayBuffer !== 'function')) throw new Error('没有生成有效的 JPG 贴图');
+      for (const [key, file, name] of uploads) {
+        if (!valid()) return;
+        await uploadMap(key, new File([file], name, { type: file.type || 'image/jpeg' }), false, true);
+        if (!valid()) return;
+      }
+      if (data.maps?.height) await proceduralPreview.setFile('height', new File([data.maps.height], 'procedural-height.jpg', { type: 'image/jpeg' }));
+      if (!valid()) return;
+      const widthCm = Number(data.physical?.widthCm), heightCm = Number(data.physical?.heightCm);
+      if (widthCm > 0 && heightCm > 0) {
+        physical = readPhysical({ ...physical, widthCm, heightCm, mode: 'physical', sizeSource: 'manual' });
+        syncPhysicalControls(); configureMaps();
+      }
+      dirty = true; editGeneration++; status('');
+    } catch (error) {
+      if (valid()) { if (relief) clearRelief(); else removeMap('map'); status('应用程序化材质失败：' + error.message); }
+    } finally {
+      if (valid()) proceduralJobs.delete(kind);
+      syncPendingControls();
+    }
   });
   $('newMaterial').onclick = () => { if (!dirty || confirm('当前材质尚未保存，确定新建？')) { dirty = false; location.href = './material-editor.html'; } };
-  window.addEventListener('beforeunload', event => { if (dirty || pending || batchingFabric) { event.preventDefault(); event.returnValue = ''; } });
+  window.addEventListener('beforeunload', event => { if (dirty || pending || proceduralJobs.size || batchingFabric) { event.preventDefault(); event.returnValue = ''; } });
   syncSurfaceControls(); syncPhysicalControls();
   try { await restoreAsset(); } catch (error) { status('打开资产失败：' + error.message); }
-  $('saveMaterial').disabled = false; $('batchFabric').disabled = false; syncMaterialType();
+  if (proceduralSource && proceduralMapping) {
+    void proceduralPreview.setSource(proceduralSource).catch(error => status(error.message));
+    proceduralJobs.add('source');
+    void ensureProceduralFrame().then(() => {
+      if (!pageLeaving) proceduralFrame.contentWindow.postMessage({ type: 'procedural-load', sourceFile: proceduralSource, mapping: structuredClone(proceduralMapping) }, proceduralOrigin);
+    }).catch(error => { proceduralJobs.delete('source'); syncPendingControls(); status(error.message); });
+  }
+  syncPendingControls(); $('uploadProceduralBmp').disabled = false; $('batchFabric').disabled = false; syncMaterialType();
 }
 init().catch(error => { console.error(error); status('无法初始化材质预览，请检查 WebGL 2 和硬件加速：' + error.message); });

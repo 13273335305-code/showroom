@@ -10,11 +10,11 @@ function harness(model,{switchBeforeSend=false,failResponse=false}={}){
  const store={assertAccount:async owner=>{if(switchBeforeSend)user='bob';if(owner!==user)throw new Error('账号已切换')},generate:async(owner,model,body,signal)=>{requests.push({owner,model,body,signal});return {ok:!failResponse,status:failResponse?401:200,text:async()=>JSON.stringify(failResponse?{error:{message:'HTTP 401 private-test-key'}}:{test:true})}}};
  class Reader{readAsDataURL(){this.result='encoded-test-image';this.onload()}}
  const canvas={getContext:()=>({drawImage(){}}),toBlob:resolve=>resolve(new Blob(['png'],{type:'image/png'}))};
- const names=['$','captureAiStore','setCaptureAiBusy','captureFilename','setCaptureAiStatus','saveCaptureAiConfig','captureFrameBlob','FileReader','cleanCaptureBase64','fetch','extractCaptureImage','captureBase64Blob','createImageBitmap','document','addPhoto','notify'];
+ const names=['$','captureAiStore','setCaptureAiBusy','captureFilename','setCaptureAiStatus','saveCaptureAiConfig','captureFrameBlob','FileReader','cleanCaptureBase64','fetch','extractCaptureImage','captureBase64Blob','createImageBitmap','document','addPhoto','notify','ensureCaptureProject','window'];
  const values=[id=>nodes[id],store,busy=>{nodes.captureAiGenerate.disabled=busy},()=> 'test-photo',(...args)=>statuses.push(args),async()=>({apiKey:'private-test-key',prompt:'test prompt',model,aspect:'AUTO',size:'1K'}),async()=>new Blob(['input']),Reader,x=>x,
   async(url,options)=>{requests.push({url,options});return {ok:!failResponse,status:failResponse?401:200,text:async()=>JSON.stringify(failResponse?{error:{message:'private-test-key'}}:{test:true})}},
-  ()=>({data:'test',mime:'image/png'}),()=>new Blob(['image']),async()=>({width:1024,height:1024,close(){}}),{createElement:()=>canvas},async(blob,metadata)=>saved.push(metadata),()=>{}];
- const capture=new Function(...names,`let captureMode=true,captureAiLoaded={ownerId:'alice'},captureAiVersion=1,captureAiRequest=null;${generate};return captureAiGenerate;`)(...values);
+  ()=>({data:'test',mime:'image/png'}),()=>new Blob(['image']),async()=>({width:1024,height:1024,close(){}}),{createElement:()=>canvas},async(blob,metadata)=>saved.push(metadata),()=>{},async()=> '33333333-3333-3333-3333-333333333333',{dispatchEvent(){}}];
+ const capture=new Function(...names,`let modelGeneration=1,captureMode=true,captureAiLoaded={ownerId:'alice'},captureAiVersion=1,captureAiRequest=null;${generate};return captureAiGenerate;`)(...values);
  return {capture,nodes,requests,saved,statuses};
 }
 test('AI generation uses authenticated transport with complete model IDs and Banana image parameters',async()=>{
@@ -23,7 +23,7 @@ test('AI generation uses authenticated transport with complete model IDs and Ban
   assert.equal(h.requests.length,1);assert.equal(h.requests[0].owner,'alice');assert.equal(h.requests[0].model,model);
   assert.equal(h.requests[0].body.generationConfig.topP,.95);assert.deepEqual(h.requests[0].body.generationConfig.responseModalities,['IMAGE']);
   assert.equal(h.requests[0].body.generationConfig.imageConfig.imageSize,'1K');assert.ok(!JSON.stringify(h.requests).includes('private-test-key'));
-  assert.equal(h.saved[0].ownerId,'alice');assert.equal(h.saved[0].source,'ai');
+  assert.equal(h.saved[0].ownerId,'alice');assert.equal(h.saved[0].source,'ai');assert.equal(h.saved[0].projectId,'33333333-3333-3333-3333-333333333333');
   assert.equal(h.nodes.captureShoot.disabled,false);assert.equal(h.nodes.captureAiSettingsOpen.disabled,false);
  }
 });

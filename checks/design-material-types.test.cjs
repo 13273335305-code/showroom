@@ -17,7 +17,8 @@ const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:pa
   await p.locator('#addDockAsset').click();await p.locator('.picker-card').waitFor();assert.equal(await p.locator('.picker-card').count(),1);assert.match(await p.locator('.picker-card').textContent(),/测试面料/);await p.locator('.picker-card').click();await p.locator('#confirmAssetPicker').click();
   await p.waitForFunction(()=>document.querySelectorAll('#materialList .material-item').length===1);assert.equal(await p.locator('#assetPicker').isVisible(),false);
   await p.locator('.material-item.active').click();assert.equal(await p.locator('#inspectorHeading').textContent(),'材质栏');
-  assert.equal(await p.locator('#inspector input:visible').count(),4,'Only color, UV U/V, angle visible');
+  assert.equal(await p.locator('#inspector input:visible').count(),3,'Only UV U/V and angle remain visible inputs');
+  assert.equal(await p.locator('#compactColor + .shared-color-control').isVisible(),true,'The base color opens the shared picker');
   await p.locator('#compactOffsetU').fill('0.15');await p.locator('#compactOffsetU').press('Tab');await p.locator('#compactAngle').fill('35');
   await p.locator('#backToScene').click();assert.equal(await p.locator('#scenePanel').isVisible(),true);
   await p.locator('#patternDockTab').click();await p.locator('#addDockAsset').click();await p.locator('.picker-card').waitFor();assert.equal(await p.locator('.picker-card').count(),1);assert.match(await p.locator('.picker-card').textContent(),/测试图案/);
@@ -36,7 +37,8 @@ const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:pa
   await p.waitForTimeout(1800);
   const placed=p.locator('[data-pattern-kind=placed]');box=await placed.locator('.material-thumb').boundingBox();await p.mouse.move(box.x+30,box.y+30);await p.mouse.down();await p.mouse.move(target.x+30,target.y+25,{steps:12});await p.mouse.up();assert.equal(await placed.count(),1,'Dragging a placed pattern moves it without duplication');
   assert.equal(await p.locator('[data-pattern-kind=placed]').count(),1,'Single surface decal created');
-  await p.locator('#compactOffsetU').fill('0.1');await p.locator('#compactOffsetU').press('Tab');await p.locator('#compactAngle').fill('25');await p.locator('#compactColor').fill('#55ccff');
+  await p.locator('#compactOffsetU').fill('0.1');await p.locator('#compactOffsetU').press('Tab');await p.locator('#compactAngle').fill('25');
+  await p.locator('#compactColor + .shared-color-control').click();await p.locator('#sharedColorPicker input').fill('#55ccff');await p.locator('#sharedColorPicker .compact-procedural-confirm').click();
   await p.screenshot({path:'checks/design-single-pattern.png'});
   const {saveOnlineProject,openOnlineProject}=require('./project-roundtrip.cjs');const project=await saveOnlineProject(p),config=project.manifest;
   assert.equal(config.patterns.length,1);assert.equal(config.patterns[0].singlePlacement,true);assert.equal(config.patterns[0].angle,25);assert.equal(config.patterns[0].surface.color,'#55ccff');assert.deepEqual(config.materials[9].placement,{offset:[.15,0],angle:35});assert.equal(config.patternSources.length,1);

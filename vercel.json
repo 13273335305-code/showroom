@@ -1,6 +1,7 @@
 {
   "functions": {
-    "api/capture-ai.js": { "maxDuration": 300 }
+    "api/capture-ai.js": { "maxDuration": 300 },
+    "api/showcase.js": { "maxDuration": 30 }
   },
   "headers": [
     {

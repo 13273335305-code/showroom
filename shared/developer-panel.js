@@ -2,6 +2,7 @@ import { ENVIRONMENT_DEFAULTS, readEnvironment } from './scene-file.js';
 import { PHASE_IDS, readTiming, readDefaultView, readShowroomScale, readDeveloperSettings, saveDeveloperSettings } from './developer-settings.js';
 import { createDeveloperPerformance } from './developer-performance.js';
 import { createDeveloperLogger } from './developer-logging.js';
+import { mountColorInputs } from './color-picker-controls.js';
 
 export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, status, readCamera, getSettings, setSettings, getDefaultView, saveDefaultView, notify, download }) {
   const $ = id => document.getElementById(id);
@@ -14,12 +15,13 @@ export function createDeveloperPanel({ renderer, read, apply, cycle, showroom, s
   const range = (key, label, min, max, step) => `<label class="dev-range">${label}<output data-dev-output="${key}"></output><input data-dev-scene="${key}" type="range" min="${min}" max="${max}" step="${step}"></label>`;
   $('developerLighting').innerHTML = `
     <label class="dev-row">环境类型<select data-dev-scene="preset"><option value="studio">柔光展厅</option><option value="daylight">清晨日光</option><option value="night">深色影棚</option></select></label>
-    <label class="dev-row">背景颜色<input data-dev-scene="backgroundColor" type="color"></label>
+    <label class="dev-row">背景颜色<input data-dev-scene="backgroundColor" data-color-input type="hidden" aria-label="开发者背景颜色"></label>
     ${range('exposure', '曝光', .2, 2.5, .05)}${range('environment', '环境反射强度', 0, 3, .05)}
     ${range('keyLight', '主光强度', 0, 8, .1)}${range('lightAngle', '主光水平', -180, 180, 1)}${range('lightElevation', '主光倾斜', 0, 90, 1)}
-    <label class="dev-row">主光颜色<input data-dev-scene="lightColor" type="color"></label>
+    <label class="dev-row">主光颜色<input data-dev-scene="lightColor" data-color-input type="hidden" aria-label="开发者主光颜色"></label>
     ${range('fillLight', '补光强度', 0, 5, .1)}
     <div class="dev-checks">${[['shadows', '地面阴影'], ['reflection', '地面反射'], ['floorVisible', '展示地台'], ['grid', '辅助网格']].map(([key, label]) => `<label><input data-dev-scene="${key}" type="checkbox">${label}</label>`).join('')}</div>`;
+  mountColorInputs(panel);
   const inputs = [...panel.querySelectorAll('[data-dev-scene]')];
   function syncScene() {
     const state = read();

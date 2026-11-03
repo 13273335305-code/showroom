@@ -2,7 +2,7 @@
   'use strict';
   const SVG = 'http://www.w3.org/2000/svg';
 
-  root.mountBmpCropTool = function ({ viewport, canvas, view, button, toolbar, progress, reset, cancel, apply, showInput, onApply, onError }) {
+  root.mountBmpCropTool = function ({ viewport, canvas, view, button, toolbar, progress, reset, cancel, apply, showInput, onApply, onError, onExit }) {
     let active = false, points = [], hover = null, press = null, space = false;
     const overlay = document.createElementNS(SVG, 'svg');
     overlay.classList.add('crop-overlay'); overlay.setAttribute('aria-hidden', 'true'); overlay.setAttribute('hidden', '');
@@ -57,10 +57,12 @@
       apply.disabled = !selected; reset.disabled = !points.length;
     }
     function exit() {
+      const wasActive = active;
       active = false; points = []; hover = press = null; space = false;
       view.canPan = null; view.onTransform = null; viewport.classList.remove('is-cropping');
       button.setAttribute('aria-pressed', 'false'); toolbar.hidden = true; overlay.setAttribute('hidden', ''); overlay.replaceChildren();
       canvas.removeAttribute('tabindex');
+      if (wasActive) onExit?.();
     }
     function start() {
       if (button.disabled || !canvas.width) return;
@@ -94,7 +96,7 @@
       try { onApply(rect); exit(); button.focus(); } catch (error) { onError(error); }
     });
     viewport.addEventListener('pointerdown', event => {
-      if (!active || event.button !== 0 || space || press) return;
+      if (!active || event.button !== 0 || space || press || event.target.closest?.('button')) return;
       press = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
       canvas.focus({ preventScroll: true });
       viewport.setPointerCapture?.(event.pointerId);

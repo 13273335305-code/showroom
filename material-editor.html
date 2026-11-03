@@ -26,10 +26,6 @@
     <a class="brand" href="./index.html"><img class="brand-logo" src="assets/spenic-logo.png" alt="Spenic"><span class="brand-divider"></span><strong class="brand-title">材质编辑器</strong></a>
     <div class="header-actions">
       <button id="newMaterial">新建材质</button>
-      <div class="editor-mode-switch" role="group" aria-label="编辑模式">
-        <button id="materialEditorMode" type="button" class="active" aria-pressed="true">材质编辑器</button>
-        <button id="exportMaterial" type="button" aria-pressed="false">程序化材质</button>
-      </div>
       <button id="saveMaterial" class="primary" disabled>保存到资产库</button>
     </div>
   </header>
@@ -38,9 +34,39 @@
       <canvas id="materialCanvas" aria-label="无限平铺面料预览，左键或中键拖动平移，滚轮缩放，不可旋转"></canvas>
       <div id="patternPreview" class="pattern-preview" hidden></div>
       <span id="materialPreviewZoom" class="fabric-preview-zoom material-preview-zoom" aria-live="polite" hidden></span>
+      <div id="materialPreviewMaps" class="material-preview-maps" role="group" aria-label="材质预览图切换" hidden>
+        <div class="material-preview-input">
+          <button type="button" data-preview-map="input" aria-pressed="false" aria-expanded="false" aria-controls="proceduralCropStart" disabled>BMP Map</button>
+          <button id="proceduralCropStart" class="material-preview-crop" type="button" aria-label="裁剪 BMP" title="裁剪 BMP" aria-pressed="false" disabled hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v13a2 2 0 0 0 2 2h13M3 6h13a2 2 0 0 1 2 2v13"></path></svg>
+          </button>
+        </div>
+        <div class="material-preview-map-group">
+          <button type="button" data-preview-map="material" aria-pressed="true">材质效果</button>
+          <button type="button" data-preview-map="base" aria-pressed="false" disabled>Base Color</button>
+          <button type="button" data-preview-map="height" aria-pressed="false" disabled>Height</button>
+          <button type="button" data-preview-map="normal" aria-pressed="false" disabled>Normal</button>
+          <button type="button" data-preview-map="roughness" aria-pressed="false" title="粗糙度贴图" disabled>Roughness</button>
+          <button type="button" data-preview-map="metalness" aria-pressed="false" title="金属度贴图" disabled>Metalness</button>
+          <button type="button" data-preview-map="ao" aria-pressed="false" disabled>AO</button>
+        </div>
+      </div>
       <div id="materialPreviewModes" class="material-preview-modes" role="group" aria-label="材质预览方式">
-        <button type="button" data-preview-mode="flat" aria-pressed="true">平铺预览</button>
-        <button type="button" data-preview-mode="ball" aria-pressed="false">球体预览</button>
+        <button type="button" data-preview-mode="flat" aria-label="平铺预览" title="平铺预览" aria-pressed="true">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.2"></rect><rect x="13.5" y="3.5" width="7" height="7" rx="1.2"></rect><rect x="3.5" y="13.5" width="7" height="7" rx="1.2"></rect><rect x="13.5" y="13.5" width="7" height="7" rx="1.2"></rect></svg>
+        </button>
+        <button type="button" data-preview-mode="ball" aria-label="球体预览" title="球体预览" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.8 9.4h16.4M3.8 14.6h16.4M12 3.5c2.2 2.4 3.2 5.3 3.2 8.5s-1 6.1-3.2 8.5M12 3.5c-2.2 2.4-3.2 5.3-3.2 8.5s1 6.1 3.2 8.5"></path></svg>
+        </button>
+      </div>
+      <div id="proceduralCropViewport" class="procedural-crop-viewport" aria-label="BMP 原图预览" hidden>
+        <canvas id="proceduralCropCanvas" width="0" height="0" aria-label="BMP 原图"></canvas>
+        <div id="proceduralCropToolbar" class="procedural-crop-toolbar" role="group" aria-label="BMP 裁剪操作" hidden>
+          <span id="proceduralCropProgress" role="status">0 / 3</span>
+          <button id="proceduralCropReset" type="button">重选</button>
+          <button id="proceduralCropCancel" type="button">取消</button>
+          <button id="proceduralCropApply" class="primary" type="button" disabled>确认裁剪</button>
+        </div>
       </div>
     </section>
     <div class="editor-panel-shell">
@@ -51,8 +77,8 @@
           <button type="button" data-material-type="pattern" aria-pressed="false">图案</button>
         </div>
         <select id="materialType" aria-label="材质大类" hidden><option value="fabric">面料</option><option value="pattern">图案</option></select>
-        <div class="material-info-heading">
-          <h2>材质信息</h2>
+        <div class="material-info-heading editor-section-heading">
+          <h2 class="editor-section-title">材质属性</h2>
           <button id="batchFabric" class="editor-secondary-button" type="button" disabled>批处理齐色</button>
         </div>
         <input id="batchFabricFolder" type="file" webkitdirectory multiple accept="image/png,image/jpeg,image/webp,image/bmp" hidden>
@@ -60,13 +86,26 @@
         <label class="material-name-row">名称<input id="name" value="新材质" maxlength="100"></label>
         <label id="fabricCategoryRow">面料分类<select id="category"><option>面布</option><option>边布</option><option>辅料</option><option>其他</option></select></label>
         <label id="fabricColorCodeRow" for="fabricColorCode">面料色号<span class="fabric-color-code-controls"><span id="fabricColorSwatch" class="fabric-color-swatch" role="img" aria-label="色号预览"><span class="fabric-color-swatch-lines" aria-hidden="true"></span></span><input id="fabricColorCode" type="text" maxlength="100" spellcheck="false"></span></label>
-        <div class="pbr-heading-row">
-          <h2 id="pbrHeading">PBR 贴图</h2>
+        <details id="proceduralWorkspace" class="procedural-material-section" aria-labelledby="proceduralHeading" open>
+          <summary class="procedural-material-heading editor-section-heading">
+            <svg class="procedural-section-caret" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"></path></svg>
+            <h2 id="proceduralHeading" class="editor-section-title">程序化材质</h2>
+            <button id="uploadProceduralBmp" class="editor-secondary-button" type="button" aria-label="上传 BMP" disabled><span id="proceduralBmpName">上传 BMP</span></button>
+          </summary>
+          <input id="proceduralBmpInput" type="file" accept=".bmp,image/bmp,image/x-ms-bmp" aria-label="上传程序化材质 BMP" hidden>
+          <div id="proceduralParameters" class="procedural-parameters" hidden>
+            <iframe id="proceduralFrame" title="程序化材质参数"></iframe>
+          </div>
+        </details>
+        <div class="pbr-heading-row editor-section-heading">
+          <h2 id="pbrHeading" class="editor-section-title">PBR 贴图</h2>
           <button id="openSizingPage" class="editor-secondary-button" type="button" aria-controls="sizingPage" aria-expanded="false">铺贴尺寸</button>
         </div>
         <div id="materialMaps"></div>
         <section id="fabricSheenSection" class="fabric-sheen-section" aria-labelledby="fabricSheenHeading">
-          <h2 id="fabricSheenHeading">绒毛侧面光</h2>
+          <div class="editor-section-heading">
+            <h2 id="fabricSheenHeading" class="editor-section-title">绒毛侧面光</h2>
+          </div>
           <div id="fabricSheenControls" class="fabric-sheen-controls"></div>
         </section>
         </div>
@@ -91,9 +130,6 @@
       <div id="editorScrollbar" class="editor-scrollbar" aria-hidden="true" hidden><span class="editor-scrollbar-thumb"></span></div>
     </div>
   </main>
-  <section id="proceduralWorkspace" class="procedural-workspace" hidden aria-label="程序化材质工具">
-    <iframe id="proceduralFrame" title="程序化材质工具" loading="lazy"></iframe>
-  </section>
   <div id="status" class="status-bar" role="status"></div>
   <dialog id="batchFabricCategoryDialog" class="preview-generation-dialog batch-fabric-category-dialog" aria-labelledby="batchFabricCategoryTitle">
     <form method="dialog">
@@ -160,6 +196,8 @@
       </footer>
     </div>
   </dialog>
+  <script src="web-demo/bmp-crop.js"></script>
+  <script src="web-demo/crop-tool.js"></script>
   <script type="module" src="entries/material-editor.js?v=fabric-default-color-20261015"></script>
 </body>
 </html>

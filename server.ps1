@@ -6,6 +6,7 @@ $designViewFile=Join-Path $root 'design-default-view.json'
 $fabricColorsFile=Join-Path $root 'fabric-colors.json'
 $sceneConfigFile=Join-Path $root 'scene-config.json'
 . (Join-Path $root 'utils/capture-ai-proxy.ps1')
+. (Join-Path $root 'utils/showcase-proxy.ps1')
 function Read-FabricColors([string]$json){
  if(-not $json.TrimStart().StartsWith('[')){throw 'Invalid color list'}
  # Validate standalone JSON, then preserve arrays as a property on both PS versions.
@@ -158,6 +159,19 @@ try{
       $status=([string]$reply.Code)+' '+$phrase
      }
     }else{$status='405 Method Not Allowed';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":{"message":"只支持 POST 请求"}}')}
+   }
+   elseif($path -eq '/api/showcase' -or $path -eq '/api/showcase.js'){
+    $type='application/json; charset=utf-8';$bodyLength=0
+    $validLength=[int]::TryParse($headers['Content-Length'],[ref]$bodyLength)
+    if($method -ne 'POST'){$status='405 Method Not Allowed';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":{"message":"只支持 POST 请求"}}')}
+    elseif(-not $validLength -or $bodyLength -le 0 -or $bodyLength -gt 32768 -or $headers['Transfer-Encoding']){$status='400 Bad Request';$bytes=[Text.Encoding]::UTF8.GetBytes('{"error":{"message":"请求内容无效"}}')}
+    else{
+     $body=New-Object char[] $bodyLength;$read=0
+     while($read -lt $bodyLength){$count=$reader.Read($body,$read,$bodyLength-$read);if($count -le 0){throw 'Incomplete showcase request body'};$read+=$count}
+     $text=[Text.Encoding]::UTF8.GetString($wireEncoding.GetBytes((-join $body)))
+     $reply=Invoke-ShowcaseProxy $text $headers $root;$bytes=$reply.Bytes
+     $status=([string]$reply.Code)+' Showcase Response'
+    }
    }
    elseif($path -eq '/__form_parts_view'){
     $type='application/json; charset=utf-8'

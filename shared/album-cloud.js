@@ -40,7 +40,7 @@ function checked(result) {
 function record(row, thumbnailUrl = null) {
   const legacyAi = row.name.startsWith(LEGACY_AI_PREFIX);
   return { id: row.id, ownerId: row.owner_id, name: legacyAi ? row.name.slice(LEGACY_AI_PREFIX.length) : row.name, width: row.width, height: row.height,
-    transparent: row.transparent, source: legacyAi ? 'ai' : row.source, size: Number(row.bytes), createdAt: Date.parse(row.created_at), thumbnailUrl };
+    transparent: row.transparent, source: legacyAi ? 'ai' : row.source, projectId: row.project_id || null, size: Number(row.bytes), createdAt: Date.parse(row.created_at), thumbnailUrl };
 }
 
 export function createAlbumCloud(access, { thumbnail = createAlbumThumbnail } = {}) {
@@ -76,6 +76,10 @@ export function createAlbumCloud(access, { thumbnail = createAlbumThumbnail } = 
     const storage = client.storage.from(ALBUM_BUCKET), uploaded = [];
     const row = { id, owner_id: userId, name: String(metadata.name || 'Spenic-拍摄.png').trim().slice(0, 180),
       width, height, transparent: Boolean(metadata.transparent), source, bytes: blob.size, image_path: prefix + '/image.png', thumbnail_path: prefix + '/thumbnail.png' };
+    if (metadata.projectId) {
+      if (!/^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i.test(metadata.projectId)) throw new Error('图片所属项目无效');
+      row.project_id = metadata.projectId;
+    }
     const preview = await thumbnail(blob);
     await sameAccount(userId);
     let commitStarted = false;
@@ -103,11 +107,12 @@ export function createAlbumCloud(access, { thumbnail = createAlbumThumbnail } = 
       throw error;
     }
   }
-  async function list() {
+  async function list({ projectId } = {}) {
     const { client, userId } = await access(), rows = [];
     for (let offset = 0; ; offset += 200) {
-      const page = checked(await client.from(TABLE).select(FIELDS).eq('owner_id', userId)
-        .order('created_at', { ascending: false }).order('id', { ascending: false }).range(offset, offset + 199));
+      let query = client.from(TABLE).select(FIELDS).eq('owner_id', userId);
+      if (projectId) query = query.eq('project_id', projectId);
+      const page = checked(await query.order('created_at', { ascending: false }).order('id', { ascending: false }).range(offset, offset + 199));
       rows.push(...page.filter(row => row.owner_id === userId));
       if (page.length < 200) break;
     }

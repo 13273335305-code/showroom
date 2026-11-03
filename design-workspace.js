@@ -6,6 +6,7 @@ import { groupFabricCards } from './shared/fabric-card-groups.js';
 import { mountPickerFabricColors } from './shared/picker-fabric-colors.js';
 import { renderFabricColorList } from './shared/fabric-color-swatch.js';
 import './shared/procedural-color-picker.js';
+import { mountColorInputs, dismissColorPicker } from './shared/color-picker-controls.js';
 
 const $ = id => document.getElementById(id);
 export function createDesignWorkspace(api) {
@@ -145,10 +146,11 @@ export function createDesignWorkspace(api) {
   }
   const panel = $('compactMaterialPanel');
   panel.innerHTML = `<div class="compact-preview"><div id="compactSwatch"></div><div id="compactFabricColors" class="compact-fabric-colors" role="group" aria-label="全部面料色号" hidden></div></div>
-    <label class="color-row compact-base-color">基础颜色<input id="compactColor" type="color" aria-label="基础颜色"></label>
+    <label class="color-row compact-base-color">基础颜色<input id="compactColor" data-color-input type="hidden" aria-label="基础颜色"></label>
     <div class="section-heading"><h2>平铺调整</h2></div><div class="uv-row compact-placement-row"><label>U<input id="compactOffsetU" type="number" step="0.01" min="-100" max="100" value="0"></label><label>V<input id="compactOffsetV" type="number" step="0.01" min="-100" max="100" value="0"></label><label>R<input id="compactAngle" type="number" min="-180" max="180" step="1" value="0" aria-label="R 旋转角度（度）" title="旋转角度（度）"></label></div>
     <details id="compactPbr" class="compact-pbr"><summary>PBR 强度</summary><div id="compactPbrControls" class="compact-pbr-controls"></div></details>`;
   panel.querySelector('.compact-preview').insertAdjacentHTML('afterend', '<section id="compactProcedural" class="compact-procedural" hidden><div class="section-heading"><h2>BMP 色号映射</h2></div><div id="compactProceduralPalette" class="compact-procedural-palette"></div><div id="compactProceduralColorEditor"></div></section>');
+  mountColorInputs(panel);
   const compactPbrFields = [
     ['roughness', '粗糙度', 0, 1, .01], ['metalness', '金属度', 0, 1, .01],
     ['normalStrength', '法线强度', 0, 3, .05], ['aoStrength', 'AO 强度', 0, 3, .05],
@@ -307,7 +309,7 @@ export function createDesignWorkspace(api) {
     $('compactAngle').value = data.angle;
     api.preview($('compactSwatch'), target);
   }
-  function select(item) { target = item; sync(); }
+  function select(item) { dismissColorPicker(panel); target = item; sync(); }
   function setType(next) {
     if (next !== type) { checked.clear(); pickerCategoryValue = 'all'; closePickerCategory(); }
     type = next;

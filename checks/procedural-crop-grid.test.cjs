@@ -39,10 +39,15 @@ function edgesAt(raster, grid, axis, sample) {
 (async () => {
   const server = http.createServer(async (req, res) => {
     const pathname = new URL(req.url, 'http://localhost').pathname, file = path.resolve(root, '.' + pathname);
+    if (pathname === '/shared/auth.js') {
+      res.setHeader('Content-Type', 'text/javascript');
+      return res.end('export async function requireAuth(){document.documentElement.classList.remove("auth-pending");document.getElementById("authBootLoading")?.remove();} export const authState=()=>null; export const isAuthenticated=()=>true; export async function workspaceClient(){return null} export async function clearAuth(){}');
+    }
     if (!file.startsWith(root + path.sep)) { res.writeHead(403).end(); return; }
     try {
       res.setHeader('Content-Type', { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css' }[path.extname(file)] || 'application/octet-stream');
-      res.end(await fs.readFile(file));
+      const body = await fs.readFile(file);
+      res.end(pathname === '/shared/procedural-preview.js' ? body.toString().replace('  return {\n    setMap', '  globalThis.cropGridView = view; globalThis.cropGridTool = crop;\n  return {\n    setMap') : body);
     } catch { res.writeHead(404).end(); }
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -52,18 +57,21 @@ function edgesAt(raster, grid, axis, sample) {
     for (const dpr of [1, 1.25, 2]) {
       const page = await browser.newPage({ viewport: { width: 1441, height: 1001 }, deviceScaleFactor: dpr });
       const errors = []; page.on('pageerror', error => errors.push(error.message));
-      await page.goto('http://127.0.0.1:' + server.address().port + '/web-demo/index.html');
-      await page.locator('#fileInput').setInputFiles({ name: 'pixel-grid.bmp', mimeType: 'image/bmp', buffer: checkerboardBmp() });
-      await page.waitForFunction(() => !document.getElementById('cropButton').disabled);
+      await require('./project-test-server.cjs').installProjectFixture(page.context());
+      await page.goto('http://127.0.0.1:' + server.address().port + '/material-editor.html');
+      await page.waitForFunction(() => !document.getElementById('saveMaterial').disabled);
+      const frame = page.frameLocator('#proceduralFrame');
+      await page.locator('#proceduralBmpInput').setInputFiles({ name: 'pixel-grid.bmp', mimeType: 'image/bmp', buffer: checkerboardBmp() });
+      await page.waitForFunction(() => !document.getElementById('proceduralCropStart').disabled);
       for (const zoom of [.9, 1, 1.1]) {
-        await page.evaluate(zoom => { cropTool.cancel(); document.body.style.zoom = zoom; }, zoom);
-        await page.locator('#cropButton').click();
+        await page.evaluate(zoom => { cropGridTool.cancel(); document.body.style.zoom = zoom; }, zoom);
+        await page.locator('#proceduralCropStart').dispatchEvent('click');
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)))));
         await page.evaluate(() => {
-          inputViewport.scale = 45.37; inputViewport.offsetX = 13.27; inputViewport.offsetY = -8.61; inputViewport.render();
-          document.getElementById('inputPreviewWrap').style.background = '#fff';
+          cropGridView.scale = 45.37; cropGridView.offsetX = 13.27; cropGridView.offsetY = -8.61; cropGridView.render();
+          document.getElementById('proceduralCropViewport').style.background = '#fff';
         });
-        const viewport = await page.locator('#inputPreviewWrap').boundingBox();
+        const viewport = await page.locator('#proceduralCropViewport').boundingBox();
         await page.mouse.move(viewport.x + 180, viewport.y + 160);
         await page.mouse.down({ button: 'middle' }); await page.mouse.move(viewport.x + 203, viewport.y + 177); await page.mouse.up({ button: 'middle' });
         await page.mouse.wheel(0, -100);
@@ -87,7 +95,7 @@ function edgesAt(raster, grid, axis, sample) {
         }
         // A click on an actual rendered BMP corner must select that same grid corner.
         await page.mouse.click(clip.x + measured.x / dpr, clip.y + measured.y / dpr);
-        assert.equal(await page.locator('#cropProgress').textContent(), '1 / 3');
+        assert.equal(await page.locator('#proceduralCropProgress').textContent(), '1 / 3');
         const point = await page.locator('.crop-overlay circle').evaluate(el => {
           const p = new DOMPoint(el.cx.baseVal.value, el.cy.baseVal.value).matrixTransform(el.getScreenCTM());
           return { x: p.x, y: p.y };
@@ -95,7 +103,7 @@ function edgesAt(raster, grid, axis, sample) {
         assert.ok(Math.abs((point.x - clip.x) * dpr - measured.x) <= 1.5 * dpr, 'Selected corner matches the raster x edge');
         assert.ok(Math.abs((point.y - clip.y) * dpr - measured.y) <= 1.5 * dpr, 'Selected corner matches the raster y edge');
         if (dpr === 1 && zoom === 1.1) {
-          await page.locator('#cropReset').click();
+          await page.locator('#proceduralCropReset').click();
           await fs.mkdir(path.join(root, '.codex-project-check'), { recursive: true });
           await page.screenshot({ path: path.join(root, '.codex-project-check/procedural-crop-grid-aligned.png'), clip });
         }

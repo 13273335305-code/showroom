@@ -1,5 +1,6 @@
 import { fabricColors, refreshFabricColors, saveFabricColors } from './fabric-color-store.js';
 import { createFabricColorEditor } from './fabric-color-editor.js';
+import { bindColorInput } from './color-picker-controls.js';
 import { CAPTURE_AI_PROMPT_DEFAULTS, createCaptureAiPromptStore, readCaptureAiPrompts } from './capture-ai-prompts.js';
 import { createCaptureAiStore } from './capture-ai-store.js';
 import { createSceneConfigStore, SCENE_IDS, SCENE_LABELS, makeSceneConfig } from './scene-config.js';
@@ -151,7 +152,7 @@ function promptStatus(message = '', error = false) { $('systemAiPromptStatus').t
 function sceneStatus(message = '', error = false) { $('systemSceneStatus').textContent = message; $('systemSceneStatus').dataset.error = String(error); $('systemSceneFeedback').hidden = !message; }
 const dirty = () => editor.dirty;
 function syncBusy() {
-  dialog.querySelectorAll('#systemConfigColors input, .system-color-action').forEach(control => { control.disabled = busy || !loaded; });
+  dialog.querySelectorAll('#systemConfigColors input, #systemConfigColors .shared-color-control, .system-color-action').forEach(control => { control.disabled = busy || !loaded; });
   dialog.querySelectorAll('.system-color-edit').forEach(control => { control.disabled = busy || !loaded || !!editor.editing; });
   $('systemColorAdd').disabled = busy || !loaded || !!editor.editing;
   dialog.setAttribute('aria-busy', String(busy));
@@ -184,11 +185,11 @@ function renderRows() {
     for (const [key, label] of [['base', '底色'], ['line', '线色']]) {
       const control = document.createElement('div'); control.className = 'system-color-value';
       if (active) {
-        const picker = document.createElement('input'); picker.type = 'color'; picker.value = item[key]; picker.setAttribute('aria-label', `第 ${index + 1} 行${label}选择器`);
+        const picker = document.createElement('input'); picker.type = 'hidden'; picker.value = item[key]; picker.setAttribute('aria-label', `第 ${index + 1} 行${label}选择器`);
         const hex = document.createElement('input'); hex.type = 'text'; hex.className = 'system-color-hex'; hex.value = item[key]; hex.maxLength = 7; hex.spellcheck = false; hex.autocomplete = 'off'; hex.setAttribute('aria-label', `第 ${index + 1} 行${label} HEX`);
         picker.oninput = () => { item[key] = picker.value; editor.update(key, item[key]); hex.value = picker.value; hex.setAttribute('aria-invalid', 'false'); preview(swatch, item); changed(); };
         hex.oninput = () => { item[key] = hex.value; editor.update(key, item[key]); const valid = /^#[\da-f]{6}$/i.test(hex.value); hex.setAttribute('aria-invalid', String(!valid)); if (valid) { picker.value = hex.value; preview(swatch, item); } changed(); };
-        control.append(picker, hex);
+        control.append(picker, hex); bindColorInput(picker);
       } else {
         const chip = document.createElement('span'); chip.className = 'system-color-chip'; chip.style.backgroundColor = item[key]; chip.setAttribute('aria-hidden', 'true');
         const hex = document.createElement('span'); hex.className = 'system-color-hex'; hex.textContent = item[key];

@@ -16,6 +16,7 @@
 <link rel="stylesheet" href="workspace.css?v=20261026-responsive-material-picker-1">
 <link rel="stylesheet" href="header.css">
 <link rel="stylesheet" href="showroom.css">
+<link rel="stylesheet" href="shared/project-feedback.css">
 <link rel="stylesheet" href="developer.css">
 <link rel="stylesheet" href="login.css?v=20261016-uiverse-login-4">
 <link rel="stylesheet" href="header-brand.css">
@@ -154,7 +155,7 @@
    </div>
    <p class="micro-note">PNG / JPG / WebP · 基础颜色使用 sRGB<br>粗糙度读取 G 通道，金属度读取 B 通道，AO 读取 R 通道</p>
    <div class="section-heading"><h2>表面参数</h2><span>PHYSICAL SURFACE</span></div>
-   <label class="color-row">基础颜色 <input id="baseColor" type="color" value="#ffffff" aria-label="基础颜色"></label>
+   <label class="color-row">基础颜色 <input id="baseColor" data-color-input type="hidden" value="#ffffff" aria-label="基础颜色"></label>
    <label class="range-row">粗糙度 <output id="roughnessValue">0.65</output><input id="roughness" type="range" min="0" max="1" step="0.01" value="0.65"></label>
    <label class="range-row">金属度 <output id="metalnessValue">0.00</output><input id="metalness" type="range" min="0" max="1" step="0.01" value="0"></label>
    <label class="range-row">法线强度 <output id="normalStrengthValue">1.00</output><input id="normalStrength" type="range" min="0" max="3" step="0.05" value="1.2"></label>
@@ -185,14 +186,14 @@
  </div>
   <section id="scenePanel" role="tabpanel" aria-labelledby="sceneTab" hidden>
    <div class="section-heading first"><h2>环境场景</h2><span>ENVIRONMENT</span></div>
-   <label class="color-row">背景颜色 <input id="backgroundColor" type="color" value="#e8edf2" aria-label="背景颜色"></label>
+   <label class="color-row">背景颜色 <input id="backgroundColor" data-color-input type="hidden" value="#e8edf2" aria-label="背景颜色"></label>
    <label class="range-row">曝光 <output id="exposureValue">1.10</output><input id="exposure" type="range" min="0.2" max="2.5" step="0.05" value="1.1"></label>
    <label class="range-row">环境反射强度 <output id="environmentValue">0.70</output><input id="environment" type="range" min="0" max="3" step="0.05" value="0.7"></label>
    <div class="section-heading"><h2>灯光</h2><span>LIGHTING</span></div>
    <label class="range-row">主光强度 <output id="keyLightValue">3.00</output><input id="keyLight" type="range" min="0" max="8" step="0.1" value="3"></label>
    <label class="range-row">主光水平 <output id="lightAngleValue">45°</output><input id="lightAngle" type="range" min="-180" max="180" step="1" value="45"></label>
    <label class="range-row" title="0° 水平侧照，90° 垂直顶照">主光倾斜 <output id="lightElevationValue">47°</output><input id="lightElevation" type="range" min="0" max="90" step="1" value="47"></label>
-   <label class="color-row">主光颜色 <input id="lightColor" type="color" value="#fff4e6" aria-label="主光颜色"></label>
+   <label class="color-row">主光颜色 <input id="lightColor" data-color-input type="hidden" value="#fff4e6" aria-label="主光颜色"></label>
    <label class="range-row">补光强度 <output id="fillLightValue">1.50</output><input id="fillLight" type="range" min="0" max="5" step="0.1" value="1.5"></label>
    <div class="switches"><label class="check"><input id="shadows" type="checkbox" checked> 地面阴影</label><label class="check"><input id="reflection" type="checkbox" checked> 地面反射</label><label class="check"><input id="floorVisible" type="checkbox" checked> 展示地台</label><label class="check"><input id="grid" type="checkbox"> 辅助网格</label></div>
    <div hidden inert><div class="section-heading"><h2>模型与渲染</h2><span>TRANSFORM</span></div>

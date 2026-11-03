@@ -39,10 +39,12 @@ function makeBmp() {
     await page.goto(url + '/material-editor.html');
     await page.waitForFunction(() => !document.getElementById('saveMaterial').disabled);
     await page.evaluate(() => { window.reliefMessages = 0; addEventListener('message', event => { if (event.data?.type === 'procedural-relief-material') reliefMessages++; }); });
-    await page.locator('#exportMaterial').click();
     const frame = page.frameLocator('#proceduralFrame');
-    await frame.locator('#fileInput').setInputFiles({ name: 'relief.bmp', mimeType: 'image/bmp', buffer: makeBmp() });
+    await page.locator('#proceduralBmpInput').setInputFiles({ name: 'relief.bmp', mimeType: 'image/bmp', buffer: makeBmp() });
+    await frame.locator('#fileInput').waitFor({state:'attached'});
     await page.waitForFunction(() => !document.getElementById('proceduralFrame').contentDocument.getElementById('downloadButton').disabled);
+    assert.equal(await frame.locator('#renderButton').getAttribute('data-render-state'), 'ready');
+    assert.equal(await frame.locator('#normalButton').getAttribute('data-render-state'), 'pending');
     await frame.locator('body').evaluate(() => {
       state.recessedClasses = new Set([1]); renderPaletteControls();
       document.getElementById('reliefRadius').value = '2'; document.getElementById('gaussianBlur').value = '1';
@@ -53,6 +55,15 @@ function makeBmp() {
     });
     await frame.locator('#normalButton').click();
     await page.waitForFunction(() => !document.getElementById('remove-aoMap').disabled && !document.getElementById('remove-normalMap').disabled && !document.getElementById('saveMaterial').disabled);
+    assert.equal(await frame.locator('#normalButton').getAttribute('data-render-state'), 'ready');
+    await frame.locator('body').evaluate(async () => {
+      document.getElementById('contrast').dispatchEvent(new Event('input'));
+      await new Promise(resolve => {
+        const check = () => !state.renderQueued && !document.getElementById('downloadButton').disabled ? resolve() : setTimeout(check, 10);
+        check();
+      });
+    });
+    assert.equal(await frame.locator('#normalButton').getAttribute('data-render-state'), 'ready', 'Texture-only edits do not request height refresh');
     const generated = await frame.locator('body').evaluate(async () => {
       const images = {};
       for (const kind of ['height', 'normal', 'ao']) {
@@ -74,7 +85,8 @@ function makeBmp() {
     await frame.locator('#aoDownloadButton').click();
     const download = await downloaded;
     assert.equal(download.suggestedFilename(), 'fabric-ao.jpg');
-    await frame.locator('[data-preview-map=ao]').click();
+    await page.waitForFunction(() => !document.querySelector('[data-preview-map=ao]').disabled);
+    await page.locator('[data-preview-map=ao]').click();
     await fs.mkdir(path.join(root, '.codex-project-check'), { recursive: true });
     await page.screenshot({ path: path.join(root, '.codex-project-check/procedural-ao-desktop.png') });
     const packed = await page.evaluate(async () => { const { packMaterial } = await import('/shared/material-package.js'); const blob = await packMaterial(reliefSnapshot().asset); return [...new Uint8Array(await blob.arrayBuffer())]; });
@@ -83,6 +95,8 @@ function makeBmp() {
     assert.ok(restored.names.includes('aoMap')); assert.equal(restored.aoRadius, 3); assert.equal(restored.aoStrength, 1.3);
     assert.equal(restored.tileable, true, 'The material package retains periodic generation');
     await frame.locator('#aoStrength').fill('0.5'); await frame.locator('#aoStrength').dispatchEvent('input');
+    assert.equal(await frame.locator('#normalButton').getAttribute('data-render-state'), 'pending');
+    assert.equal(await frame.locator('#normalButton').isDisabled(), false);
     await page.waitForFunction(() => document.getElementById('remove-aoMap').disabled && document.getElementById('remove-normalMap').disabled);
     for (const kind of ['height', 'normal', 'ao']) assert.equal(await frame.locator('#' + kind + 'DownloadButton').isDisabled(), true);
     await frame.locator('body').evaluate(() => { window.Worker = undefined; });
@@ -98,7 +112,14 @@ function makeBmp() {
       encodeImageJpeg = async (...args) => { encodeImageJpeg = encode; resolveEncodeStarted(); await new Promise(resolve => { window.releaseEncode = resolve; }); return encode(...args); };
       window.cancelledRender = renderNormal();
     });
+    await frame.locator('body').evaluate(() => encodeStarted);
+    assert.equal(await frame.locator('#normalButton').getAttribute('data-render-state'), 'rendering');
+    assert.equal(await frame.locator('#normalButton').getAttribute('aria-busy'), 'true');
+    assert.equal(await frame.locator('#normalButton').isDisabled(), true);
     await frame.locator('body').evaluate(async () => { await encodeStarted; invalidateNormal(); releaseEncode(); await cancelledRender; });
+    assert.equal(await frame.locator('#normalButton').getAttribute('data-render-state'), 'pending', 'Late cancelled output cannot mark stale parameters as updated');
+    assert.equal(await frame.locator('#normalButton').getAttribute('aria-busy'), 'false');
+    assert.equal(await frame.locator('#normalButton').isDisabled(), false);
     assert.equal(await page.evaluate(() => reliefMessages), messagesBefore);
     for (const kind of ['height', 'normal', 'ao']) assert.equal(await frame.locator('#' + kind + 'DownloadButton').isDisabled(), true);
     await page.waitForFunction(() => document.getElementById('remove-aoMap').disabled && document.getElementById('remove-normalMap').disabled);
@@ -106,14 +127,13 @@ function makeBmp() {
     await page.waitForFunction(() => !document.getElementById('remove-aoMap').disabled && !document.getElementById('saveMaterial').disabled);
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(await frame.locator('body').evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    assert.equal(await frame.locator('[data-preview-map=ao]').isVisible(), true);
+    assert.equal(await page.locator('[data-preview-map=ao]').isVisible(), true);
     await page.screenshot({ path: path.join(root, '.codex-project-check/procedural-ao-mobile.png') });
     await page.setViewportSize({ width: 1440, height: 1000 });
     await context.route('**/shared/asset-store.js', route => route.fulfill({ contentType: 'text/javascript', body: `import {unpackMaterial} from './material-package.js'; export async function getAsset(){return {...await unpackMaterial(await (await fetch('/relief-test.formmat')).blob()),id:'saved-relief'}} export async function saveAsset(a){return a} export async function getMaterialSource(){return null}` }));
     await page.goto(url + '/material-editor.html?asset=saved-relief');
     await page.waitForFunction(() => !document.getElementById('saveMaterial').disabled);
-    await page.locator('#exportMaterial').click();
-    await frame.locator('#sourceFileName').filter({ hasText: 'relief.bmp' }).waitFor();
+    await page.locator('#proceduralBmpName').filter({ hasText: 'relief.bmp' }).waitFor();
     await page.waitForFunction(() => !document.getElementById('proceduralFrame').contentDocument.getElementById('downloadButton').disabled);
     assert.equal(await page.locator('#remove-aoMap').isDisabled(), false, 'Opening the procedural editor preserves saved AO');
     assert.equal(await page.locator('#remove-normalMap').isDisabled(), false);

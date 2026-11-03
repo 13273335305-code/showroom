@@ -131,6 +131,7 @@ function createProjectMenu(item, card) {
   const action = (label, handler, className = '') => { const button = document.createElement('button'); button.type = 'button'; button.textContent = label; if (className) button.className = className; button.onclick = async () => { closeMenus(); button.disabled = true; try { await handler(); } catch (error) { status(error.message); } finally { button.disabled = false; } }; return button; };
   if (!ownsProject(item)) return [];
   const actions = [action('重命名', () => beginRename(item)), action('移动', () => openMoveDialog(item))];
+  if (!isFolder(item)) actions.unshift(action('加入展示台', () => { window.open('./showcase.html?addProject=' + encodeURIComponent(item.id), 'spenic-showcase'); }));
   actions.push(action(item.visibility === 'public' ? '取消公开' : '公开', async () => { await setProjectVisibility(item.id, item.visibility !== 'public'); await refresh(); status(item.visibility === 'public' ? '已取消公开' : '已公开'); }));
   actions.push(action(isFolder(item) ? '删除文件夹' : '删除', async () => { if (!window.confirm(isFolder(item) ? `删除文件夹“${item.name}”及其中项目？` : `删除项目“${item.name}”？`)) return; await removeProjectTree(item); await refresh(); status(isFolder(item) ? '文件夹已删除' : '项目已删除'); }, 'project-delete'));
   panel.append(...actions); const items = [...panel.children]; items.forEach(element => { element.setAttribute('role', 'menuitem'); element.tabIndex = -1; });
